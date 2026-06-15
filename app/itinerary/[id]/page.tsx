@@ -47,7 +47,7 @@ export default async function ItineraryPage({ params }: ItineraryPageProps) {
   }
 
   return (
-    <main className="min-h-screen bg-[#f4f6fb]">
+    <main className="min-h-screen">
       <div className="mx-auto w-full max-w-7xl px-5 py-6 lg:px-8">
         <ItineraryDashboard itinerary={itinerary} compact />
       </div>
