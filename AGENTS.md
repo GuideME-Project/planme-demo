@@ -1,5 +1,6 @@
-<!-- BEGIN:nextjs-agent-rules -->
-# This is NOT the Next.js you know
+# PlanME Demo Agent Notes
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
-<!-- END:nextjs-agent-rules -->
+- Follow the parent Codex safety rules for this workspace.
+- Do not inspect `node_modules` or `dist` while working in this project.
+- Use official framework documentation or local build output to verify Next.js and MUI behavior.
+- Keep this demo focused on Custom GPT Actions, PlanME link handoff, OpenGraph metadata, and the itinerary detail screen.
