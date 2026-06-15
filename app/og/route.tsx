@@ -60,7 +60,7 @@ export function GET(request: Request) {
             width: "auto",
           }}
         >
-          planme.guideme.app/itinerary/osaka-2d1n
+          planme-demo.vercel.app/itinerary/osaka-2d1n
         </div>
       </div>
     ),

@@ -12,7 +12,7 @@ export function GET() {
     },
     servers: [
       {
-        url: "https://planme.guideme.app",
+        url: "https://planme-demo.vercel.app",
       },
     ],
     paths: {

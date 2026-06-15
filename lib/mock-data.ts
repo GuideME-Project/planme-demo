@@ -188,7 +188,7 @@ const demoItinerary: PlanmeItinerary = {
   region: "오사카",
   duration: "1박 2일",
   summary: "Standard / CarryME 동선 비교와 상세 지도를 확인하세요.",
-  detailUrl: "https://planme.guideme.app/itinerary/osaka-2d1n",
+  detailUrl: "https://planme-demo.vercel.app/itinerary/osaka-2d1n",
   carrymeSaving: "약 2시간 절약 예상",
   totalDurationLabel: "약 8시간 10분 → 6시간 10분",
   savedDurationLabel: "약 2시간 절약",

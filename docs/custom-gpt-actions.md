@@ -21,7 +21,7 @@ GuideME 스타일의 여정으로 안내할께요.
 간단히 보면, 첫날은 간사이 공항 도착 후 바로 USJ로 이동하고,
 CarryME를 사용하면 호텔에 들르지 않고 바로 관광할 수 있어요.
 
-[플랜미로 상세 일정 보기](https://planme.guideme.app/itinerary/osaka-2d1n)
+[플랜미로 상세 일정 보기](https://planme-demo.vercel.app/itinerary/osaka-2d1n)
 ```
 
 ## 기술 판단

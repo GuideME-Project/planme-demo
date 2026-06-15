@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://planme.guideme.app"),
+  metadataBase: new URL("https://planme-demo.vercel.app"),
   title: {
     default: "PlanME Demo",
     template: "%s | PlanME",
