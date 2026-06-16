@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { cwd, exit } from "node:process";
 
 const root = cwd();
+const webRoot = join(root, "apps/web");
 
 const requiredFiles = [
   "app/api/gpt/itineraries/recommend/route.ts",
@@ -21,12 +22,12 @@ const requiredOpenApiPaths = [
 const failures = [];
 
 for (const file of requiredFiles) {
-  if (!existsSync(join(root, file))) {
-    failures.push(`Missing GPT Actions route: ${file}`);
+  if (!existsSync(join(webRoot, file))) {
+    failures.push(`Missing GPT Actions route: apps/web/${file}`);
   }
 }
 
-const openApiFile = join(root, "app/api/gpt/openapi/route.ts");
+const openApiFile = join(webRoot, "app/api/gpt/openapi/route.ts");
 
 if (existsSync(openApiFile)) {
   const openApiSource = readFileSync(openApiFile, "utf8");
