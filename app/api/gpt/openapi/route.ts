@@ -105,10 +105,15 @@ export function GET(request: Request) {
                 "application/json": {
                   schema: {
                     type: "object",
-                    required: ["itineraryId", "pageUrl", "expiresAt"],
+                    required: ["itineraryId", "pageUrl", "ogImageUrl", "expiresAt"],
                     properties: {
                       itineraryId: { type: "string" },
                       pageUrl: { type: "string", format: "uri" },
+                      ogImageUrl: {
+                        type: "string",
+                        format: "uri",
+                        description: "Dynamic PNG preview image URL for ChatGPT Markdown rendering",
+                      },
                       expiresAt: { type: ["string", "null"], format: "date-time" },
                     },
                   },
@@ -132,6 +137,7 @@ export function GET(request: Request) {
             "carrymeTotalMinutes",
             "savedMinutes",
             "pageUrl",
+            "ogImageUrl",
             "highlights",
           ],
           properties: {
@@ -142,6 +148,11 @@ export function GET(request: Request) {
             carrymeTotalMinutes: { type: "integer" },
             savedMinutes: { type: "integer" },
             pageUrl: { type: "string", format: "uri" },
+            ogImageUrl: {
+              type: "string",
+              format: "uri",
+              description: "Dynamic PNG preview image URL for ChatGPT Markdown rendering",
+            },
             highlights: {
               type: "array",
               items: { type: "string" },

@@ -20,6 +20,7 @@ export type GptActionItineraryResponse = {
   carrymeTotalMinutes: number;
   savedMinutes: number;
   pageUrl: string;
+  ogImageUrl: string;
   highlights: string[];
   itinerary: PlanmeItinerary;
 };
@@ -35,6 +36,16 @@ export function buildItineraryPageUrl(requestUrl: string, itineraryId: string): 
 }
 
 /**
+ * Builds an absolute dynamic preview image URL for a PlanME itinerary.
+ */
+export function buildItineraryOgImageUrl(requestUrl: string, itineraryId: string): string {
+  const url = new URL(requestUrl);
+
+  // ChatGPT can render this URL as a Markdown image when native link previews are unavailable.
+  return new URL(`/og/itinerary/${itineraryId}`, url.origin).toString();
+}
+
+/**
  * Converts the demo itinerary into the compact response shape exposed to Custom GPT Actions.
  */
 export function toGptActionItineraryResponse(
@@ -43,6 +54,7 @@ export function toGptActionItineraryResponse(
 ): GptActionItineraryResponse {
   const firstDay = itinerary.days[0];
   const pageUrl = buildItineraryPageUrl(requestUrl, itinerary.id);
+  const ogImageUrl = buildItineraryOgImageUrl(requestUrl, itinerary.id);
 
   // The technical validation endpoint keeps calculations deterministic by using the curated mock plan.
   return {
@@ -53,6 +65,7 @@ export function toGptActionItineraryResponse(
     carrymeTotalMinutes: firstDay.carryme.durationMinutes,
     savedMinutes: firstDay.savingMinutes,
     pageUrl,
+    ogImageUrl,
     highlights: itinerary.benefits.map((benefit) => benefit.title),
     itinerary: {
       ...itinerary,
@@ -107,6 +120,7 @@ export function createItineraryShareResponse(itineraryId: string, requestUrl: st
   return {
     itineraryId,
     pageUrl: buildItineraryPageUrl(requestUrl, itineraryId),
+    ogImageUrl: buildItineraryOgImageUrl(requestUrl, itineraryId),
     expiresAt: null,
   };
 }

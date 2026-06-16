@@ -13,6 +13,7 @@ Custom GPT가 PlanME API를 호출한 뒤 짧은 안내 문구와 상세 일정 
 - Share API: `/api/gpt/itineraries/{itineraryId}/share`
 - OpenAPI schema: `/api/gpt/openapi`
 - OpenGraph image: `/og`
+- Itinerary preview image: `/og/itinerary/{itineraryId}`
 
 ## Custom GPT 응답 방향
 
@@ -22,6 +23,14 @@ GuideME 스타일의 여정으로 안내할께요.
 CarryME를 사용하면 호텔에 들르지 않고 바로 관광할 수 있어요.
 
 [플랜미로 상세 일정 보기](https://planme-demo.vercel.app/itinerary/osaka-2d1n)
+```
+
+`ogImageUrl`이 응답에 포함되면 상세 링크보다 먼저 Markdown 이미지로 표시합니다.
+
+```md
+![PlanME 일정 미리보기]({ogImageUrl})
+
+[플랜미로 상세 일정 보기]({pageUrl})
 ```
 
 ## 기술 판단

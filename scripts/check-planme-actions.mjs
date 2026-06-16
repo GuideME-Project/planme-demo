@@ -9,6 +9,7 @@ const requiredFiles = [
   "app/api/gpt/itineraries/[itineraryId]/route.ts",
   "app/api/gpt/itineraries/[itineraryId]/share/route.ts",
   "app/api/gpt/openapi/route.ts",
+  "app/og/itinerary/[itineraryId]/route.tsx",
 ];
 
 const requiredOpenApiPaths = [
@@ -38,6 +39,10 @@ if (existsSync(openApiFile)) {
 
   if (!openApiSource.includes("operationId")) {
     failures.push("OpenAPI schema must define operationId values for Custom GPT Actions");
+  }
+
+  if (!openApiSource.includes("ogImageUrl")) {
+    failures.push("OpenAPI schema must expose ogImageUrl for GPT preview rendering");
   }
 }
 
