@@ -42,15 +42,15 @@ if (existsSync(openApiFile)) {
   }
 
   if (!openApiSource.includes("ogImageUrl")) {
-    failures.push("OpenAPI schema must expose ogImageUrl for GPT preview rendering");
+    failures.push("OpenAPI schema must expose ogImageUrl as optional preview metadata");
   }
 
   if (!openApiSource.includes("previewMarkdown")) {
-    failures.push("OpenAPI schema must expose previewMarkdown for reliable GPT image rendering");
+    failures.push("OpenAPI schema must expose previewMarkdown as optional preview metadata");
   }
 
   if (!openApiSource.includes(".png")) {
-    failures.push("OpenAPI schema must document .png preview image URLs for ChatGPT rendering");
+    failures.push("OpenAPI schema must document .png preview image URLs for optional preview metadata");
   }
 }
 

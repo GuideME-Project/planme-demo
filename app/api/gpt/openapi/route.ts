@@ -105,7 +105,7 @@ export function GET(request: Request) {
                 "application/json": {
                   schema: {
                     type: "object",
-                    required: ["itineraryId", "pageUrl", "ogImageUrl", "previewMarkdown", "expiresAt"],
+                    required: ["itineraryId", "pageUrl", "expiresAt"],
                     properties: {
                       itineraryId: { type: "string" },
                       pageUrl: { type: "string", format: "uri" },
@@ -113,12 +113,12 @@ export function GET(request: Request) {
                         type: "string",
                         format: "uri",
                         description:
-                          "Dynamic PNG preview image URL for ChatGPT Markdown rendering. This URL must end with .png and return image/png without authentication.",
+                          "Optional dynamic PNG preview image URL for clients that support image previews. The primary handoff target is pageUrl.",
                       },
                       previewMarkdown: {
                         type: "string",
                         description:
-                          "Complete Markdown image syntax using the .png ogImageUrl. It must be rendered before the itinerary link.",
+                          "Optional Markdown image syntax using the .png ogImageUrl. Do not use this as the primary response unless the user explicitly asks for an image preview.",
                       },
                       expiresAt: { type: ["string", "null"], format: "date-time" },
                     },
@@ -143,8 +143,6 @@ export function GET(request: Request) {
             "carrymeTotalMinutes",
             "savedMinutes",
             "pageUrl",
-            "ogImageUrl",
-            "previewMarkdown",
             "highlights",
           ],
           properties: {
@@ -159,12 +157,12 @@ export function GET(request: Request) {
               type: "string",
               format: "uri",
               description:
-                "Dynamic PNG preview image URL for ChatGPT Markdown rendering. This URL must end with .png and return image/png without authentication.",
+                "Optional dynamic PNG preview image URL for clients that support image previews. The primary handoff target is pageUrl.",
             },
             previewMarkdown: {
               type: "string",
               description:
-                "Complete Markdown image syntax using the .png ogImageUrl. The GPT should copy it as the first line of the answer.",
+                "Optional Markdown image syntax using the .png ogImageUrl. Do not use this as the primary response unless the user explicitly asks for an image preview.",
             },
             highlights: {
               type: "array",
