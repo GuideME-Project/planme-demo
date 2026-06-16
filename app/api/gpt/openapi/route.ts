@@ -112,12 +112,13 @@ export function GET(request: Request) {
                       ogImageUrl: {
                         type: "string",
                         format: "uri",
-                        description: "Dynamic PNG preview image URL for ChatGPT Markdown rendering",
+                        description:
+                          "Dynamic PNG preview image URL for ChatGPT Markdown rendering. This URL must end with .png and return image/png without authentication.",
                       },
                       previewMarkdown: {
                         type: "string",
                         description:
-                          "Complete Markdown image syntax that must be rendered before the itinerary link",
+                          "Complete Markdown image syntax using the .png ogImageUrl. It must be rendered before the itinerary link.",
                       },
                       expiresAt: { type: ["string", "null"], format: "date-time" },
                     },
@@ -157,12 +158,13 @@ export function GET(request: Request) {
             ogImageUrl: {
               type: "string",
               format: "uri",
-              description: "Dynamic PNG preview image URL for ChatGPT Markdown rendering",
+              description:
+                "Dynamic PNG preview image URL for ChatGPT Markdown rendering. This URL must end with .png and return image/png without authentication.",
             },
             previewMarkdown: {
               type: "string",
               description:
-                "Complete Markdown image syntax that the GPT should copy as the first line of the answer",
+                "Complete Markdown image syntax using the .png ogImageUrl. The GPT should copy it as the first line of the answer.",
             },
             highlights: {
               type: "array",

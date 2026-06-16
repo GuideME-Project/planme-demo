@@ -15,6 +15,14 @@ type ItineraryOgRouteContext = {
 };
 
 /**
+ * Removes the optional .png suffix used to make dynamic image URLs obvious to chat clients.
+ */
+function normalizeItineraryIdParam(itineraryId: string): string {
+  // The route still accepts the legacy suffixless URL, but GPT responses always use .png.
+  return itineraryId.endsWith(".png") ? itineraryId.slice(0, -4) : itineraryId;
+}
+
+/**
  * Draws compact white line icons that do not depend on external emoji fonts.
  */
 function TimelineIcon({ category }: { category: TimelineEvent["category"] }) {
@@ -85,7 +93,8 @@ function TimelineIcon({ category }: { category: TimelineEvent["category"] }) {
  * Renders a timeline-focused dynamic PNG preview for a PlanME itinerary.
  */
 export async function GET(_request: Request, context: ItineraryOgRouteContext) {
-  const { itineraryId } = await context.params;
+  const { itineraryId: rawItineraryId } = await context.params;
+  const itineraryId = normalizeItineraryIdParam(rawItineraryId);
   const itinerary = getItineraryById(itineraryId);
 
   if (!itinerary) {

@@ -42,8 +42,8 @@ export function buildItineraryPageUrl(requestUrl: string, itineraryId: string): 
 export function buildItineraryOgImageUrl(requestUrl: string, itineraryId: string): string {
   const url = new URL(requestUrl);
 
-  // ChatGPT can render this URL as a Markdown image when native link previews are unavailable.
-  return new URL(`/og/itinerary/${itineraryId}`, url.origin).toString();
+  // Keep a visible .png suffix so chat clients can classify the dynamic image URL more reliably.
+  return new URL(`/og/itinerary/${itineraryId}.png`, url.origin).toString();
 }
 
 /**

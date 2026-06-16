@@ -13,7 +13,7 @@ Custom GPT가 PlanME API를 호출한 뒤 짧은 안내 문구와 상세 일정 
 - Share API: `/api/gpt/itineraries/{itineraryId}/share`
 - OpenAPI schema: `/api/gpt/openapi`
 - OpenGraph image: `/og`
-- Itinerary preview image: `/og/itinerary/{itineraryId}`
+- Itinerary preview image: `/og/itinerary/{itineraryId}.png`
 
 ## Custom GPT 응답 방향
 
@@ -25,7 +25,7 @@ CarryME를 사용하면 호텔에 들르지 않고 바로 관광할 수 있어�
 [플랜미로 상세 일정 보기](https://planme-demo.vercel.app/itinerary/osaka-2d1n)
 ```
 
-`previewMarkdown`이 응답에 포함되면 상세 링크보다 먼저 그대로 출력합니다. `previewMarkdown`이 없고 `ogImageUrl`만 있으면 아래 형식으로 Markdown 이미지를 구성합니다.
+`previewMarkdown`이 응답에 포함되면 상세 링크보다 먼저 그대로 출력합니다. 이미지 URL은 반드시 `.png`로 끝나는 공개 PNG 응답이어야 합니다. `previewMarkdown`이 없고 `ogImageUrl`만 있으면 아래 형식으로 Markdown 이미지를 구성합니다.
 
 ```md
 {previewMarkdown}
@@ -36,7 +36,7 @@ CarryME를 사용하면 호텔에 들르지 않고 바로 관광할 수 있어�
 `previewMarkdown` 예시는 다음과 같습니다.
 
 ```md
-![PlanME 일정 미리보기](https://planme-demo.vercel.app/og/itinerary/osaka-2d1n)
+![PlanME 일정 미리보기](https://planme-demo.vercel.app/og/itinerary/osaka-2d1n.png)
 ```
 
 ## 기술 판단

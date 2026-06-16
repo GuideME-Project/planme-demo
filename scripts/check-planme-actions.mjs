@@ -48,6 +48,10 @@ if (existsSync(openApiFile)) {
   if (!openApiSource.includes("previewMarkdown")) {
     failures.push("OpenAPI schema must expose previewMarkdown for reliable GPT image rendering");
   }
+
+  if (!openApiSource.includes(".png")) {
+    failures.push("OpenAPI schema must document .png preview image URLs for ChatGPT rendering");
+  }
 }
 
 if (failures.length > 0) {
