@@ -21,6 +21,7 @@ export type GptActionItineraryResponse = {
   savedMinutes: number;
   pageUrl: string;
   ogImageUrl: string;
+  previewMarkdown: string;
   highlights: string[];
   itinerary: PlanmeItinerary;
 };
@@ -46,6 +47,14 @@ export function buildItineraryOgImageUrl(requestUrl: string, itineraryId: string
 }
 
 /**
+ * Builds Markdown that ChatGPT can render directly as an itinerary preview image.
+ */
+export function buildItineraryPreviewMarkdown(ogImageUrl: string): string {
+  // Keep this as a complete Markdown image so the GPT can copy it without formatting decisions.
+  return `![PlanME 일정 미리보기](${ogImageUrl})`;
+}
+
+/**
  * Converts the demo itinerary into the compact response shape exposed to Custom GPT Actions.
  */
 export function toGptActionItineraryResponse(
@@ -55,6 +64,7 @@ export function toGptActionItineraryResponse(
   const firstDay = itinerary.days[0];
   const pageUrl = buildItineraryPageUrl(requestUrl, itinerary.id);
   const ogImageUrl = buildItineraryOgImageUrl(requestUrl, itinerary.id);
+  const previewMarkdown = buildItineraryPreviewMarkdown(ogImageUrl);
 
   // The technical validation endpoint keeps calculations deterministic by using the curated mock plan.
   return {
@@ -66,6 +76,7 @@ export function toGptActionItineraryResponse(
     savedMinutes: firstDay.savingMinutes,
     pageUrl,
     ogImageUrl,
+    previewMarkdown,
     highlights: itinerary.benefits.map((benefit) => benefit.title),
     itinerary: {
       ...itinerary,
@@ -117,10 +128,13 @@ export function getGptActionItineraryResponse(
  * Creates a share-link response for a generated PlanME itinerary.
  */
 export function createItineraryShareResponse(itineraryId: string, requestUrl: string) {
+  const ogImageUrl = buildItineraryOgImageUrl(requestUrl, itineraryId);
+
   return {
     itineraryId,
     pageUrl: buildItineraryPageUrl(requestUrl, itineraryId),
-    ogImageUrl: buildItineraryOgImageUrl(requestUrl, itineraryId),
+    ogImageUrl,
+    previewMarkdown: buildItineraryPreviewMarkdown(ogImageUrl),
     expiresAt: null,
   };
 }

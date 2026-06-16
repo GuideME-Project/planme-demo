@@ -105,7 +105,7 @@ export function GET(request: Request) {
                 "application/json": {
                   schema: {
                     type: "object",
-                    required: ["itineraryId", "pageUrl", "ogImageUrl", "expiresAt"],
+                    required: ["itineraryId", "pageUrl", "ogImageUrl", "previewMarkdown", "expiresAt"],
                     properties: {
                       itineraryId: { type: "string" },
                       pageUrl: { type: "string", format: "uri" },
@@ -113,6 +113,11 @@ export function GET(request: Request) {
                         type: "string",
                         format: "uri",
                         description: "Dynamic PNG preview image URL for ChatGPT Markdown rendering",
+                      },
+                      previewMarkdown: {
+                        type: "string",
+                        description:
+                          "Complete Markdown image syntax that must be rendered before the itinerary link",
                       },
                       expiresAt: { type: ["string", "null"], format: "date-time" },
                     },
@@ -138,6 +143,7 @@ export function GET(request: Request) {
             "savedMinutes",
             "pageUrl",
             "ogImageUrl",
+            "previewMarkdown",
             "highlights",
           ],
           properties: {
@@ -152,6 +158,11 @@ export function GET(request: Request) {
               type: "string",
               format: "uri",
               description: "Dynamic PNG preview image URL for ChatGPT Markdown rendering",
+            },
+            previewMarkdown: {
+              type: "string",
+              description:
+                "Complete Markdown image syntax that the GPT should copy as the first line of the answer",
             },
             highlights: {
               type: "array",

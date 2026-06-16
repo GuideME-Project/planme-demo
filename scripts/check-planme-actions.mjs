@@ -44,6 +44,10 @@ if (existsSync(openApiFile)) {
   if (!openApiSource.includes("ogImageUrl")) {
     failures.push("OpenAPI schema must expose ogImageUrl for GPT preview rendering");
   }
+
+  if (!openApiSource.includes("previewMarkdown")) {
+    failures.push("OpenAPI schema must expose previewMarkdown for reliable GPT image rendering");
+  }
 }
 
 if (failures.length > 0) {
