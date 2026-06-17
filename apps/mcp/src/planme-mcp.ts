@@ -15,6 +15,7 @@ import { z } from "zod";
 import { createPlanmeWidgetHtml } from "./planme-widget.js";
 
 export const PLANME_WIDGET_URI = "ui://planme/itinerary-widget-v2.html";
+const PLANME_LEGACY_WIDGET_URI = "ui://planme/itinerary-widget.html";
 const PLANME_WEB_ORIGIN = "https://planme-demo.vercel.app";
 const PLANME_MCP_ORIGIN = "https://planme-demo-mcp.vercel.app";
 const GOOGLE_MAPS_API_ORIGIN = "https://maps.googleapis.com";
@@ -123,18 +124,14 @@ function toWidgetMeta(itinerary: PlanmeItinerary, pageUrl: string) {
 }
 
 /**
- * Creates the PlanME MCP server used by the GPT App proof of concept.
+ * Registers a PlanME widget HTML resource for a ChatGPT Apps SDK template URI.
  */
-export function createPlanmeMcpServer(): McpServer {
-  const server = new McpServer({
-    name: "planme-mcp",
-    version: "0.1.0",
-  });
-
+function registerPlanmeWidgetResource(server: McpServer, name: string, resourceUri: string): void {
+  // Register both current and legacy URIs because ChatGPT can cache tool descriptors between app updates.
   registerAppResource(
     server,
-    "planme-itinerary-widget",
-    PLANME_WIDGET_URI,
+    name,
+    resourceUri,
     {
       title: "PlanME itinerary widget",
       description: "Renders the PlanME Standard and CarryME timeline comparison.",
@@ -151,6 +148,19 @@ export function createPlanmeMcpServer(): McpServer {
       ],
     }),
   );
+}
+
+/**
+ * Creates the PlanME MCP server used by the GPT App proof of concept.
+ */
+export function createPlanmeMcpServer(): McpServer {
+  const server = new McpServer({
+    name: "planme-mcp",
+    version: "0.1.0",
+  });
+
+  registerPlanmeWidgetResource(server, "planme-itinerary-widget-v2", PLANME_WIDGET_URI);
+  registerPlanmeWidgetResource(server, "planme-itinerary-widget-legacy", PLANME_LEGACY_WIDGET_URI);
 
   registerAppTool(
     server,

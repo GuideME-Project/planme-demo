@@ -69,17 +69,24 @@ async function main(): Promise<void> {
     const resource = await client.readResource({
       uri: "ui://planme/itinerary-widget-v2.html",
     });
+    const legacyResource = await client.readResource({
+      uri: "ui://planme/itinerary-widget.html",
+    });
 
     const firstResource = resource.contents[0];
+    const firstLegacyResource = legacyResource.contents[0];
 
     assert.equal(firstResource?.mimeType, "text/html;profile=mcp-app");
     assert.ok(firstResource && "text" in firstResource);
+    assert.equal(firstLegacyResource?.mimeType, "text/html;profile=mcp-app");
+    assert.ok(firstLegacyResource && "text" in firstLegacyResource);
     assert.match(firstResource.text, /PlanME/);
     assert.match(firstResource.text, /planme-map/);
     assert.match(firstResource.text, /maps\.googleapis\.com/);
     assert.match(firstResource.text, /Google Maps 스크립트 요청이 차단되어/);
     assert.match(firstResource.text, /Google Maps 네임스페이스가 생성되지 않아/);
     assert.match(firstResource.text, /Google Maps 위젯 렌더링 오류/);
+    assert.match(firstLegacyResource.text, /Google Maps 위젯 렌더링 오류/);
   } finally {
     await client.close();
     server.close();
