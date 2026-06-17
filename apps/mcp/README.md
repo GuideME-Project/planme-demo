@@ -17,3 +17,18 @@ When implementation starts, keep GPT App-specific tool schemas, widget resources
 npm --workspace @planme/mcp run dev
 npm run test:mcp
 ```
+
+## Vercel
+
+Create a separate Vercel project for the MCP app and set:
+
+- Root Directory: `apps/mcp`
+- Framework Preset: Other
+- Install Command: `npm ci`
+- Build Command: leave empty
+
+The public MCP URL should be:
+
+```text
+https://<mcp-project-domain>/mcp
+```
