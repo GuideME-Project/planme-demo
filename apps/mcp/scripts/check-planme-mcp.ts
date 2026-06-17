@@ -10,6 +10,17 @@ type RecommendationContent = {
   savedMinutes?: number;
 };
 
+type PlanmeWidgetResourceMeta = {
+  ui?: {
+    csp?: {
+      frameDomains?: string[];
+    };
+  };
+  "openai/widgetCSP"?: {
+    frame_domains?: string[];
+  };
+};
+
 /**
  * Starts the PlanME MCP server on an ephemeral local port for contract checks.
  */
@@ -75,11 +86,20 @@ async function main(): Promise<void> {
 
     const firstResource = resource.contents[0];
     const firstLegacyResource = legacyResource.contents[0];
+    const firstResourceMeta = firstResource?._meta as PlanmeWidgetResourceMeta | undefined;
 
     assert.equal(firstResource?.mimeType, "text/html;profile=mcp-app");
     assert.ok(firstResource && "text" in firstResource);
     assert.equal(firstLegacyResource?.mimeType, "text/html;profile=mcp-app");
     assert.ok(firstLegacyResource && "text" in firstLegacyResource);
+    assert.deepEqual(firstResourceMeta?.ui?.csp?.frameDomains, [
+      "https://www.google.com",
+      "https://maps.google.com",
+    ]);
+    assert.deepEqual(firstResourceMeta?.["openai/widgetCSP"]?.frame_domains, [
+      "https://www.google.com",
+      "https://maps.google.com",
+    ]);
     assert.match(firstResource.text, /PlanME/);
     assert.match(firstResource.text, /planme-map/);
     assert.match(firstResource.text, /maps\.googleapis\.com/);
