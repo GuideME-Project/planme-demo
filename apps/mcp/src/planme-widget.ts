@@ -454,6 +454,10 @@ export function createPlanmeWidgetHtml(): string {
           })
           .catch((error) => {
             const reason = error instanceof Error ? error.message : "unknown-error";
+            const safeReason = reason
+              .replace(/key=[^&\s"]+/g, "key=REDACTED")
+              .replace(/[<>]/g, "")
+              .slice(0, 140);
 
             // ChatGPT App iframe 안에서는 콘솔 접근이 제한적이므로 화면 문구로 실패 지점을 구분합니다.
             if (reason === "script-load-blocked") {
@@ -466,7 +470,7 @@ export function createPlanmeWidgetHtml(): string {
               return;
             }
 
-            setFallback("Google Maps를 위젯 안에서 표시하지 못해 타임라인만 표시합니다.");
+            setFallback("Google Maps 위젯 렌더링 오류로 타임라인만 표시합니다. 오류 코드: " + safeReason);
           });
       })();
     </script>

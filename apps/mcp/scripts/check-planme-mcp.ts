@@ -79,6 +79,7 @@ async function main(): Promise<void> {
     assert.match(firstResource.text, /maps\.googleapis\.com/);
     assert.match(firstResource.text, /Google Maps 스크립트 요청이 차단되어/);
     assert.match(firstResource.text, /Google Maps 네임스페이스가 생성되지 않아/);
+    assert.match(firstResource.text, /Google Maps 위젯 렌더링 오류/);
   } finally {
     await client.close();
     server.close();
