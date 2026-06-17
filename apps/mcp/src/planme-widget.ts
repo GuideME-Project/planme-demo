@@ -369,14 +369,14 @@ export function createPlanmeWidgetHtml(): string {
 
             script.async = true;
             script.defer = true;
-            script.onerror = () => reject(new Error("Google Maps script failed"));
+            script.onerror = () => reject(new Error("script-load-blocked"));
             script.onload = () => {
               if (window.google?.maps) {
                 resolve(window.google.maps);
                 return;
               }
 
-              reject(new Error("Google Maps namespace missing"));
+              reject(new Error("namespace-missing"));
             };
             script.src = "https://maps.googleapis.com/maps/api/js?" + params.toString();
             document.head.append(script);
@@ -452,7 +452,20 @@ export function createPlanmeWidgetHtml(): string {
             map.fitBounds(bounds);
             hideFallback();
           })
-          .catch(() => {
+          .catch((error) => {
+            const reason = error instanceof Error ? error.message : "unknown-error";
+
+            // ChatGPT App iframe 안에서는 콘솔 접근이 제한적이므로 화면 문구로 실패 지점을 구분합니다.
+            if (reason === "script-load-blocked") {
+              setFallback("Google Maps 스크립트 요청이 차단되어 타임라인만 표시합니다.");
+              return;
+            }
+
+            if (reason === "namespace-missing") {
+              setFallback("Google Maps 네임스페이스가 생성되지 않아 타임라인만 표시합니다.");
+              return;
+            }
+
             setFallback("Google Maps를 위젯 안에서 표시하지 못해 타임라인만 표시합니다.");
           });
       })();
