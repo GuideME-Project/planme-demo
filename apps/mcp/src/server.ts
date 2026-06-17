@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { handlePlanmeMcpRequest, writeCorsHeaders, writeJson } from "./http-handler";
+import { handlePlanmeMcpRequest } from "./http-handler";
+import { writeCorsHeaders, writeJson } from "./http-utils";
 
 const DEFAULT_PORT = 8787;
 
