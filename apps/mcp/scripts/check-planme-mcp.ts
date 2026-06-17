@@ -67,7 +67,7 @@ async function main(): Promise<void> {
     assert.equal(structuredContent?.savedMinutes, 120);
 
     const resource = await client.readResource({
-      uri: "ui://planme/itinerary-widget.html",
+      uri: "ui://planme/itinerary-widget-v2.html",
     });
 
     const firstResource = resource.contents[0];

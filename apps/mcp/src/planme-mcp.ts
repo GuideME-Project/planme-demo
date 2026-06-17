@@ -14,7 +14,7 @@ import {
 import { z } from "zod";
 import { createPlanmeWidgetHtml } from "./planme-widget.js";
 
-export const PLANME_WIDGET_URI = "ui://planme/itinerary-widget.html";
+export const PLANME_WIDGET_URI = "ui://planme/itinerary-widget-v2.html";
 const PLANME_WEB_ORIGIN = "https://planme-demo.vercel.app";
 const PLANME_MCP_ORIGIN = "https://planme-demo-mcp.vercel.app";
 const GOOGLE_MAPS_API_ORIGIN = "https://maps.googleapis.com";
