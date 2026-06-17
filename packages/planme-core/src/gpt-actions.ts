@@ -1,4 +1,4 @@
-import { getItineraryById, getDemoItinerary, type PlanmeItinerary } from "./mock-data";
+import { getItineraryById, getDemoItinerary, type PlanmeItinerary } from "./mock-data.js";
 
 export type RecommendItineraryRequest = {
   destination?: string;

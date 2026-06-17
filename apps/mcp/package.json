@@ -4,9 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx src/server.ts",
-    "start": "tsx src/server.ts",
+    "build": "npm --workspace @planme/core run build",
+    "dev": "npm --workspace @planme/core run build && tsx src/server.ts",
+    "start": "npm --workspace @planme/core run build && tsx src/server.ts",
     "typecheck": "tsc --noEmit",
+    "vercel-build": "cd ../.. && npm --workspace @planme/core run build",
+    "pretest:mcp": "npm --workspace @planme/core run build",
     "test:mcp": "tsx scripts/check-planme-mcp.ts"
   },
   "dependencies": {

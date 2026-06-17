@@ -1,2 +1,2 @@
-export * from "./mock-data";
-export * from "./gpt-actions";
+export * from "./mock-data.js";
+export * from "./gpt-actions.js";

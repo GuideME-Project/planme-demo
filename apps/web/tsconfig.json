@@ -7,8 +7,7 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"],
-      "@planme/core": ["../../packages/planme-core/src/index.ts"]
+      "@/*": ["./*"]
     }
   },
   "include": [
@@ -16,8 +15,7 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts",
-    "../../packages/planme-core/src/**/*.ts"
+    ".next/dev/types/**/*.ts"
   ],
   "exclude": ["node_modules"]
 }
