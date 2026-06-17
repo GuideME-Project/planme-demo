@@ -12,6 +12,7 @@
     "start": "npm --workspace @planme/web run start",
     "lint": "npm --workspace @planme/web run lint",
     "test:actions": "node scripts/check-planme-actions.mjs",
-    "test:design": "node scripts/check-planme-design.mjs"
+    "test:design": "node scripts/check-planme-design.mjs",
+    "test:mcp": "npm --workspace @planme/mcp run test:mcp"
   }
 }

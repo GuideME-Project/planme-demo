@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "paths": {
+      "@planme/core": ["../../packages/planme-core/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "../../packages/planme-core/src/**/*.ts"],
+  "exclude": ["node_modules"]
+}

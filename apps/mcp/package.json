@@ -4,6 +4,19 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node src/server-placeholder.mjs"
+    "dev": "tsx src/server.ts",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "test:mcp": "tsx scripts/check-planme-mcp.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/ext-apps": "^1.7.4",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.3",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
   }
 }
