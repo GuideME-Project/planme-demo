@@ -17,10 +17,17 @@ import { createPlanmeWidgetHtml } from "./planme-widget.js";
 export const PLANME_WIDGET_URI = "ui://planme/itinerary-widget.html";
 const PLANME_WEB_ORIGIN = "https://planme-demo.vercel.app";
 const PLANME_MCP_ORIGIN = "https://planme-demo-mcp.vercel.app";
+const GOOGLE_MAPS_API_ORIGIN = "https://maps.googleapis.com";
+const GOOGLE_MAPS_ASSET_ORIGIN = "https://maps.gstatic.com";
 
 const planmeWidgetCsp = {
-  connectDomains: [PLANME_MCP_ORIGIN, PLANME_WEB_ORIGIN],
-  resourceDomains: [PLANME_MCP_ORIGIN, PLANME_WEB_ORIGIN],
+  connectDomains: [PLANME_MCP_ORIGIN, PLANME_WEB_ORIGIN, GOOGLE_MAPS_API_ORIGIN],
+  resourceDomains: [
+    PLANME_MCP_ORIGIN,
+    PLANME_WEB_ORIGIN,
+    GOOGLE_MAPS_API_ORIGIN,
+    GOOGLE_MAPS_ASSET_ORIGIN,
+  ],
 };
 
 const planmeLegacyWidgetCsp = {
@@ -110,7 +117,7 @@ function toWidgetMeta(itinerary: PlanmeItinerary, pageUrl: string) {
     },
     widget: {
       defaultView: "timeline",
-      showMap: false,
+      showMap: true,
     },
   };
 }

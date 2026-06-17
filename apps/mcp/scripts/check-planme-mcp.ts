@@ -75,6 +75,8 @@ async function main(): Promise<void> {
     assert.equal(firstResource?.mimeType, "text/html;profile=mcp-app");
     assert.ok(firstResource && "text" in firstResource);
     assert.match(firstResource.text, /PlanME/);
+    assert.match(firstResource.text, /planme-map/);
+    assert.match(firstResource.text, /maps\.googleapis\.com/);
   } finally {
     await client.close();
     server.close();

@@ -5,9 +5,15 @@ export type MapPoint = {
   y: number;
 };
 
+export type MapCoordinate = {
+  lat: number;
+  lng: number;
+};
+
 export type RouteStop = {
   label: string;
   caption: string;
+  coordinate?: MapCoordinate;
   icon: "airport" | "hotel" | "usj";
 };
 
@@ -29,7 +35,9 @@ export type RoutePlan = {
   durationLabel: string;
   durationMinutes: number;
   stops: RouteStop[];
+  geoPath?: MapCoordinate[];
   mapPath: MapPoint[];
+  dashedGeoPath?: MapCoordinate[];
   dashedPath?: MapPoint[];
 };
 
@@ -75,9 +83,32 @@ const dayOne: ItineraryDay = {
     durationLabel: "약 8시간 10분",
     durationMinutes: 490,
     stops: [
-      { label: "간사이 공항", caption: "도착", icon: "airport" },
-      { label: "호텔 체크인", caption: "수하물 보관", icon: "hotel" },
-      { label: "USJ", caption: "방문", icon: "usj" },
+      {
+        label: "간사이 공항",
+        caption: "도착",
+        coordinate: { lat: 34.4347, lng: 135.244 },
+        icon: "airport",
+      },
+      {
+        label: "호텔 체크인",
+        caption: "수하물 보관",
+        coordinate: { lat: 34.6674, lng: 135.5003 },
+        icon: "hotel",
+      },
+      {
+        label: "USJ",
+        caption: "방문",
+        coordinate: { lat: 34.6654, lng: 135.4323 },
+        icon: "usj",
+      },
+    ],
+    geoPath: [
+      { lat: 34.4347, lng: 135.244 },
+      { lat: 34.511, lng: 135.302 },
+      { lat: 34.594, lng: 135.389 },
+      { lat: 34.6674, lng: 135.5003 },
+      { lat: 34.653, lng: 135.4705 },
+      { lat: 34.6654, lng: 135.4323 },
     ],
     mapPath: [
       { x: 8, y: 76 },
@@ -97,9 +128,30 @@ const dayOne: ItineraryDay = {
     durationLabel: "약 6시간 10분",
     durationMinutes: 370,
     stops: [
-      { label: "간사이 공항", caption: "도착", icon: "airport" },
-      { label: "USJ", caption: "직행", icon: "usj" },
-      { label: "호텔 체크인", caption: "짐은 이미 도착", icon: "hotel" },
+      {
+        label: "간사이 공항",
+        caption: "도착",
+        coordinate: { lat: 34.4347, lng: 135.244 },
+        icon: "airport",
+      },
+      {
+        label: "USJ",
+        caption: "직행",
+        coordinate: { lat: 34.6654, lng: 135.4323 },
+        icon: "usj",
+      },
+      {
+        label: "호텔 체크인",
+        caption: "짐은 이미 도착",
+        coordinate: { lat: 34.6674, lng: 135.5003 },
+        icon: "hotel",
+      },
+    ],
+    geoPath: [
+      { lat: 34.4347, lng: 135.244 },
+      { lat: 34.512, lng: 135.298 },
+      { lat: 34.596, lng: 135.373 },
+      { lat: 34.6654, lng: 135.4323 },
     ],
     mapPath: [
       { x: 34, y: 55 },
@@ -112,6 +164,11 @@ const dayOne: ItineraryDay = {
       { x: 42, y: 58 },
       { x: 52, y: 65 },
       { x: 61, y: 61 },
+    ],
+    dashedGeoPath: [
+      { lat: 34.4347, lng: 135.244 },
+      { lat: 34.578, lng: 135.382 },
+      { lat: 34.6674, lng: 135.5003 },
     ],
   },
   timeline: [

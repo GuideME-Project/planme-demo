@@ -4,7 +4,8 @@ import HotelRoundedIcon from "@mui/icons-material/HotelRounded";
 import InfoRoundedIcon from "@mui/icons-material/InfoRounded";
 import LocalShippingRoundedIcon from "@mui/icons-material/LocalShippingRounded";
 import { alpha, Box, Stack, Typography, useTheme } from "@mui/material";
-import type { MapPoint, RoutePlan } from "@planme/core";
+import type { MapCoordinate, MapPoint, RoutePlan } from "@planme/core";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PlanmeThemeMode } from "@/theme/theme";
 
 type RouteMapProps = {
@@ -53,11 +54,371 @@ const mapMarkers = [
   },
 ] as const;
 
+const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+
+type GoogleLatLngLiteral = {
+  lat: number;
+  lng: number;
+};
+
+type GoogleMapInstance = {
+  fitBounds: (bounds: GoogleLatLngBounds) => void;
+};
+
+type GoogleLatLngBounds = {
+  extend: (point: GoogleLatLngLiteral) => void;
+};
+
+type GoogleMapStyle = {
+  elementType?: string;
+  featureType?: string;
+  stylers: Array<Record<string, string>>;
+};
+
+type GoogleMapsNamespace = {
+  LatLngBounds: new () => GoogleLatLngBounds;
+  Map: new (
+    element: HTMLElement,
+    options: {
+      center: GoogleLatLngLiteral;
+      clickableIcons: boolean;
+      disableDefaultUI: boolean;
+      mapTypeControl: boolean;
+      streetViewControl: boolean;
+      styles: GoogleMapStyle[];
+      zoom: number;
+      zoomControl: boolean;
+    },
+  ) => GoogleMapInstance;
+  Marker: new (options: {
+    icon?: {
+      fillColor: string;
+      fillOpacity: number;
+      path: number;
+      scale: number;
+      strokeColor: string;
+      strokeWeight: number;
+    };
+    label?: {
+      color: string;
+      fontSize: string;
+      fontWeight: string;
+      text: string;
+    };
+    map: GoogleMapInstance;
+    position: GoogleLatLngLiteral;
+    title: string;
+  }) => void;
+  Polyline: new (options: {
+    geodesic: boolean;
+    icons?: Array<{
+      icon: {
+        fillColor: string;
+        fillOpacity: number;
+        path: number;
+        scale: number;
+        strokeColor: string;
+        strokeWeight: number;
+      };
+      offset: string;
+      repeat: string;
+    }>;
+    map: GoogleMapInstance;
+    path: GoogleLatLngLiteral[];
+    strokeColor: string;
+    strokeOpacity: number;
+    strokeWeight: number;
+  }) => void;
+  SymbolPath: {
+    CIRCLE: number;
+    FORWARD_CLOSED_ARROW: number;
+  };
+};
+
+declare global {
+  interface Window {
+    gm_authFailure?: () => void;
+    google?: {
+      maps: GoogleMapsNamespace;
+    };
+    planmeGoogleMapsPromise?: Promise<GoogleMapsNamespace>;
+  }
+}
+
+const lightMapStyles: GoogleMapStyle[] = [
+  {
+    featureType: "poi",
+    stylers: [{ visibility: "off" }],
+  },
+  {
+    featureType: "transit",
+    stylers: [{ saturation: "-30" }],
+  },
+];
+
+const darkMapStyles: GoogleMapStyle[] = [
+  {
+    elementType: "geometry",
+    stylers: [{ color: "#1f2937" }],
+  },
+  {
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#d1d5db" }],
+  },
+  {
+    elementType: "labels.text.stroke",
+    stylers: [{ color: "#111827" }],
+  },
+  {
+    featureType: "poi",
+    stylers: [{ visibility: "off" }],
+  },
+  {
+    featureType: "road",
+    elementType: "geometry",
+    stylers: [{ color: "#374151" }],
+  },
+  {
+    featureType: "water",
+    elementType: "geometry",
+    stylers: [{ color: "#0f2f45" }],
+  },
+];
+
 /**
  * Converts percentage coordinates into an SVG polyline point string.
  */
 function toPointString(points: MapPoint[]): string {
   return points.map((point) => `${point.x},${point.y}`).join(" ");
+}
+
+/**
+ * Loads the Google Maps JavaScript API once for the PlanME route map.
+ */
+function loadGoogleMaps(apiKey: string): Promise<GoogleMapsNamespace> {
+  if (window.google?.maps) {
+    return Promise.resolve(window.google.maps);
+  }
+
+  if (window.planmeGoogleMapsPromise) {
+    return window.planmeGoogleMapsPromise;
+  }
+
+  window.planmeGoogleMapsPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    const params = new URLSearchParams({
+      key: apiKey,
+      v: "weekly",
+    });
+
+    // Google Maps JS API is loaded as a browser script because this demo avoids an extra client dependency.
+    script.async = true;
+    script.defer = true;
+    script.onerror = () => reject(new Error("Google Maps JavaScript API failed to load"));
+    script.onload = () => {
+      if (window.google?.maps) {
+        resolve(window.google.maps);
+        return;
+      }
+
+      reject(new Error("Google Maps namespace was not initialized"));
+    };
+    script.src = `https://maps.googleapis.com/maps/api/js?${params.toString()}`;
+    document.head.append(script);
+  });
+
+  return window.planmeGoogleMapsPromise;
+}
+
+type GoogleRouteMapProps = {
+  carrymeColor: string;
+  carrymeRoute: RoutePlan;
+  isDark: boolean;
+  onLoadFailed: () => void;
+  showCarryme: boolean;
+  showStandard: boolean;
+  standardColor: string;
+  standardRoute: RoutePlan;
+};
+
+/**
+ * Renders the real Google Maps route overlay for the PlanME demo.
+ */
+function GoogleRouteMap({
+  carrymeColor,
+  carrymeRoute,
+  isDark,
+  onLoadFailed,
+  showCarryme,
+  showStandard,
+  standardColor,
+  standardRoute,
+}: GoogleRouteMapProps) {
+  const mapElementRef = useRef<HTMLDivElement | null>(null);
+  const apiKey = googleMapsApiKey;
+  const markers = useMemo(
+    () =>
+      [
+        ...standardRoute.stops,
+        {
+          caption: "공항에서 호텔로 배송",
+          coordinate: carrymeRoute.dashedGeoPath?.[1] ?? carrymeRoute.stops[0]?.coordinate,
+          icon: "hotel" as const,
+          label: "캐리미 짐 탁송",
+        },
+      ].filter((stop) => Boolean(stop.coordinate)),
+    [carrymeRoute.dashedGeoPath, carrymeRoute.stops, standardRoute.stops],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const resolvedApiKey = apiKey;
+    const previousAuthFailureHandler = window.gm_authFailure;
+
+    if (!resolvedApiKey || !mapElementRef.current) {
+      return;
+    }
+
+    window.gm_authFailure = () => {
+      // Referrer restrictions fail after the script loads, so handle Google Maps auth errors separately.
+      previousAuthFailureHandler?.();
+      if (!cancelled) {
+        onLoadFailed();
+      }
+    };
+
+    async function renderMap(resolvedGoogleMapsApiKey: string): Promise<void> {
+      try {
+        const maps = await loadGoogleMaps(resolvedGoogleMapsApiKey);
+
+        if (cancelled || !mapElementRef.current) {
+          return;
+        }
+
+        const center = { lat: 34.56, lng: 135.38 };
+        const map = new maps.Map(mapElementRef.current, {
+          center,
+          clickableIcons: false,
+          disableDefaultUI: true,
+          mapTypeControl: false,
+          streetViewControl: false,
+          styles: isDark ? darkMapStyles : lightMapStyles,
+          zoom: 10,
+          zoomControl: true,
+        });
+        const bounds = new maps.LatLngBounds();
+        const arrowIcon = {
+          fillColor: "#ffffff",
+          fillOpacity: 1,
+          path: maps.SymbolPath.FORWARD_CLOSED_ARROW,
+          scale: 2.4,
+          strokeColor: "#ffffff",
+          strokeWeight: 1,
+        };
+
+        const addRoute = (path: MapCoordinate[] | undefined, color: string, opacity = 0.95) => {
+          if (!path || path.length === 0) {
+            return;
+          }
+
+          path.forEach((point) => bounds.extend(point));
+          new maps.Polyline({
+            geodesic: true,
+            icons: [{ icon: arrowIcon, offset: "28%", repeat: "34%" }],
+            map,
+            path,
+            strokeColor: color,
+            strokeOpacity: opacity,
+            strokeWeight: 5,
+          });
+        };
+
+        if (showStandard) {
+          addRoute(standardRoute.geoPath, standardColor);
+        }
+
+        if (showCarryme) {
+          addRoute(carrymeRoute.geoPath, carrymeColor);
+          addRoute(carrymeRoute.dashedGeoPath, carrymeColor, 0.55);
+        }
+
+        markers.forEach((marker, index) => {
+          if (!marker.coordinate) {
+            return;
+          }
+
+          bounds.extend(marker.coordinate);
+          new maps.Marker({
+            icon: {
+              fillColor: index === 2 || marker.label.includes("캐리미") ? carrymeColor : standardColor,
+              fillOpacity: 1,
+              path: maps.SymbolPath.CIRCLE,
+              scale: 10,
+              strokeColor: "#ffffff",
+              strokeWeight: 3,
+            },
+            label: {
+              color: "#ffffff",
+              fontSize: "11px",
+              fontWeight: "800",
+              text: `${index + 1}`,
+            },
+            map,
+            position: marker.coordinate,
+            title: marker.label,
+          });
+        });
+
+        map.fitBounds(bounds);
+      } catch {
+        // Google Maps API key or browser restrictions can fail independently from the demo route data.
+        onLoadFailed();
+      }
+    }
+
+    void renderMap(resolvedApiKey);
+
+    return () => {
+      cancelled = true;
+      window.gm_authFailure = previousAuthFailureHandler;
+    };
+  }, [
+    carrymeColor,
+    carrymeRoute.dashedGeoPath,
+    carrymeRoute.geoPath,
+    isDark,
+    markers,
+    onLoadFailed,
+    apiKey,
+    showCarryme,
+    showStandard,
+    standardColor,
+    standardRoute.geoPath,
+  ]);
+
+  return (
+    <Box sx={{ minHeight: { xs: 320, md: 360 }, position: "relative" }}>
+      <Box ref={mapElementRef} sx={{ inset: 0, position: "absolute" }} />
+      <Stack
+        spacing={0.8}
+        sx={{
+          bgcolor: isDark ? alpha("#0f1720", 0.84) : alpha("#ffffff", 0.9),
+          border: "1px solid",
+          borderColor: "divider",
+          borderRadius: 1.5,
+          bottom: 18,
+          p: 1.2,
+          position: "absolute",
+          right: 18,
+          zIndex: 2,
+        }}
+      >
+        <LegendRow color={standardColor} label="Standard 경로" />
+        <LegendRow color={carrymeColor} label="CarryME 경로" />
+        <LegendRow dashed color={carrymeColor} label="짐 탁송 경로" />
+      </Stack>
+    </Box>
+  );
 }
 
 /**
@@ -72,9 +433,14 @@ export function RouteMap({
   themeMode,
 }: RouteMapProps) {
   const theme = useTheme();
+  const [googleMapFailed, setGoogleMapFailed] = useState(false);
+  const handleGoogleMapLoadFailed = useCallback(() => setGoogleMapFailed(true), []);
   const isDark = themeMode === "dark";
   const standardColor = theme.palette.primary.main;
   const carrymeColor = theme.palette.secondary.main;
+  const canUseGoogleMap = Boolean(
+    googleMapsApiKey && standardRoute.geoPath && carrymeRoute.geoPath && !googleMapFailed,
+  );
   const mapBackground = isDark
     ? "linear-gradient(135deg, #111827 0%, #17212d 48%, #0e2530 100%)"
     : "linear-gradient(135deg, #dceeff 0%, #f6fbff 48%, #e9f8ec 100%)";
@@ -100,6 +466,19 @@ export function RouteMap({
           position: "relative",
         }}
       >
+        {canUseGoogleMap ? (
+        <GoogleRouteMap
+          carrymeColor={carrymeColor}
+          carrymeRoute={carrymeRoute}
+          isDark={isDark}
+          onLoadFailed={handleGoogleMapLoadFailed}
+          showCarryme={showCarryme}
+          showStandard={showStandard}
+          standardColor={standardColor}
+          standardRoute={standardRoute}
+        />
+      ) : (
+        <>
       <Box
         sx={{
           backgroundImage: isDark
@@ -285,6 +664,8 @@ export function RouteMap({
         <LegendRow color={carrymeColor} label="CarryME 경로" />
         <LegendRow dashed color={carrymeColor} label="짐 탁송 경로" />
       </Stack>
+        </>
+      )}
       </Box>
 
       <Stack
