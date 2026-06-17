@@ -15,6 +15,31 @@ import { z } from "zod";
 import { createPlanmeWidgetHtml } from "./planme-widget.js";
 
 export const PLANME_WIDGET_URI = "ui://planme/itinerary-widget.html";
+const PLANME_WEB_ORIGIN = "https://planme-demo.vercel.app";
+const PLANME_MCP_ORIGIN = "https://planme-demo-mcp.vercel.app";
+
+const planmeWidgetCsp = {
+  connectDomains: [PLANME_MCP_ORIGIN, PLANME_WEB_ORIGIN],
+  resourceDomains: [PLANME_MCP_ORIGIN, PLANME_WEB_ORIGIN],
+};
+
+const planmeLegacyWidgetCsp = {
+  connect_domains: planmeWidgetCsp.connectDomains,
+  resource_domains: planmeWidgetCsp.resourceDomains,
+  redirect_domains: [PLANME_WEB_ORIGIN],
+};
+
+const planmeWidgetMeta = {
+  ui: {
+    prefersBorder: true,
+    domain: PLANME_MCP_ORIGIN,
+    csp: planmeWidgetCsp,
+  },
+  "openai/widgetDescription": "PlanME 일정의 CarryME 절약 효과와 Day 1 타임라인을 보여줍니다.",
+  "openai/widgetPrefersBorder": true,
+  "openai/widgetCSP": planmeLegacyWidgetCsp,
+  "openai/widgetDomain": PLANME_MCP_ORIGIN,
+};
 
 const timelineEventSchema = z.object({
   time: z.string(),
@@ -106,10 +131,7 @@ export function createPlanmeMcpServer(): McpServer {
     {
       title: "PlanME itinerary widget",
       description: "Renders the PlanME Standard and CarryME timeline comparison.",
-      _meta: {
-        "openai/widgetDescription": "PlanME 일정의 CarryME 절약 효과와 Day 1 타임라인을 보여줍니다.",
-        "openai/widgetPrefersBorder": true,
-      },
+      _meta: planmeWidgetMeta,
     },
     async (uri) => ({
       contents: [
@@ -117,6 +139,7 @@ export function createPlanmeMcpServer(): McpServer {
           uri: uri.href,
           mimeType: RESOURCE_MIME_TYPE,
           text: createPlanmeWidgetHtml(),
+          _meta: planmeWidgetMeta,
         },
       ],
     }),
