@@ -12,7 +12,7 @@ import {
   type RecommendItineraryRequest,
 } from "@planme/core";
 import { z } from "zod";
-import { createPlanmeWidgetHtml } from "./planme-widget";
+import { createPlanmeWidgetHtml } from "./planme-widget.js";
 
 export const PLANME_WIDGET_URI = "ui://planme/itinerary-widget.html";
 

@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { createPlanmeMcpServer } from "./planme-mcp";
-import { writeCorsHeaders, writeJson } from "./http-utils";
+import { createPlanmeMcpServer } from "./planme-mcp.js";
+import { writeCorsHeaders, writeJson } from "./http-utils.js";
 
 /**
  * Handles a Streamable HTTP MCP request in a stateless Vercel-compatible form.

@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { writeCorsHeaders, writeJson } from "../src/http-utils";
+import { writeCorsHeaders, writeJson } from "../src/http-utils.js";
 
 /**
  * Vercel health endpoint for the PlanME MCP deployment.

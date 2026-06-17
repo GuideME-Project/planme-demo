@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { createPlanmeHttpServer } from "../src/server";
+import { createPlanmeHttpServer } from "../src/server.js";
 
 type RecommendationContent = {
   itineraryId?: string;

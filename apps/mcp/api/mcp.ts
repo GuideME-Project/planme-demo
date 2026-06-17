@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { handlePlanmeMcpRequest } from "../src/http-handler";
+import { handlePlanmeMcpRequest } from "../src/http-handler.js";
 
 /**
  * Vercel Serverless Function entrypoint for the PlanME MCP endpoint.
