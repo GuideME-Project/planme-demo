@@ -9,7 +9,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-5 py-6 lg:px-8">
+      <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-5 py-6 lg:px-8">
         <ItineraryDashboard itinerary={itinerary} compact={false} />
       </div>
     </main>
