@@ -18,25 +18,15 @@ export const PLANME_WIDGET_URI = "ui://planme/itinerary-widget-v2.html";
 const PLANME_LEGACY_WIDGET_URI = "ui://planme/itinerary-widget.html";
 const PLANME_WEB_ORIGIN = "https://planme-demo.vercel.app";
 const PLANME_MCP_ORIGIN = "https://planme-demo-mcp.vercel.app";
-const GOOGLE_MAPS_API_ORIGIN = "https://maps.googleapis.com";
-const GOOGLE_MAPS_ASSET_ORIGIN = "https://maps.gstatic.com";
-const GOOGLE_MAPS_FRAME_ORIGINS = ["https://www.google.com", "https://maps.google.com"];
 
 const planmeWidgetCsp = {
-  connectDomains: [PLANME_MCP_ORIGIN, PLANME_WEB_ORIGIN, GOOGLE_MAPS_API_ORIGIN],
-  resourceDomains: [
-    PLANME_MCP_ORIGIN,
-    PLANME_WEB_ORIGIN,
-    GOOGLE_MAPS_API_ORIGIN,
-    GOOGLE_MAPS_ASSET_ORIGIN,
-  ],
-  frameDomains: GOOGLE_MAPS_FRAME_ORIGINS,
+  connectDomains: [PLANME_MCP_ORIGIN, PLANME_WEB_ORIGIN],
+  resourceDomains: [PLANME_MCP_ORIGIN, PLANME_WEB_ORIGIN],
 };
 
 const planmeLegacyWidgetCsp = {
   connect_domains: planmeWidgetCsp.connectDomains,
   resource_domains: planmeWidgetCsp.resourceDomains,
-  frame_domains: planmeWidgetCsp.frameDomains,
   redirect_domains: [PLANME_WEB_ORIGIN],
 };
 
