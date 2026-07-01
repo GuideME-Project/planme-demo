@@ -100,12 +100,12 @@ export function createRecommendedItineraryResponse(
     input: {
       destination: input.destination ?? itinerary.region,
       durationDays: input.durationDays ?? 2,
-      arrivalAirport: input.arrivalAirport ?? "KIX",
-      arrivalTime: input.arrivalTime ?? "10:00",
+      arrivalAirport: input.arrivalAirport ?? "ICN",
+      arrivalTime: input.arrivalTime ?? "09:30",
       hotelName: input.hotelName ?? null,
       travelerCount: input.travelerCount ?? 1,
       luggageCount: input.luggageCount ?? 1,
-      preferences: input.preferences ?? ["USJ", "CarryME comparison"],
+      preferences: input.preferences ?? ["BTS 공연", "CarryME comparison"],
       theme: input.theme ?? "light",
     },
   };

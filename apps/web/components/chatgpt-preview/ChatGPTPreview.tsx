@@ -35,9 +35,10 @@ export function ChatGPTPreview({ itinerary }: ChatGPTPreviewProps) {
           </Typography>
 
           <Typography color="text.secondary" sx={{ maxWidth: 800 }}>
-            간단히 보면, 첫날은 간사이 공항 도착 후 바로 USJ로 이동하고,
-            둘째 날은 오사카성·도톤보리 중심으로 보는 일정이 좋아요.
-            CarryME를 사용하면 호텔에 들르지 않고 바로 관광할 수 있어요.
+            간단히 보면, 첫날은 인천공항 입국 후 부산 공연장으로 바로
+            이동하고, 둘째 날은 해운대와 부산역 중심으로 정리하는 일정이
+            좋아요. CarryME를 사용하면 호텔에 들르지 않고 바로 공연을
+            시작할 수 있어요.
           </Typography>
 
           <Box
@@ -61,7 +62,7 @@ export function ChatGPTPreview({ itinerary }: ChatGPTPreviewProps) {
               </Typography>
             </Stack>
             <Button
-              href="/itinerary/osaka-2d1n"
+              href={`/itinerary/${itinerary.id}`}
               size="large"
               startIcon={<LinkRoundedIcon />}
               variant="contained"

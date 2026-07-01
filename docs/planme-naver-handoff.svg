@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="780" viewBox="0 0 1200 780" role="img" aria-labelledby="title desc">
+  <title id="title">PlanME 네이버 지도 외부 앱 연결 검토 흐름</title>
+  <desc id="desc">ChatGPT 앱에서 PlanME HTTPS 핸드오프 페이지를 거쳐 네이버 지도 앱 또는 웹 대체 화면으로 연결하는 구조와 PlanME 내부 지도/외부 길안내 역할 분리</desc>
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="14" flood-color="#111827" flood-opacity="0.12"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowGray" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/>
+    </marker>
+    <style>
+      .bg { fill: #f6f8fb; }
+      .title { font: 800 34px system-ui, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; fill: #111827; }
+      .subtitle { font: 500 17px system-ui, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; fill: #4b5563; }
+      .section { font: 800 22px system-ui, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; fill: #111827; }
+      .card { fill: #ffffff; stroke: #d8dee9; stroke-width: 1.4; rx: 18; filter: url(#shadow); }
+      .cardFlat { fill: #ffffff; stroke: #d8dee9; stroke-width: 1.4; rx: 14; }
+      .blue { fill: #eff6ff; stroke: #93c5fd; }
+      .green { fill: #ecfdf5; stroke: #86efac; }
+      .yellow { fill: #fffbeb; stroke: #fcd34d; }
+      .red { fill: #fef2f2; stroke: #fecaca; }
+      .head { font: 800 18px system-ui, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; fill: #111827; }
+      .body { font: 500 14.5px system-ui, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; fill: #374151; }
+      .small { font: 500 12.5px system-ui, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; fill: #6b7280; }
+      .pillText { font: 800 12px system-ui, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; fill: #065f46; }
+      .button { fill: #10b981; rx: 11; }
+      .buttonText { font: 800 15px system-ui, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; fill: #ffffff; }
+      .line { stroke: #2563eb; stroke-width: 3.2; fill: none; marker-end: url(#arrow); }
+      .lineGray { stroke: #6b7280; stroke-width: 2.4; fill: none; marker-end: url(#arrowGray); stroke-dasharray: 7 7; }
+      .divider { stroke: #d1d5db; stroke-width: 1.2; }
+      .code { font: 700 12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; fill: #1f2937; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1200" height="780"/>
+  <text class="title" x="54" y="66">PlanME에서 네이버 지도/내비로 넘기는 구조</text>
+  <text class="subtitle" x="56" y="96">확인된 공식 범위: ChatGPT Apps는 외부 링크 열기, 네이버 지도는 URL Scheme으로 앱 호출과 길찾기/내비 실행을 지원</text>
+
+  <text class="section" x="56" y="145">1. ChatGPT에서 사용자가 보게 되는 흐름</text>
+
+  <rect class="card blue" x="56" y="172" width="248" height="204"/>
+  <text class="head" x="80" y="205">ChatGPT 대화/위젯</text>
+  <text class="body" x="80" y="236">PlanME 일정 카드 안에</text>
+  <text class="body" x="80" y="258">구간별 길안내 버튼 노출</text>
+  <rect class="button" x="80" y="290" width="150" height="42"/>
+  <text class="buttonText" x="104" y="317">네이버지도 열기</text>
+  <text class="small" x="80" y="356">자동 실행이 아니라 사용자가 클릭</text>
+
+  <path class="line" d="M 304 274 C 334 274 350 274 380 274"/>
+
+  <rect class="card yellow" x="382" y="172" width="266" height="204"/>
+  <text class="head" x="406" y="205">PlanME HTTPS 핸드오프</text>
+  <text class="body" x="406" y="236">ChatGPT는 외부 링크를</text>
+  <text class="body" x="406" y="258">브라우저로 열 수 있음</text>
+  <text class="code" x="406" y="294">/naver-map?segment=...</text>
+  <text class="small" x="406" y="329">nmap:// 직결보다 안전한 중간 페이지</text>
+  <text class="small" x="406" y="351">기기/앱 설치 여부에 따라 분기</text>
+
+  <path class="line" d="M 648 274 C 678 274 694 274 724 274"/>
+
+  <rect class="card green" x="726" y="172" width="224" height="204"/>
+  <text class="head" x="750" y="205">네이버 지도 앱</text>
+  <text class="body" x="750" y="236">설치되어 있으면</text>
+  <text class="body" x="750" y="258">길찾기/내비 화면 실행</text>
+  <text class="code" x="750" y="294">nmap://route/car</text>
+  <text class="code" x="750" y="316">nmap://route/walk</text>
+  <text class="code" x="750" y="338">nmap://navigation</text>
+
+  <path class="lineGray" d="M 838 376 C 838 418 838 430 838 461"/>
+
+  <rect class="cardFlat red" x="726" y="462" width="224" height="124"/>
+  <text class="head" x="750" y="493">앱 미설치/PC</text>
+  <text class="body" x="750" y="524">스토어 또는 웹 지도 검색으로</text>
+  <text class="body" x="750" y="546">fallback 처리</text>
+  <text class="small" x="750" y="570">공식 앱 스킴은 앱 설치 필요</text>
+
+  <rect class="cardFlat" x="986" y="172" width="158" height="414"/>
+  <text class="head" x="1010" y="205">확인 근거</text>
+  <line class="divider" x1="1010" y1="222" x2="1120" y2="222"/>
+  <text class="body" x="1010" y="252">OpenAI</text>
+  <text class="small" x="1010" y="276">openExternal:</text>
+  <text class="small" x="1010" y="296">외부 링크를</text>
+  <text class="small" x="1010" y="316">사용자 브라우저로 열기</text>
+  <text class="body" x="1010" y="354">Naver</text>
+  <text class="small" x="1010" y="378">nmap:// URL Scheme</text>
+  <text class="small" x="1010" y="398">route/public, car, walk</text>
+  <text class="small" x="1010" y="418">navigation 지원</text>
+  <text class="small" x="1010" y="456">모든 URL에</text>
+  <text class="code" x="1010" y="478">appname</text>
+  <text class="small" x="1010" y="500">필수</text>
+
+  <text class="section" x="56" y="450">2. PlanME 안에서의 역할 분리</text>
+
+  <rect class="cardFlat blue" x="56" y="478" width="290" height="160"/>
+  <text class="head" x="80" y="511">PlanME 내부 화면</text>
+  <text class="body" x="80" y="544">일정 지도 미리보기</text>
+  <text class="body" x="80" y="568">행선지 순서/구간 비교</text>
+  <text class="body" x="80" y="592">CarryME 최적 동선 설명</text>
+  <text class="small" x="80" y="620">지도 렌더링은 서비스 화면 품질용</text>
+
+  <path class="line" d="M 346 558 C 389 558 408 558 451 558"/>
+
+  <rect class="cardFlat green" x="452" y="478" width="226" height="160"/>
+  <text class="head" x="476" y="511">길안내 실행</text>
+  <text class="body" x="476" y="544">구간별 버튼 클릭 시</text>
+  <text class="body" x="476" y="568">네이버 지도 앱으로 넘김</text>
+  <text class="small" x="476" y="600">국내: Naver/Kakao 우선</text>
+  <text class="small" x="476" y="622">해외: Google Maps 우선</text>
+
+  <path class="line" d="M 678 558 C 707 558 723 558 752 558"/>
+
+  <rect class="cardFlat yellow" x="754" y="616" width="390" height="86"/>
+  <text class="head" x="778" y="648">권장 결론</text>
+  <text class="body" x="778" y="676">“네이버 지도 API로 자체 길안내 구현”이 아니라</text>
+  <text class="body" x="778" y="698">“네이버 지도 앱/웹으로 핸드오프”가 1차 구현안</text>
+
+  <rect x="754" y="478" width="390" height="104" rx="14" fill="#ffffff" stroke="#d8dee9" stroke-width="1.4"/>
+  <text class="head" x="778" y="511">URL 예시</text>
+  <text class="code" x="778" y="540">nmap://route/car?slat=...&amp;slng=...</text>
+  <text class="code" x="778" y="562">&amp;dlat=...&amp;dlng=...&amp;appname=planme...</text>
+
+  <rect x="56" y="700" width="620" height="38" rx="19" fill="#ecfdf5" stroke="#bbf7d0"/>
+  <text class="pillText" x="82" y="724">핵심: PlanME는 일정/비교를 보여주고, 실제 내비게이션은 네이버 지도 앱이 담당</text>
+</svg>

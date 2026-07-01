@@ -68,7 +68,7 @@ async function main(): Promise<void> {
     const recommendation = await client.callTool({
       name: "recommend_planme_itinerary",
       arguments: {
-        destination: "오사카",
+        destination: "부산",
         durationDays: 2,
         travelerCount: 1,
         luggageCount: 1,
@@ -78,8 +78,8 @@ async function main(): Promise<void> {
     assert.equal(recommendation.isError, undefined);
     const structuredContent = recommendation.structuredContent as RecommendationContent | undefined;
 
-    assert.equal(structuredContent?.itineraryId, "osaka-2d1n");
-    assert.equal(structuredContent?.savedMinutes, 120);
+    assert.equal(structuredContent?.itineraryId, "busan-bts-1d1n");
+    assert.equal(structuredContent?.savedMinutes, 70);
 
     const resource = await client.readResource({
       uri: "ui://planme/itinerary-widget-v2.html",
