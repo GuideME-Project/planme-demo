@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
-import { getDemoItinerary } from "@planme/core";
+import { createRecommendedItineraryResponse, getDemoItinerary } from "@planme/core";
 
 type PlanRequestBody = {
+  arrivalAirport?: string;
+  arrivalTime?: string;
   destination?: string;
-  nights?: number;
   days?: number;
+  hotelName?: string;
+  luggageCount?: number;
+  nights?: number;
+  preferences?: string[];
+  travelerCount?: number;
 };
 
 /**
@@ -29,21 +35,25 @@ export async function GET() {
  */
 export async function POST(request: Request) {
   const body = (await request.json()) as PlanRequestBody;
-  const itinerary = getDemoItinerary();
+  const response = createRecommendedItineraryResponse(request.url, {
+    arrivalAirport: body.arrivalAirport,
+    arrivalTime: body.arrivalTime,
+    destination: body.destination,
+    durationDays: body.days ?? (typeof body.nights === "number" ? body.nights + 1 : undefined),
+    hotelName: body.hotelName,
+    luggageCount: body.luggageCount,
+    preferences: body.preferences,
+    travelerCount: body.travelerCount,
+  });
 
-  // 데모 단계에서는 입력값을 기록 가능한 형태로만 반영하고 일정 생성은 mock 데이터로 고정합니다.
   return NextResponse.json({
     message:
       "GuideME 스타일의 여정으로 안내할께요. 요청하신 조건에 맞춰 PlanME 상세 일정 링크를 준비했어요.",
-    input: {
-      destination: body.destination ?? itinerary.region,
-      nights: body.nights ?? 1,
-      days: body.days ?? 2,
-    },
-    itinerary,
+    input: response.input,
+    itinerary: response.itinerary,
     cta: {
       label: "플랜미로 상세 일정 보기",
-      url: itinerary.detailUrl,
+      url: response.pageUrl,
     },
   });
 }

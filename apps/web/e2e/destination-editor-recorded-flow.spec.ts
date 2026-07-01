@@ -121,7 +121,11 @@ test.beforeEach(async ({ page }) => {
 
     // Each test starts with an empty persistent cache, but page reloads keep it.
     Object.keys(localStorage)
-      .filter((key) => key.startsWith("planme:odsay-cache:"))
+      .filter(
+        (key) =>
+          key.startsWith("planme:odsay-cache:") ||
+          key.startsWith("planme:naver-route-cache:"),
+      )
       .forEach((key) => localStorage.removeItem(key));
     sessionStorage.setItem(resetMarkerKey, "true");
   });
@@ -446,8 +450,19 @@ test("recalculates Busan concert to Jeongeup transit and Jeongeup to Seomyeon dr
       page.getByText(/지도에 표시할 장거리 대중교통 경로 좌표를 확인하지 못했습니다/),
     ).toHaveCount(0);
     await expect(page.getByText(/경로 체크 완료/)).toBeVisible();
-    expect(naverDriveRequestUrls.length).toBe(1);
+    const firstNaverDriveRequestCount = naverDriveRequestUrls.length;
+
+    expect(firstNaverDriveRequestCount).toBe(1);
     expect(tmapRouteRequestUrls.length).toBe(0);
+
+    naverDriveRequestUrls.length = 0;
+    await page.getByRole("button", { name: "경로 다시 계산" }).click();
+    await page.waitForTimeout(300);
+
+    console.info(
+      `[naver-cache-counts] first=${firstNaverDriveRequestCount}, second=${naverDriveRequestUrls.length}`,
+    );
+    expect(naverDriveRequestUrls).toEqual([]);
   });
 });
 

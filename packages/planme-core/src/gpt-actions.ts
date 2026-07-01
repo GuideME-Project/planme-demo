@@ -1,4 +1,8 @@
-import { getItineraryById, getDemoItinerary, type PlanmeItinerary } from "./mock-data.js";
+import {
+  createGeneratedItinerary,
+  getPlanmeItineraryById,
+} from "./generated-itineraries.js";
+import type { PlanmeItinerary } from "./mock-data.js";
 
 export type RecommendItineraryRequest = {
   destination?: string;
@@ -55,7 +59,7 @@ export function buildItineraryPreviewMarkdown(ogImageUrl: string): string {
 }
 
 /**
- * Converts the demo itinerary into the compact response shape exposed to Custom GPT Actions.
+ * Converts a PlanME itinerary into the compact response shape exposed to Custom GPT Actions.
  */
 export function toGptActionItineraryResponse(
   itinerary: PlanmeItinerary,
@@ -66,7 +70,6 @@ export function toGptActionItineraryResponse(
   const ogImageUrl = buildItineraryOgImageUrl(requestUrl, itinerary.id);
   const previewMarkdown = buildItineraryPreviewMarkdown(ogImageUrl);
 
-  // The technical validation endpoint keeps calculations deterministic by using the curated mock plan.
   return {
     itineraryId: itinerary.id,
     title: itinerary.title,
@@ -86,15 +89,15 @@ export function toGptActionItineraryResponse(
 }
 
 /**
- * Creates the current technical-validation itinerary response for a GPT planning request.
+ * Creates a generated itinerary response for a GPT planning request.
  */
 export function createRecommendedItineraryResponse(
   requestUrl: string,
   input: RecommendItineraryRequest,
 ) {
-  const itinerary = getDemoItinerary();
+  const itinerary = createGeneratedItinerary(input);
 
-  // The request input is echoed so GPT setup testing can confirm argument mapping.
+  // Echo normalized request fields so GPT setup testing can confirm argument mapping.
   return {
     ...toGptActionItineraryResponse(itinerary, requestUrl),
     input: {
@@ -112,13 +115,13 @@ export function createRecommendedItineraryResponse(
 }
 
 /**
- * Finds the current demo itinerary and converts it for GPT Actions.
+ * Finds a generated or demo itinerary and converts it for GPT Actions.
  */
 export function getGptActionItineraryResponse(
   itineraryId: string,
   requestUrl: string,
 ): GptActionItineraryResponse | null {
-  const itinerary = getItineraryById(itineraryId);
+  const itinerary = getPlanmeItineraryById(itineraryId);
 
   // Invalid ids are intentionally returned as null so Route Handlers can map them to 404.
   return itinerary ? toGptActionItineraryResponse(itinerary, requestUrl) : null;
