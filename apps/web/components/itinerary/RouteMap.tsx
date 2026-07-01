@@ -2,7 +2,7 @@ import AttractionsRoundedIcon from "@mui/icons-material/AttractionsRounded";
 import FlightTakeoffRoundedIcon from "@mui/icons-material/FlightTakeoffRounded";
 import HotelRoundedIcon from "@mui/icons-material/HotelRounded";
 import InfoRoundedIcon from "@mui/icons-material/InfoRounded";
-import LocalShippingRoundedIcon from "@mui/icons-material/LocalShippingRounded";
+import TrainRoundedIcon from "@mui/icons-material/TrainRounded";
 import { alpha, Box, Stack, Typography, useTheme } from "@mui/material";
 import type { MapCoordinate, MapPoint, RoutePlan } from "@planme/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -19,171 +19,105 @@ type RouteMapProps = {
 
 const mapMarkers = [
   {
-    id: "kix",
-    label: "간사이 국제공항 (KIX)",
+    id: "icn",
+    label: "인천공항",
     icon: <FlightTakeoffRoundedIcon fontSize="small" />,
-    x: 8,
-    y: 73,
+    x: 14,
+    y: 22,
+    tone: "primary",
+  },
+  {
+    id: "seoul-station",
+    label: "서울역",
+    caption: "KTX 환승",
+    icon: <TrainRoundedIcon fontSize="small" />,
+    x: 25,
+    y: 28,
     tone: "primary",
   },
   {
     id: "hotel",
-    label: "호텔 체크인",
+    label: "서면 호텔",
     caption: "수하물 보관",
     icon: <HotelRoundedIcon fontSize="small" />,
-    x: 36,
-    y: 54,
+    x: 78,
+    y: 74,
     tone: "primary",
   },
   {
-    id: "usj",
-    label: "유니버설 스튜디오 재팬 (USJ)",
+    id: "concert",
+    label: "부산 공연장",
+    caption: "BTS 공연 관람",
     icon: <AttractionsRoundedIcon fontSize="small" />,
-    x: 74,
-    y: 32,
-    tone: "secondary",
-  },
-  {
-    id: "carryme",
-    label: "캐리미 짐 탁송",
-    caption: "공항에서 호텔로 배송",
-    icon: <LocalShippingRoundedIcon fontSize="small" />,
-    x: 57,
+    x: 84,
     y: 66,
     tone: "secondary",
   },
 ] as const;
 
-const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+const naverMapsClientId = process.env.NEXT_PUBLIC_NAVER_MAPS_CLIENT_ID ?? "";
 
-type GoogleLatLngLiteral = {
-  lat: number;
-  lng: number;
+type NaverLatLng = {
+  lat: () => number;
+  lng: () => number;
 };
 
-type GoogleMapInstance = {
-  fitBounds: (bounds: GoogleLatLngBounds) => void;
+type NaverMapInstance = {
+  fitBounds: (bounds: object) => void;
 };
 
-type GoogleLatLngBounds = {
-  extend: (point: GoogleLatLngLiteral) => void;
-};
+type NaverPoint = object;
+type NaverSize = object;
 
-type GoogleMapStyle = {
-  elementType?: string;
-  featureType?: string;
-  stylers: Array<Record<string, string>>;
-};
-
-type GoogleMapsNamespace = {
-  LatLngBounds: new () => GoogleLatLngBounds;
+type NaverMapsNamespace = {
+  LatLng: new (lat: number, lng: number) => NaverLatLng;
+  LatLngBounds: new () => {
+    extend: (point: NaverLatLng) => void;
+  };
   Map: new (
     element: HTMLElement,
     options: {
-      center: GoogleLatLngLiteral;
-      clickableIcons: boolean;
-      disableDefaultUI: boolean;
-      mapTypeControl: boolean;
-      streetViewControl: boolean;
-      styles: GoogleMapStyle[];
+      center: NaverLatLng;
+      logoControlOptions?: {
+        position: string;
+      };
+      scaleControl?: boolean;
+      scrollwheel?: boolean;
       zoom: number;
-      zoomControl: boolean;
+      zoomControl?: boolean;
     },
-  ) => GoogleMapInstance;
+  ) => NaverMapInstance;
   Marker: new (options: {
     icon?: {
-      fillColor: string;
-      fillOpacity: number;
-      path: number;
-      scale: number;
-      strokeColor: string;
-      strokeWeight: number;
+      anchor?: NaverPoint;
+      content?: string;
+      size?: NaverSize;
     };
-    label?: {
-      color: string;
-      fontSize: string;
-      fontWeight: string;
-      text: string;
-    };
-    map: GoogleMapInstance;
-    position: GoogleLatLngLiteral;
+    map: NaverMapInstance;
+    position: NaverLatLng;
     title: string;
+    zIndex?: number;
   }) => void;
+  Point: new (x: number, y: number) => NaverPoint;
   Polyline: new (options: {
-    geodesic: boolean;
-    icons?: Array<{
-      icon: {
-        fillColor: string;
-        fillOpacity: number;
-        path: number;
-        scale: number;
-        strokeColor: string;
-        strokeWeight: number;
-      };
-      offset: string;
-      repeat: string;
-    }>;
-    map: GoogleMapInstance;
-    path: GoogleLatLngLiteral[];
+    map: NaverMapInstance;
+    path: NaverLatLng[];
     strokeColor: string;
-    strokeOpacity: number;
+    strokeOpacity?: number;
     strokeWeight: number;
   }) => void;
-  SymbolPath: {
-    CIRCLE: number;
-    FORWARD_CLOSED_ARROW: number;
+  Position: {
+    BOTTOM_RIGHT: string;
   };
+  Size: new (width: number, height: number) => NaverSize;
 };
 
-declare global {
-  interface Window {
-    gm_authFailure?: () => void;
-    google?: {
-      maps: GoogleMapsNamespace;
-    };
-    planmeGoogleMapsPromise?: Promise<GoogleMapsNamespace>;
-  }
-}
-
-const lightMapStyles: GoogleMapStyle[] = [
-  {
-    featureType: "poi",
-    stylers: [{ visibility: "off" }],
-  },
-  {
-    featureType: "transit",
-    stylers: [{ saturation: "-30" }],
-  },
-];
-
-const darkMapStyles: GoogleMapStyle[] = [
-  {
-    elementType: "geometry",
-    stylers: [{ color: "#1f2937" }],
-  },
-  {
-    elementType: "labels.text.fill",
-    stylers: [{ color: "#d1d5db" }],
-  },
-  {
-    elementType: "labels.text.stroke",
-    stylers: [{ color: "#111827" }],
-  },
-  {
-    featureType: "poi",
-    stylers: [{ visibility: "off" }],
-  },
-  {
-    featureType: "road",
-    elementType: "geometry",
-    stylers: [{ color: "#374151" }],
-  },
-  {
-    featureType: "water",
-    elementType: "geometry",
-    stylers: [{ color: "#0f2f45" }],
-  },
-];
+type PlanmeNaverWindow = Window & {
+  naver?: {
+    maps?: NaverMapsNamespace;
+  };
+  planmeNaverMapsPromise?: Promise<NaverMapsNamespace>;
+};
 
 /**
  * Converts percentage coordinates into an SVG polyline point string.
@@ -193,47 +127,76 @@ function toPointString(points: MapPoint[]): string {
 }
 
 /**
- * Loads the Google Maps JavaScript API once for the PlanME route map.
+ * Formats a minute duration into the compact Korean label used in the route summary.
  */
-function loadGoogleMaps(apiKey: string): Promise<GoogleMapsNamespace> {
-  if (window.google?.maps) {
-    return Promise.resolve(window.google.maps);
+function formatDurationFromMinutes(minutes: number): string {
+  if (minutes < 60) {
+    return `약 ${minutes}분`;
   }
 
-  if (window.planmeGoogleMapsPromise) {
-    return window.planmeGoogleMapsPromise;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+
+  // Keep zero-minute labels short so the bottom guide line does not wrap awkwardly.
+  return remainingMinutes === 0 ? `약 ${hours}시간` : `약 ${hours}시간 ${remainingMinutes}분`;
+}
+
+/**
+ * Returns the first available route coordinate without forcing separate segments together.
+ */
+function getFirstRouteCoordinate(route: RoutePlan) {
+  return route.geoSegments?.find((segment) => segment.length > 0)?.[0];
+}
+
+/**
+ * Checks whether a route has drawable geographic line data.
+ */
+function hasDrawableRoute(route: RoutePlan) {
+  return Boolean(route.geoSegments?.some((segment) => segment.length > 2));
+}
+
+/**
+ * Loads the Naver Maps JavaScript SDK once for the PlanME route map.
+ */
+function loadNaverMaps(clientId: string): Promise<NaverMapsNamespace> {
+  const naverWindow = window as PlanmeNaverWindow;
+
+  if (naverWindow.naver?.maps) {
+    return Promise.resolve(naverWindow.naver.maps);
   }
 
-  window.planmeGoogleMapsPromise = new Promise((resolve, reject) => {
+  if (naverWindow.planmeNaverMapsPromise) {
+    return naverWindow.planmeNaverMapsPromise;
+  }
+
+  naverWindow.planmeNaverMapsPromise = new Promise((resolve, reject) => {
     const script = document.createElement("script");
     const params = new URLSearchParams({
-      key: apiKey,
-      v: "weekly",
+      ncpKeyId: clientId,
     });
 
-    // Google Maps JS API is loaded as a browser script because this demo avoids an extra client dependency.
+    // Naver Maps SDK is loaded lazily so route data can still render with the static fallback.
     script.async = true;
     script.defer = true;
-    script.onerror = () => reject(new Error("Google Maps JavaScript API failed to load"));
+    script.onerror = () => reject(new Error("Naver Maps JavaScript SDK failed to load"));
     script.onload = () => {
-      if (window.google?.maps) {
-        resolve(window.google.maps);
+      if (naverWindow.naver?.maps) {
+        resolve(naverWindow.naver.maps);
         return;
       }
 
-      reject(new Error("Google Maps namespace was not initialized"));
+      reject(new Error("Naver Maps namespace was not initialized"));
     };
-    script.src = `https://maps.googleapis.com/maps/api/js?${params.toString()}`;
+    script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?${params.toString()}`;
     document.head.append(script);
   });
 
-  return window.planmeGoogleMapsPromise;
+  return naverWindow.planmeNaverMapsPromise;
 }
 
-type GoogleRouteMapProps = {
+type NaverRouteMapProps = {
   carrymeColor: string;
   carrymeRoute: RoutePlan;
-  isDark: boolean;
   onLoadFailed: () => void;
   showCarryme: boolean;
   showStandard: boolean;
@@ -242,104 +205,106 @@ type GoogleRouteMapProps = {
 };
 
 /**
- * Renders the real Google Maps route overlay for the PlanME demo.
+ * Renders the real Naver Maps route overlay for the PlanME demo.
  */
-function GoogleRouteMap({
+function NaverRouteMap({
   carrymeColor,
   carrymeRoute,
-  isDark,
   onLoadFailed,
   showCarryme,
   showStandard,
   standardColor,
   standardRoute,
-}: GoogleRouteMapProps) {
+}: NaverRouteMapProps) {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
-  const apiKey = googleMapsApiKey;
   const markers = useMemo(
-    () =>
-      [
-        ...standardRoute.stops,
-        {
-          caption: "공항에서 호텔로 배송",
-          coordinate: carrymeRoute.dashedGeoPath?.[1] ?? carrymeRoute.stops[0]?.coordinate,
-          icon: "hotel" as const,
-          label: "캐리미 짐 탁송",
-        },
-      ].filter((stop) => Boolean(stop.coordinate)),
-    [carrymeRoute.dashedGeoPath, carrymeRoute.stops, standardRoute.stops],
+    () => standardRoute.stops.filter((stop) => Boolean(stop.coordinate)),
+    [standardRoute.stops],
   );
 
   useEffect(() => {
     let cancelled = false;
-    const resolvedApiKey = apiKey;
-    const previousAuthFailureHandler = window.gm_authFailure;
 
-    if (!resolvedApiKey || !mapElementRef.current) {
+    if (!naverMapsClientId || !mapElementRef.current) {
       return;
     }
 
-    window.gm_authFailure = () => {
-      // Referrer restrictions fail after the script loads, so handle Google Maps auth errors separately.
-      previousAuthFailureHandler?.();
-      if (!cancelled) {
-        onLoadFailed();
-      }
-    };
-
-    async function renderMap(resolvedGoogleMapsApiKey: string): Promise<void> {
+    async function renderMap(clientId: string): Promise<void> {
       try {
-        const maps = await loadGoogleMaps(resolvedGoogleMapsApiKey);
+        const maps = await loadNaverMaps(clientId);
 
         if (cancelled || !mapElementRef.current) {
           return;
         }
 
-        const center = { lat: 34.56, lng: 135.38 };
+        const firstCoordinate =
+          getFirstRouteCoordinate(standardRoute) ??
+          getFirstRouteCoordinate(carrymeRoute) ??
+          standardRoute.stops[0]?.coordinate ??
+          carrymeRoute.stops[0]?.coordinate;
+        const center = new maps.LatLng(
+          firstCoordinate?.lat ?? 36.2,
+          firstCoordinate?.lng ?? 127.9,
+        );
+
+        mapElementRef.current.replaceChildren();
+
         const map = new maps.Map(mapElementRef.current, {
           center,
-          clickableIcons: false,
-          disableDefaultUI: true,
-          mapTypeControl: false,
-          streetViewControl: false,
-          styles: isDark ? darkMapStyles : lightMapStyles,
+          logoControlOptions: { position: maps.Position.BOTTOM_RIGHT },
+          scaleControl: true,
+          scrollwheel: true,
           zoom: 10,
           zoomControl: true,
         });
         const bounds = new maps.LatLngBounds();
-        const arrowIcon = {
-          fillColor: "#ffffff",
-          fillOpacity: 1,
-          path: maps.SymbolPath.FORWARD_CLOSED_ARROW,
-          scale: 2.4,
-          strokeColor: "#ffffff",
-          strokeWeight: 1,
-        };
+        let hasBounds = false;
 
-        const addRoute = (path: MapCoordinate[] | undefined, color: string, opacity = 0.95) => {
-          if (!path || path.length === 0) {
+        const addRouteSegment = (
+          path: MapCoordinate[],
+          color: string,
+          opacity = 0.95,
+        ) => {
+          if (path.length <= 2) {
             return;
           }
 
-          path.forEach((point) => bounds.extend(point));
+          const naverPath = path.map((point) => new maps.LatLng(point.lat, point.lng));
+
+          // Keep map bounds in sync with every visible route segment.
+          naverPath.forEach((point) => {
+            bounds.extend(point);
+            hasBounds = true;
+          });
           new maps.Polyline({
-            geodesic: true,
-            icons: [{ icon: arrowIcon, offset: "28%", repeat: "34%" }],
             map,
-            path,
+            path: naverPath,
             strokeColor: color,
             strokeOpacity: opacity,
             strokeWeight: 5,
           });
         };
 
+        const addRoute = (
+          route: RoutePlan,
+          color: string,
+          opacity = 0.95,
+        ) => {
+          const segments = route.geoSegments?.filter((segment) => segment.length > 2);
+
+          if (segments?.length) {
+            segments.forEach((segment) => addRouteSegment(segment, color, opacity));
+            return;
+          }
+
+        };
+
         if (showStandard) {
-          addRoute(standardRoute.geoPath, standardColor);
+          addRoute(standardRoute, standardColor);
         }
 
         if (showCarryme) {
-          addRoute(carrymeRoute.geoPath, carrymeColor);
-          addRoute(carrymeRoute.dashedGeoPath, carrymeColor, 0.55);
+          addRoute(carrymeRoute, carrymeColor);
         }
 
         markers.forEach((marker, index) => {
@@ -347,62 +312,58 @@ function GoogleRouteMap({
             return;
           }
 
-          bounds.extend(marker.coordinate);
+          const markerPosition = new maps.LatLng(marker.coordinate.lat, marker.coordinate.lng);
+          const isCarrymeMarker = marker.label.includes("캐리미");
+
+          bounds.extend(markerPosition);
+          hasBounds = true;
           new maps.Marker({
-            icon: {
-              fillColor: index === 2 || marker.label.includes("캐리미") ? carrymeColor : standardColor,
-              fillOpacity: 1,
-              path: maps.SymbolPath.CIRCLE,
-              scale: 10,
-              strokeColor: "#ffffff",
-              strokeWeight: 3,
-            },
-            label: {
-              color: "#ffffff",
-              fontSize: "11px",
-              fontWeight: "800",
-              text: `${index + 1}`,
-            },
+            ...createNaverMarkerIcon({
+              color: isCarrymeMarker ? carrymeColor : standardColor,
+              index: index + 1,
+              label: marker.label,
+              maps,
+            }),
             map,
-            position: marker.coordinate,
+            position: markerPosition,
             title: marker.label,
           });
         });
 
-        map.fitBounds(bounds);
+        if (hasBounds) {
+          map.fitBounds(bounds);
+        }
       } catch {
-        // Google Maps API key or browser restrictions can fail independently from the demo route data.
+        // Naver key or browser restrictions can fail independently from the demo route data.
         onLoadFailed();
       }
     }
 
-    void renderMap(resolvedApiKey);
+    void renderMap(naverMapsClientId);
 
     return () => {
       cancelled = true;
-      window.gm_authFailure = previousAuthFailureHandler;
     };
   }, [
     carrymeColor,
-    carrymeRoute.dashedGeoPath,
-    carrymeRoute.geoPath,
-    isDark,
+    carrymeRoute.geoSegments,
     markers,
     onLoadFailed,
-    apiKey,
     showCarryme,
     showStandard,
     standardColor,
-    standardRoute.geoPath,
+    standardRoute.geoSegments,
   ]);
 
   return (
     <Box sx={{ minHeight: { xs: 320, md: 360 }, position: "relative" }}>
-      <Box ref={mapElementRef} sx={{ inset: 0, position: "absolute" }} />
+      <Box sx={{ inset: 0, position: "absolute" }}>
+        <Box ref={mapElementRef} sx={{ height: "100%", width: "100%" }} />
+      </Box>
       <Stack
         spacing={0.8}
         sx={{
-          bgcolor: isDark ? alpha("#0f1720", 0.84) : alpha("#ffffff", 0.9),
+          bgcolor: alpha("#ffffff", 0.9),
           border: "1px solid",
           borderColor: "divider",
           borderRadius: 1.5,
@@ -415,14 +376,55 @@ function GoogleRouteMap({
       >
         <LegendRow color={standardColor} label="Standard 경로" />
         <LegendRow color={carrymeColor} label="CarryME 경로" />
-        <LegendRow dashed color={carrymeColor} label="짐 탁송 경로" />
       </Stack>
     </Box>
   );
 }
 
 /**
- * Renders a Google Maps-like mock route view with replaceable route props.
+ * Builds an HTML marker for Naver Maps without depending on image assets.
+ */
+function createNaverMarkerIcon({
+  color,
+  index,
+  label,
+  maps,
+}: {
+  color: string;
+  index: number;
+  label: string;
+  maps: NaverMapsNamespace;
+}): {
+  icon: {
+    anchor: NaverPoint;
+    content: string;
+    size: NaverSize;
+  };
+  zIndex: number;
+} {
+  const content = `
+    <div style="position:relative;width:180px;height:76px;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;pointer-events:none;">
+      <div style="position:absolute;left:73px;top:0;display:grid;place-items:center;width:34px;height:34px;border-radius:999px;background:${color};border:3px solid #fff;box-shadow:0 10px 24px rgba(15,23,42,.22);color:#fff;font-size:12px;font-weight:900;">
+        ${index}
+      </div>
+      <div style="position:absolute;left:50%;top:39px;transform:translateX(-50%);white-space:nowrap;border:1px solid rgba(15,23,42,.12);border-radius:8px;background:white;padding:5px 8px;box-shadow:0 8px 20px rgba(15,23,42,.12);color:#172033;font-size:11px;font-weight:800;">
+        ${label}
+      </div>
+    </div>`;
+
+  return {
+    // Anchor the geographic coordinate to the center of the fixed-size marker circle.
+    icon: {
+      anchor: new maps.Point(90, 17),
+      content,
+      size: new maps.Size(180, 76),
+    },
+    zIndex: 200,
+  };
+}
+
+/**
+ * Renders a Naver-backed route view with a static fallback.
  */
 export function RouteMap({
   attachedToComparison = false,
@@ -433,14 +435,15 @@ export function RouteMap({
   themeMode,
 }: RouteMapProps) {
   const theme = useTheme();
-  const [googleMapFailed, setGoogleMapFailed] = useState(false);
-  const handleGoogleMapLoadFailed = useCallback(() => setGoogleMapFailed(true), []);
+  const [naverFailed, setNaverFailed] = useState(false);
+  const handleNaverLoadFailed = useCallback(() => setNaverFailed(true), []);
   const isDark = themeMode === "dark";
   const standardColor = theme.palette.primary.main;
   const carrymeColor = theme.palette.secondary.main;
-  const canUseGoogleMap = Boolean(
-    googleMapsApiKey && standardRoute.geoPath && carrymeRoute.geoPath && !googleMapFailed,
-  );
+  const savingMinutes = standardRoute.durationMinutes - carrymeRoute.durationMinutes;
+  const savingLabel =
+    savingMinutes > 0 ? formatDurationFromMinutes(savingMinutes) : "절약 없음";
+  const canUseNaver = Boolean(naverMapsClientId && !naverFailed);
   const mapBackground = isDark
     ? "linear-gradient(135deg, #111827 0%, #17212d 48%, #0e2530 100%)"
     : "linear-gradient(135deg, #dceeff 0%, #f6fbff 48%, #e9f8ec 100%)";
@@ -466,12 +469,11 @@ export function RouteMap({
           position: "relative",
         }}
       >
-        {canUseGoogleMap ? (
-        <GoogleRouteMap
+        {canUseNaver ? (
+        <NaverRouteMap
           carrymeColor={carrymeColor}
           carrymeRoute={carrymeRoute}
-          isDark={isDark}
-          onLoadFailed={handleGoogleMapLoadFailed}
+          onLoadFailed={handleNaverLoadFailed}
           showCarryme={showCarryme}
           showStandard={showStandard}
           standardColor={standardColor}
@@ -571,18 +573,6 @@ export function RouteMap({
           />
         ) : null}
 
-        {showCarryme && carrymeRoute.dashedPath ? (
-          <polyline
-            fill="none"
-            points={toPointString(carrymeRoute.dashedPath)}
-            stroke={carrymeColor}
-            strokeDasharray="2 2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="1"
-            vectorEffect="non-scaling-stroke"
-          />
-        ) : null}
       </Box>
 
       {mapMarkers.map((marker) => (
@@ -662,7 +652,6 @@ export function RouteMap({
       >
         <LegendRow color={standardColor} label="Standard 경로" />
         <LegendRow color={carrymeColor} label="CarryME 경로" />
-        <LegendRow dashed color={carrymeColor} label="짐 탁송 경로" />
       </Stack>
         </>
       )}
@@ -684,7 +673,9 @@ export function RouteMap({
       >
         <InfoRoundedIcon color="primary" fontSize="small" />
         <Typography color="primary" sx={{ fontSize: 13, fontWeight: 700 }}>
-          CarryME 이용 시 호텔 경유가 없어 약 2시간을 절약할 수 있습니다.
+          {savingMinutes > 0
+            ? `CarryME 이용 시 호텔 경유가 없어 ${savingLabel}을 절약할 수 있습니다.`
+            : "현재 경로 계산 기준으로는 절약 시간이 없습니다."}
         </Typography>
       </Stack>
     </Box>

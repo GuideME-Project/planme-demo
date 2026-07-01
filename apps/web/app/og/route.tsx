@@ -12,7 +12,7 @@ export const contentType = "image/png";
  */
 export function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const title = searchParams.get("title") ?? "PlanME 오사카 1박 2일 추천 일정";
+  const title = searchParams.get("title") ?? "PlanME 부산 BTS 공연 1박 2일 추천 일정";
 
   return new ImageResponse(
     (
@@ -60,7 +60,7 @@ export function GET(request: Request) {
             width: "auto",
           }}
         >
-          planme-demo.vercel.app/itinerary/osaka-2d1n
+          planme-demo.vercel.app/itinerary/busan-bts-1d1n
         </div>
       </div>
     ),

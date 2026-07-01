@@ -7,7 +7,7 @@ const requiredTexts = [
   "이용 방법",
   "일정 URL 복사",
   "총 이동 시간(예상)",
-  "약 8시간 10분 → 6시간 10분",
+  "약 6시간 30분 → 5시간 20분",
   "절약 시간(예상)",
   "동선 비교",
   "상세 지도",
@@ -31,7 +31,7 @@ async function fetchHtml(path) {
   return response.text();
 }
 
-const html = await fetchHtml("/itinerary/osaka-2d1n");
+const html = await fetchHtml("/itinerary/busan-bts-1d1n");
 
 for (const text of requiredTexts) {
   assert.ok(html.includes(text), `Expected rendered detail page to include: ${text}`);
