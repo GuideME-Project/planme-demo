@@ -183,8 +183,12 @@ const odsayRateLimitCacheTtlMs = 30 * 1000;
 // Keep browser-side ODsay requests spaced out to reduce burst-limit failures.
 const odsayMinimumRequestIntervalMs = 250;
 const odsayPersistentCacheStoragePrefix = "planme:odsay-cache:v1:";
+// Browser-persisted Naver route cache also lives for one day to avoid repeated car route calls.
+const naverRoutePersistentResponseCacheTtlMs = 24 * 60 * 60 * 1000;
+const naverRoutePersistentCacheStoragePrefix = "planme:naver-route-cache:v1:";
 const inFlightOdsayRequests = new Map<string, Promise<OdsayResponseWithError>>();
 const odsayResponseCache = new Map<string, CachedOdsayResponse>();
+const naverRouteResponseCache = new Map<string, CachedNaverRouteResponse>();
 let lastOdsayRequestStartedAt = 0;
 let odsayRequestQueue: Promise<void> = Promise.resolve();
 
@@ -206,6 +210,16 @@ type CachedOdsayResponse = {
 
 type PersistedOdsayResponse = {
   data?: OdsayResponseWithError;
+  expiresAt?: number;
+};
+
+type CachedNaverRouteResponse = {
+  data: RouteCheckApiResponse;
+  expiresAt: number;
+};
+
+type PersistedNaverRouteResponse = {
+  data?: RouteCheckApiResponse;
   expiresAt?: number;
 };
 
@@ -696,6 +710,124 @@ function writePersistentOdsayResponse(cacheKey: string, data: OdsayResponseWithE
   } catch {
     // If the browser storage quota is full, keep the in-memory cache as the safe fallback.
   }
+}
+
+/**
+ * Builds a stable cache key for one Naver car route segment.
+ */
+function createNaverDriveRouteCacheKey(origin: DestinationRow, destination: DestinationRow) {
+  return `drive:${getRouteRowsSignature([origin, destination])}`;
+}
+
+/**
+ * Builds the localStorage key for a Naver car route cache entry.
+ */
+function getPersistentNaverRouteStorageKey(cacheKey: string) {
+  return `${naverRoutePersistentCacheStoragePrefix}${encodeURIComponent(cacheKey)}`;
+}
+
+/**
+ * Reads a browser-persisted Naver route response if it is still valid.
+ */
+function readPersistentNaverRouteResponse(cacheKey: string): CachedNaverRouteResponse | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const storageKey = getPersistentNaverRouteStorageKey(cacheKey);
+
+  try {
+    const rawEntry = window.localStorage.getItem(storageKey);
+
+    if (!rawEntry) {
+      return null;
+    }
+
+    const entry = JSON.parse(rawEntry) as PersistedNaverRouteResponse;
+
+    if (!entry.data || typeof entry.expiresAt !== "number") {
+      window.localStorage.removeItem(storageKey);
+
+      return null;
+    }
+
+    if (entry.expiresAt <= Date.now()) {
+      window.localStorage.removeItem(storageKey);
+
+      return null;
+    }
+
+    return {
+      data: entry.data,
+      expiresAt: entry.expiresAt,
+    };
+  } catch {
+    // Broken browser cache should not block route calculation.
+    window.localStorage.removeItem(storageKey);
+
+    return null;
+  }
+}
+
+/**
+ * Stores one successful Naver car route response for repeated recalculation.
+ */
+function writePersistentNaverRouteResponse(cacheKey: string, data: RouteCheckApiResponse) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const entry: CachedNaverRouteResponse = {
+    data,
+    expiresAt: Date.now() + naverRoutePersistentResponseCacheTtlMs,
+  };
+
+  try {
+    window.localStorage.setItem(
+      getPersistentNaverRouteStorageKey(cacheKey),
+      JSON.stringify(entry),
+    );
+  } catch {
+    // If browser storage is full, the server-side cache still reduces provider calls.
+  }
+}
+
+/**
+ * Caches a successful Naver car route response in memory and browser storage.
+ */
+function cacheNaverRouteResponse(cacheKey: string, data: RouteCheckApiResponse) {
+  const entry: CachedNaverRouteResponse = {
+    data,
+    expiresAt: Date.now() + naverRoutePersistentResponseCacheTtlMs,
+  };
+
+  naverRouteResponseCache.set(cacheKey, entry);
+  writePersistentNaverRouteResponse(cacheKey, data);
+}
+
+/**
+ * Returns a cached Naver car route response when available.
+ */
+function readCachedNaverRouteResponse(cacheKey: string) {
+  const cachedResponse = naverRouteResponseCache.get(cacheKey);
+
+  if (cachedResponse) {
+    if (cachedResponse.expiresAt > Date.now()) {
+      return cachedResponse.data;
+    }
+
+    naverRouteResponseCache.delete(cacheKey);
+  }
+
+  const persistedResponse = readPersistentNaverRouteResponse(cacheKey);
+
+  if (!persistedResponse) {
+    return null;
+  }
+
+  naverRouteResponseCache.set(cacheKey, persistedResponse);
+
+  return persistedResponse.data;
 }
 
 /**
@@ -1231,15 +1363,34 @@ function isTrainStationToBusanSegment(origin: DestinationRow, destination: Desti
  * Requests one Naver Directions segment for car routing inside a mixed provider route.
  */
 async function requestNaverDriveSegmentRoute(origin: DestinationRow, destination: DestinationRow) {
+  const cacheKey = createNaverDriveRouteCacheKey(origin, destination);
+  const cachedPayload = readCachedNaverRouteResponse(cacheKey);
+
+  if (cachedPayload) {
+    return createNaverDriveSegmentResult(cachedPayload);
+  }
+
   const response = await fetch("/api/naver/directions/routes", {
     body: JSON.stringify({ stops: [origin, destination] }),
     headers: { "Content-Type": "application/json" },
     method: "POST",
   });
   const payload = (await response.json()) as RouteCheckApiResponse;
+
+  if (response.ok && payload.ok) {
+    cacheNaverRouteResponse(cacheKey, payload);
+  }
+
+  return createNaverDriveSegmentResult(payload, response.ok);
+}
+
+/**
+ * Converts a Naver route API payload into one drawable route segment.
+ */
+function createNaverDriveSegmentResult(payload: RouteCheckApiResponse, responseOk = true) {
   const segment = payload.segments?.[0];
 
-  if (!response.ok || !payload.ok || !segment) {
+  if (!responseOk || !payload.ok || !segment) {
     throw new Error(payload.message ?? "Naver Directions 자동차 경로 계산에 실패했습니다.");
   }
 
