@@ -15,13 +15,12 @@ const requiredTexts = [
   "CarryME로 짐 맡기기 (데모)",
   "안전한 짐 배송",
   "실시간 알림",
-  "CarryME로 짐을 먼저 보내두면",
-  "더 여유로워요",
-  "상세 길안내는 지도 앱에서 이어서 확인해요",
+  "캐리미로 짐을 이동하니, 관광할 시간이 1시간 더 많아졌어요",
 ];
 
 const requiredHtmlFragments = [
   "/roller/roller-flying.png",
+  'data-planme-roller-motion="wing-flap"',
 ];
 
 async function fetchHtml(path) {

@@ -126,47 +126,20 @@ function toPointString(points: MapPoint[]): string {
   return points.map((point) => `${point.x},${point.y}`).join(" ");
 }
 
-/**
- * Formats a minute duration into the compact Korean label used in the route summary.
- */
-function formatDurationFromMinutes(minutes: number): string {
-  if (minutes < 60) {
-    return `약 ${minutes}분`;
-  }
-
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-
-  // Keep zero-minute labels short so the bottom guide line does not wrap awkwardly.
-  return remainingMinutes === 0 ? `약 ${hours}시간` : `약 ${hours}시간 ${remainingMinutes}분`;
-}
-
 type RollerGuidanceContent = {
-  detail: string;
   headline: string;
-  state: "comfort" | "time-saving";
 };
 
 const rollerImageSrc = "/roller/roller-flying.png";
+const rollerGuidanceHeadline = "캐리미로 짐을 이동하니, 관광할 시간이 1시간 더 많아졌어요";
+const rollerMapNotice = "CarryME 경로를 지도에서 확인해요.";
 
 /**
- * Builds the Roller copy from existing Standard and CarryME duration values.
+ * Builds the Roller copy agreed for the CarryME benefit callout.
  */
-function createRollerGuidanceContent(savingMinutes: number): RollerGuidanceContent {
-  if (savingMinutes > 0) {
-    return {
-      detail: "상세 길안내는 지도 앱에서 이어서 확인해요.",
-      headline: `CarryME로 짐을 먼저 보내두면 ${formatDurationFromMinutes(
-        savingMinutes,
-      )} 더 여유로워요.`,
-      state: "time-saving",
-    };
-  }
-
+function createRollerGuidanceContent(): RollerGuidanceContent {
   return {
-    detail: "상세 길안내는 지도 앱에서 이어서 확인해요.",
-    headline: "짐 없이 편하게 관광할 수 있어요.",
-    state: "comfort",
+    headline: rollerGuidanceHeadline,
   };
 }
 
@@ -453,22 +426,92 @@ function createNaverMarkerIcon({
 function RollerBadge({ isDark }: { isDark: boolean }) {
   return (
     <Box
-      alt=""
       aria-hidden="true"
-      component="img"
-      src={rollerImageSrc}
+      data-planme-roller-motion="wing-flap"
       sx={{
-        display: "block",
+        animation: "planmeRollerFloat 2.6s ease-in-out infinite",
+        display: "inline-block",
         flexShrink: 0,
         filter: isDark
           ? "drop-shadow(0 16px 26px rgba(0,0,0,0.42))"
           : "drop-shadow(0 16px 24px rgba(15,23,42,0.24))",
         height: { xs: 58, md: 82 },
-        objectFit: "contain",
-        transform: { xs: "translateY(2px)", md: "translateY(4px)" },
+        position: "relative",
+        transformOrigin: "50% 55%",
+        willChange: "transform",
         width: { xs: 72, md: 108 },
+        "@keyframes planmeRollerFloat": {
+          "0%, 100%": { transform: "translate3d(0, 2px, 0) rotate(-1deg)" },
+          "50%": { transform: "translate3d(0, -4px, 0) rotate(1deg)" },
+        },
+        "@keyframes planmeRollerLeftWing": {
+          "0%, 100%": { transform: "rotate(-3deg) scaleY(1)" },
+          "45%": { transform: "rotate(9deg) scaleY(0.86)" },
+        },
+        "@keyframes planmeRollerRightWing": {
+          "0%, 100%": { transform: "rotate(3deg) scaleY(1)" },
+          "45%": { transform: "rotate(-9deg) scaleY(0.86)" },
+        },
+        "@media (prefers-reduced-motion: reduce)": {
+          animation: "none",
+          "& [data-planme-roller-wing]": {
+            animation: "none",
+          },
+        },
       }}
-    />
+    >
+      {/* Split the single Roller PNG into clipped layers so the wings can move independently. */}
+      <Box
+        alt=""
+        component="img"
+        src={rollerImageSrc}
+        sx={{
+          clipPath: "polygon(26% 0, 76% 0, 76% 100%, 24% 100%)",
+          height: "100%",
+          inset: 0,
+          objectFit: "contain",
+          position: "absolute",
+          width: "100%",
+          zIndex: 2,
+        }}
+      />
+      <Box
+        alt=""
+        component="img"
+        data-planme-roller-wing="left"
+        src={rollerImageSrc}
+        sx={{
+          animation: "planmeRollerLeftWing 0.72s ease-in-out infinite",
+          clipPath: "polygon(0 8%, 50% 12%, 52% 74%, 0 90%)",
+          height: "100%",
+          inset: 0,
+          objectFit: "contain",
+          position: "absolute",
+          transformOrigin: "48% 56%",
+          width: "100%",
+          willChange: "transform",
+          zIndex: 1,
+        }}
+      />
+      <Box
+        alt=""
+        component="img"
+        data-planme-roller-wing="right"
+        src={rollerImageSrc}
+        sx={{
+          animation: "planmeRollerRightWing 0.72s ease-in-out infinite",
+          clipPath: "polygon(50% 12%, 100% 8%, 100% 90%, 48% 74%)",
+          height: "100%",
+          inset: 0,
+          objectFit: "contain",
+          position: "absolute",
+          transformOrigin: "52% 56%",
+          width: "100%",
+          willChange: "transform",
+          zIndex: 1,
+        }}
+      />
+    </Box>
   );
 }
 
@@ -533,9 +576,6 @@ function RollerGuidance({
           <Typography sx={{ fontSize: 14, fontWeight: 900, lineHeight: 1.35 }}>
             {content.headline}
           </Typography>
-          <Typography color="text.secondary" sx={{ fontSize: 12, fontWeight: 700, mt: 0.5 }}>
-            {content.detail}
-          </Typography>
         </Box>
         <RollerBadge isDark={isDark} />
       </Stack>
@@ -572,12 +612,6 @@ function RollerGuidance({
           >
             {content.headline}
           </Typography>
-          <Typography
-            color="text.secondary"
-            sx={{ fontSize: 11.5, fontWeight: 700, mt: 0.3, overflowWrap: "break-word" }}
-          >
-            {content.detail}
-          </Typography>
         </Box>
       </Stack>
     </>
@@ -601,8 +635,7 @@ export function RouteMap({
   const isDark = themeMode === "dark";
   const standardColor = theme.palette.primary.main;
   const carrymeColor = theme.palette.secondary.main;
-  const savingMinutes = standardRoute.durationMinutes - carrymeRoute.durationMinutes;
-  const rollerGuidance = createRollerGuidanceContent(savingMinutes);
+  const rollerGuidance = createRollerGuidanceContent();
   const canUseNaver = Boolean(naverMapsClientId && !naverFailed);
   const mapBackground = isDark
     ? "linear-gradient(135deg, #111827 0%, #17212d 48%, #0e2530 100%)"
@@ -838,7 +871,7 @@ export function RouteMap({
           color="primary"
           sx={{ fontSize: 13, fontWeight: 700, lineHeight: 1.35, minWidth: 0, overflowWrap: "break-word" }}
         >
-          {rollerGuidance.headline}
+          {rollerMapNotice}
         </Typography>
       </Stack>
     </Box>
