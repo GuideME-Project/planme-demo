@@ -1664,29 +1664,27 @@ function createRecalculatedHeaderCopy(route: RoutePlan): DisplayHeaderCopy {
 }
 
 /**
- * Builds generic benefit copy from the visible route instead of the fixed demo city.
+ * Builds route-independent benefit copy so edited routes never leak demo city names.
  */
-function createRouteAwareBenefits(route: RoutePlan): BenefitItem[] {
-  const { destinationLabel, originLabel } = getRouteEndpointLabels(route);
-
+function createGenericBenefits(): BenefitItem[] {
   return [
     {
-      description: `${originLabel}에서 ${destinationLabel}까지 안전하게 배송`,
+      description: "수하물은 안전하게 보관하고 목적지까지 배송됩니다.",
       icon: "shield",
       title: "안전한 짐 배송",
     },
     {
-      description: `수하물 보관소 경유 없이 ${destinationLabel}(으)로 바로 이동`,
+      description: "수하물 보관소를 직접 경유하지 않아 이동 시간을 줄일 수 있습니다.",
       icon: "time",
       title: "시간 절약",
     },
     {
-      description: `짐 없이 ${destinationLabel} 일정을 즐기세요`,
+      description: "짐 없이 일정과 주변 여행을 편하게 즐길 수 있습니다.",
       icon: "luggage",
       title: "가벼운 여행",
     },
     {
-      description: "수거부터 목적지 도착까지 알림 제공",
+      description: "수거부터 도착까지 진행 상태를 알림으로 확인할 수 있습니다.",
       icon: "phone",
       title: "실시간 알림",
     },
@@ -1764,10 +1762,7 @@ export function ItineraryDashboard({
         : { summary: itinerary.summary, title: itinerary.title },
     [carrymeRoute, hasComputedRoute, itinerary.summary, itinerary.title],
   );
-  const displayBenefits = useMemo(
-    () => createRouteAwareBenefits(carrymeRoute),
-    [carrymeRoute],
-  );
+  const displayBenefits = useMemo(() => createGenericBenefits(), []);
   const totalDurationLabel = `${standardRoute.durationLabel} → ${carrymeRoute.durationLabel}`;
   const savingLabel = formatSavingLabelFromMinutes(
     standardRoute.durationMinutes,

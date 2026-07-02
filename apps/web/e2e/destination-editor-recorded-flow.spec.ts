@@ -479,8 +479,11 @@ test("updates the header and benefit copy after recalculating an edited local ca
       page.getByText("동탄호수공원에서 아리수로50길(으)로 이동하는 CarryME 동선을 확인하세요."),
     ).toBeVisible();
     await expect(
-      page.getByText("동탄호수공원에서 아리수로50길까지 안전하게 배송"),
+      page.getByText("수하물은 안전하게 보관하고 목적지까지 배송됩니다."),
     ).toBeVisible();
+    await expect(page.getByText("동탄호수공원에서 아리수로50길까지 안전하게 배송")).toHaveCount(
+      0,
+    );
     await expect(page.getByText("인천공항에서 부산 호텔까지 안전하게 배송")).toHaveCount(0);
   });
 });
