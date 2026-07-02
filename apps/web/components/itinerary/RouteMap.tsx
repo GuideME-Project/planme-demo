@@ -451,6 +451,160 @@ function createNaverMarkerIcon({
 }
 
 /**
+ * Renders the compact Roller badge used in CarryME guidance overlays.
+ */
+function RollerBadge({
+  isDark,
+  state,
+}: {
+  isDark: boolean;
+  state: RollerGuidanceContent["state"];
+}) {
+  return (
+    <Box
+      aria-hidden="true"
+      sx={{
+        "&::after": {
+          bgcolor: "#e0f2fe",
+          border: "2px solid",
+          borderColor: isDark ? "#0f1720" : "#ffffff",
+          borderRadius: "999px",
+          content: "\"\"",
+          height: { xs: 18, md: 22 },
+          position: "absolute",
+          right: -7,
+          top: 18,
+          transform: "rotate(-18deg)",
+          width: { xs: 26, md: 31 },
+        },
+        "&::before": {
+          bgcolor: "#f3d35f",
+          borderRadius: "999px 999px 4px 4px",
+          content: "\"\"",
+          height: 16,
+          position: "absolute",
+          top: -5,
+          width: 36,
+        },
+        alignItems: "center",
+        bgcolor: state === "time-saving" ? "#8dd8ff" : "#bae6fd",
+        border: "3px solid",
+        borderColor: isDark ? "#0f1720" : "#ffffff",
+        borderRadius: "999px",
+        boxShadow: isDark
+          ? "0 14px 30px rgba(0,0,0,0.34)"
+          : "0 14px 30px rgba(15,23,42,0.22)",
+        color: "#0f3b60",
+        display: "flex",
+        flexShrink: 0,
+        fontSize: 14,
+        fontWeight: 1000,
+        height: { xs: 54, md: 62 },
+        justifyContent: "center",
+        position: "relative",
+        width: { xs: 54, md: 62 },
+      }}
+    >
+      {state === "time-saving" ? "GO" : "OK"}
+    </Box>
+  );
+}
+
+/**
+ * Shows CarryME benefit copy as a map-anchored Roller guide with mobile fallback.
+ */
+function RollerGuidance({
+  content,
+  isDark,
+  show,
+}: {
+  content: RollerGuidanceContent;
+  isDark: boolean;
+  show: boolean;
+}) {
+  if (!show) {
+    return null;
+  }
+
+  return (
+    <>
+      <Stack
+        direction="row"
+        spacing={1.2}
+        sx={{
+          alignItems: "flex-end",
+          display: { xs: "none", md: "flex" },
+          left: "50%",
+          maxWidth: 360,
+          pointerEvents: "none",
+          position: "absolute",
+          top: "28%",
+          transform: "translateX(-8%)",
+          zIndex: 4,
+        }}
+      >
+        <RollerBadge isDark={isDark} state={content.state} />
+        <Box
+          sx={{
+            bgcolor: isDark ? alpha("#0f1720", 0.92) : alpha("#ffffff", 0.96),
+            border: "1px solid",
+            borderColor: isDark ? alpha("#ffffff", 0.18) : alpha("#0f1720", 0.14),
+            borderRadius: 2,
+            boxShadow: isDark
+              ? "0 18px 38px rgba(0,0,0,0.34)"
+              : "0 18px 38px rgba(15,23,42,0.16)",
+            color: "text.primary",
+            maxWidth: 260,
+            p: 1.4,
+          }}
+        >
+          <Typography sx={{ fontSize: 14, fontWeight: 900, lineHeight: 1.35 }}>
+            {content.headline}
+          </Typography>
+          <Typography color="text.secondary" sx={{ fontSize: 12, fontWeight: 700, mt: 0.5 }}>
+            {content.detail}
+          </Typography>
+        </Box>
+      </Stack>
+
+      <Stack
+        direction="row"
+        spacing={1.2}
+        sx={{
+          alignItems: "center",
+          bgcolor: isDark ? alpha("#0f1720", 0.9) : alpha("#ffffff", 0.95),
+          border: "1px solid",
+          borderColor: "divider",
+          borderRadius: 2,
+          bottom: 14,
+          boxShadow: isDark
+            ? "0 18px 38px rgba(0,0,0,0.32)"
+            : "0 18px 38px rgba(15,23,42,0.14)",
+          display: { xs: "flex", md: "none" },
+          left: 14,
+          pointerEvents: "none",
+          position: "absolute",
+          right: 14,
+          zIndex: 4,
+          px: 1.3,
+          py: 1.1,
+        }}
+      >
+        <RollerBadge isDark={isDark} state={content.state} />
+        <Box sx={{ minWidth: 0 }}>
+          <Typography sx={{ fontSize: 13, fontWeight: 900, lineHeight: 1.35 }}>
+            {content.headline}
+          </Typography>
+          <Typography color="text.secondary" sx={{ fontSize: 11.5, fontWeight: 700, mt: 0.3 }}>
+            {content.detail}
+          </Typography>
+        </Box>
+      </Stack>
+    </>
+  );
+}
+
+/**
  * Renders a Naver-backed route view with a static fallback.
  */
 export function RouteMap({
@@ -468,8 +622,7 @@ export function RouteMap({
   const standardColor = theme.palette.primary.main;
   const carrymeColor = theme.palette.secondary.main;
   const savingMinutes = standardRoute.durationMinutes - carrymeRoute.durationMinutes;
-  const savingLabel =
-    savingMinutes > 0 ? formatDurationFromMinutes(savingMinutes) : "절약 없음";
+  const rollerGuidance = createRollerGuidanceContent(savingMinutes);
   const canUseNaver = Boolean(naverMapsClientId && !naverFailed);
   const mapBackground = isDark
     ? "linear-gradient(135deg, #111827 0%, #17212d 48%, #0e2530 100%)"
@@ -682,6 +835,7 @@ export function RouteMap({
       </Stack>
         </>
       )}
+        <RollerGuidance content={rollerGuidance} isDark={isDark} show={showCarryme} />
       </Box>
 
       <Stack
@@ -700,9 +854,7 @@ export function RouteMap({
       >
         <InfoRoundedIcon color="primary" fontSize="small" />
         <Typography color="primary" sx={{ fontSize: 13, fontWeight: 700 }}>
-          {savingMinutes > 0
-            ? `CarryME 이용 시 호텔 경유가 없어 ${savingLabel}을 절약할 수 있습니다.`
-            : "현재 경로 계산 기준으로는 절약 시간이 없습니다."}
+          {rollerGuidance.headline}
         </Typography>
       </Stack>
     </Box>
