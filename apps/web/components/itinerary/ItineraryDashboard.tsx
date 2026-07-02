@@ -2073,6 +2073,7 @@ export function ItineraryDashboard({
                 mode={mode}
                 onRoutesComputed={handleRoutesComputed}
                 savingLabel={savingLabel}
+                standardRows={createRouteRequestRows(selectedDayPlan.standard)}
               />
 
               <RouteMap
@@ -2333,6 +2334,7 @@ type DestinationEditorProps = {
   mode: "light" | "dark";
   onRoutesComputed: (payload: RouteComputationPayload) => void;
   savingLabel: string;
+  standardRows: DestinationRow[];
 };
 
 /**
@@ -2343,6 +2345,7 @@ function DestinationEditor({
   mode,
   onRoutesComputed,
   savingLabel,
+  standardRows,
 }: DestinationEditorProps) {
   const theme = useTheme();
   const [rows, setRows] = useState<DestinationRow[]>(initialRows);
@@ -2686,8 +2689,9 @@ function DestinationEditor({
 
     try {
       const requestRowsByRoute: Record<RoutePlanId, DestinationRow[]> = {
+        // The editor rows represent the CarryME candidate; Standard must stay as the baseline.
         carryme: rows,
-        standard: rows,
+        standard: standardRows,
       };
       const hasSameComparisonRoute =
         getRouteRowsSignature(requestRowsByRoute.standard) ===

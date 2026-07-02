@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const baseUrl = process.env.PLANME_BASE_URL ?? "http://localhost:3009";
+const itineraryDashboardPath = new URL("../apps/web/components/itinerary/ItineraryDashboard.tsx", import.meta.url);
 const routeMapPath = new URL("../apps/web/components/itinerary/RouteMap.tsx", import.meta.url);
 
 const requiredTexts = [
@@ -33,6 +34,10 @@ const forbiddenHtmlFragments = [
   "data-planme-roller-wing",
 ];
 
+const forbiddenSourceFragments = [
+  "standard: rows,",
+];
+
 async function fetchHtml(path) {
   const response = await fetch(`${baseUrl}${path}`);
 
@@ -46,6 +51,7 @@ async function fetchHtml(path) {
 }
 
 const html = await fetchHtml("/itinerary/busan-bts-1d1n");
+const itineraryDashboardSource = await readFile(itineraryDashboardPath, "utf8");
 const routeMapSource = await readFile(routeMapPath, "utf8");
 
 for (const text of requiredTexts) {
@@ -62,6 +68,10 @@ for (const fragment of requiredSourceFragments) {
 
 for (const fragment of forbiddenHtmlFragments) {
   assert.ok(!html.includes(fragment), `Expected rendered detail page not to include HTML fragment: ${fragment}`);
+}
+
+for (const fragment of forbiddenSourceFragments) {
+  assert.ok(!itineraryDashboardSource.includes(fragment), `Expected ItineraryDashboard source not to include: ${fragment}`);
 }
 
 console.log("PlanME design contract passed");
