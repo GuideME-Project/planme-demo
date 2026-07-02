@@ -28,6 +28,10 @@ const requiredHtmlFragments = [
 const requiredSourceFragments = [
   "캐리미로 짐을 이동하니, 편하게 관광할 수 있네요",
   "function createRollerGuidanceContent(savingLabel: string)",
+  "const routeLineStyles",
+  'strokeStyle: "shortdash"',
+  "zIndex: routeStyle.zIndex",
+  'strokeDasharray="5 4"',
 ];
 
 const requiredDashboardSourceFragments = [

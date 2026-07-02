@@ -69,6 +69,7 @@ type NaverMapInstance = {
 
 type NaverPoint = object;
 type NaverSize = object;
+type NaverStrokeStyle = "solid" | "shortdash";
 
 type NaverMapsNamespace = {
   LatLng: new (lat: number, lng: number) => NaverLatLng;
@@ -104,8 +105,12 @@ type NaverMapsNamespace = {
     map: NaverMapInstance;
     path: NaverLatLng[];
     strokeColor: string;
+    strokeLineCap?: string;
+    strokeLineJoin?: string;
     strokeOpacity?: number;
+    strokeStyle?: NaverStrokeStyle;
     strokeWeight: number;
+    zIndex?: number;
   }) => void;
   Position: {
     BOTTOM_RIGHT: string;
@@ -131,9 +136,33 @@ type RollerGuidanceContent = {
   headline: string;
 };
 
+type RouteLineStyle = {
+  opacity: number;
+  strokeStyle: NaverStrokeStyle;
+  strokeWeight: number;
+  svgStrokeWidth: number;
+  zIndex: number;
+};
+
 const rollerImageSrc = "/roller/roller-flying.png";
 const rollerComfortHeadline = "캐리미로 짐을 이동하니, 편하게 관광할 수 있네요";
 const rollerMapNotice = "CarryME 경로를 지도에서 확인해요.";
+const routeLineStyles: Record<"standard" | "carryme", RouteLineStyle> = {
+  carryme: {
+    opacity: 0.96,
+    strokeStyle: "solid",
+    strokeWeight: 5,
+    svgStrokeWidth: 1.45,
+    zIndex: 20,
+  },
+  standard: {
+    opacity: 0.82,
+    strokeStyle: "shortdash",
+    strokeWeight: 9,
+    svgStrokeWidth: 2.2,
+    zIndex: 10,
+  },
+};
 
 /**
  * Builds the Roller copy agreed for CarryME benefit states.
@@ -265,7 +294,7 @@ function NaverRouteMap({
         const addRouteSegment = (
           path: MapCoordinate[],
           color: string,
-          opacity = 0.95,
+          routeStyle: RouteLineStyle,
         ) => {
           if (path.length <= 2) {
             return;
@@ -282,31 +311,35 @@ function NaverRouteMap({
             map,
             path: naverPath,
             strokeColor: color,
-            strokeOpacity: opacity,
-            strokeWeight: 5,
+            strokeLineCap: "round",
+            strokeLineJoin: "round",
+            strokeOpacity: routeStyle.opacity,
+            strokeStyle: routeStyle.strokeStyle,
+            strokeWeight: routeStyle.strokeWeight,
+            zIndex: routeStyle.zIndex,
           });
         };
 
         const addRoute = (
           route: RoutePlan,
           color: string,
-          opacity = 0.95,
+          routeStyle: RouteLineStyle,
         ) => {
           const segments = route.geoSegments?.filter((segment) => segment.length > 2);
 
           if (segments?.length) {
-            segments.forEach((segment) => addRouteSegment(segment, color, opacity));
+            segments.forEach((segment) => addRouteSegment(segment, color, routeStyle));
             return;
           }
 
         };
 
         if (showStandard) {
-          addRoute(standardRoute, standardColor);
+          addRoute(standardRoute, standardColor, routeLineStyles.standard);
         }
 
         if (showCarryme) {
-          addRoute(carrymeRoute, carrymeColor);
+          addRoute(carrymeRoute, carrymeColor, routeLineStyles.carryme);
         }
 
         markers.forEach((marker, index) => {
@@ -694,9 +727,11 @@ export function RouteMap({
             markerEnd="url(#standardArrow)"
             points={toPointString(standardRoute.mapPath)}
             stroke={standardColor}
+            strokeDasharray="5 4"
             strokeLinecap="round"
             strokeLinejoin="round"
-            strokeWidth="1.45"
+            strokeOpacity={routeLineStyles.standard.opacity}
+            strokeWidth={routeLineStyles.standard.svgStrokeWidth}
             vectorEffect="non-scaling-stroke"
           />
         ) : null}
@@ -710,7 +745,8 @@ export function RouteMap({
             stroke={carrymeColor}
             strokeLinecap="round"
             strokeLinejoin="round"
-            strokeWidth="1.45"
+            strokeOpacity={routeLineStyles.carryme.opacity}
+            strokeWidth={routeLineStyles.carryme.svgStrokeWidth}
             vectorEffect="non-scaling-stroke"
           />
         ) : null}
