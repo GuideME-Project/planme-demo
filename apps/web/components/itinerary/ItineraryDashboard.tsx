@@ -10,7 +10,6 @@ import DirectionsCarRoundedIcon from "@mui/icons-material/DirectionsCarRounded";
 import DirectionsWalkRoundedIcon from "@mui/icons-material/DirectionsWalkRounded";
 import DragIndicatorRoundedIcon from "@mui/icons-material/DragIndicatorRounded";
 import FlightTakeoffRoundedIcon from "@mui/icons-material/FlightTakeoffRounded";
-import HelpOutlineRoundedIcon from "@mui/icons-material/HelpOutlineRounded";
 import HotelRoundedIcon from "@mui/icons-material/HotelRounded";
 import LocationOnOutlinedIcon from "@mui/icons-material/LocationOnOutlined";
 import MapOutlinedIcon from "@mui/icons-material/MapOutlined";
@@ -2169,14 +2168,6 @@ function TopBar({ copyLabel, mode, onCopyUrl, onToggleMode }: TopBarProps) {
           <Typography component="span" sx={{ ml: 0.8, fontSize: 12 }}>
             {mode === "dark" ? "Dark" : "Light"}
           </Typography>
-        </Button>
-        <Button
-          color="inherit"
-          size="small"
-          startIcon={<HelpOutlineRoundedIcon />}
-          variant="text"
-        >
-          이용 방법
         </Button>
         <Button
           onClick={onCopyUrl}
