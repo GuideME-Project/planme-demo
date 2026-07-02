@@ -20,6 +20,10 @@ const requiredTexts = [
   "상세 길안내는 지도 앱에서 이어서 확인해요",
 ];
 
+const requiredHtmlFragments = [
+  "/roller/roller-flying.png",
+];
+
 async function fetchHtml(path) {
   const response = await fetch(`${baseUrl}${path}`);
 
@@ -36,6 +40,10 @@ const html = await fetchHtml("/itinerary/busan-bts-1d1n");
 
 for (const text of requiredTexts) {
   assert.ok(html.includes(text), `Expected rendered detail page to include: ${text}`);
+}
+
+for (const fragment of requiredHtmlFragments) {
+  assert.ok(html.includes(fragment), `Expected rendered detail page to include HTML fragment: ${fragment}`);
 }
 
 console.log("PlanME design contract passed");

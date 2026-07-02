@@ -147,6 +147,8 @@ type RollerGuidanceContent = {
   state: "comfort" | "time-saving";
 };
 
+const rollerImageSrc = "/roller/roller-flying.png";
+
 /**
  * Builds the Roller copy from existing Standard and CarryME duration values.
  */
@@ -448,192 +450,25 @@ function createNaverMarkerIcon({
 /**
  * Renders the compact Roller badge used in CarryME guidance overlays.
  */
-function RollerBadge({
-  isDark,
-  state,
-}: {
-  isDark: boolean;
-  state: RollerGuidanceContent["state"];
-}) {
-  const wingLift = state === "time-saving" ? "-26deg" : "-10deg";
-  const oppositeWingLift = state === "time-saving" ? "26deg" : "10deg";
-
+function RollerBadge({ isDark }: { isDark: boolean }) {
   return (
     <Box
+      alt=""
       aria-hidden="true"
+      component="img"
+      src={rollerImageSrc}
       sx={{
-        bgcolor: "transparent",
         display: "block",
         flexShrink: 0,
-        height: { xs: 54, md: 62 },
-        position: "relative",
-        width: { xs: 54, md: 62 },
+        filter: isDark
+          ? "drop-shadow(0 16px 26px rgba(0,0,0,0.42))"
+          : "drop-shadow(0 16px 24px rgba(15,23,42,0.24))",
+        height: { xs: 58, md: 82 },
+        objectFit: "contain",
+        transform: { xs: "translateY(2px)", md: "translateY(4px)" },
+        width: { xs: 72, md: 108 },
       }}
-    >
-      <Box
-        sx={{
-          bgcolor: state === "time-saving" ? "#38bdf8" : "#7dd3fc",
-          border: "3px solid",
-          borderColor: isDark ? "#0f1720" : "#ffffff",
-          borderRadius: "999px 999px 999px 10px",
-          boxShadow: isDark
-            ? "0 14px 30px rgba(0,0,0,0.34)"
-            : "0 14px 30px rgba(15,23,42,0.22)",
-          height: { xs: 39, md: 45 },
-          left: { xs: 8, md: 9 },
-          position: "absolute",
-          top: { xs: 13, md: 14 },
-          width: { xs: 39, md: 45 },
-          zIndex: 2,
-        }}
-      />
-      <Box
-        sx={{
-          bgcolor: "#f3d35f",
-          border: "2px solid",
-          borderColor: isDark ? "#0f1720" : "#ffffff",
-          borderRadius: "999px 999px 5px 5px",
-          height: { xs: 12, md: 14 },
-          left: { xs: 13, md: 15 },
-          position: "absolute",
-          top: { xs: 7, md: 8 },
-          transform: "rotate(-8deg)",
-          width: { xs: 31, md: 35 },
-          zIndex: 5,
-        }}
-      />
-      <Box
-        sx={{
-          bgcolor: "#0ea5e9",
-          border: "2px solid",
-          borderColor: isDark ? "#0f1720" : "#ffffff",
-          borderRadius: "999px 999px 999px 2px",
-          height: { xs: 21, md: 25 },
-          left: { xs: 25, md: 29 },
-          position: "absolute",
-          top: { xs: -1, md: -2 },
-          transform: "rotate(-10deg)",
-          width: { xs: 11, md: 13 },
-          zIndex: 4,
-        }}
-      />
-      <Box
-        sx={{
-          bgcolor: "#0ea5e9",
-          border: "2px solid",
-          borderColor: isDark ? "#0f1720" : "#ffffff",
-          borderRadius: "999px 999px 6px 999px",
-          height: { xs: 18, md: 21 },
-          left: { xs: 0, md: 1 },
-          position: "absolute",
-          top: { xs: 25, md: 28 },
-          transform: `rotate(${wingLift})`,
-          transformOrigin: "right center",
-          width: { xs: 25, md: 29 },
-          zIndex: 1,
-        }}
-      />
-      <Box
-        sx={{
-          bgcolor: "#0ea5e9",
-          border: "2px solid",
-          borderColor: isDark ? "#0f1720" : "#ffffff",
-          borderRadius: "999px 999px 999px 6px",
-          height: { xs: 18, md: 21 },
-          position: "absolute",
-          right: { xs: 0, md: 1 },
-          top: { xs: 25, md: 28 },
-          transform: `rotate(${oppositeWingLift})`,
-          transformOrigin: "left center",
-          width: { xs: 25, md: 29 },
-          zIndex: 1,
-        }}
-      />
-      <Box
-        sx={{
-          bgcolor: "#ffffff",
-          borderRadius: "999px",
-          height: { xs: 16, md: 18 },
-          left: { xs: 18, md: 20 },
-          position: "absolute",
-          top: { xs: 25, md: 28 },
-          width: { xs: 24, md: 28 },
-          zIndex: 3,
-        }}
-      />
-      <Box
-        sx={{
-          bgcolor: "#0f172a",
-          borderRadius: "999px",
-          height: 5,
-          left: { xs: 18, md: 21 },
-          position: "absolute",
-          top: { xs: 26, md: 29 },
-          width: 5,
-          zIndex: 6,
-        }}
-      />
-      <Box
-        sx={{
-          bgcolor: "#0f172a",
-          borderRadius: "999px",
-          height: 5,
-          left: { xs: 31, md: 35 },
-          position: "absolute",
-          top: { xs: 26, md: 29 },
-          width: 5,
-          zIndex: 6,
-        }}
-      />
-      <Box
-        sx={{
-          borderBottom: "4px solid transparent",
-          borderLeft: "7px solid #f59e0b",
-          borderTop: "4px solid transparent",
-          height: 0,
-          left: { xs: 25, md: 29 },
-          position: "absolute",
-          top: { xs: 32, md: 35 },
-          width: 0,
-          zIndex: 6,
-        }}
-      />
-      <Box
-        sx={{
-          bgcolor: "#f9a8d4",
-          borderRadius: "999px",
-          height: 6,
-          left: { xs: 13, md: 15 },
-          opacity: 0.85,
-          position: "absolute",
-          top: { xs: 34, md: 38 },
-          width: 6,
-          zIndex: 6,
-        }}
-      />
-      <Box
-        sx={{
-          alignItems: "center",
-          bgcolor: "#f3d35f",
-          border: "2px solid",
-          borderColor: isDark ? "#0f1720" : "#ffffff",
-          borderRadius: "999px",
-          bottom: { xs: 1, md: 2 },
-          color: "#0f3b60",
-          display: "flex",
-          fontSize: 8,
-          fontWeight: 1000,
-          height: { xs: 15, md: 17 },
-          justifyContent: "center",
-          position: "absolute",
-          right: { xs: 4, md: 5 },
-          width: { xs: 15, md: 17 },
-          zIndex: 7,
-        }}
-      >
-        C
-      </Box>
-    </Box>
+    />
   );
 }
 
@@ -660,18 +495,16 @@ function RollerGuidance({
         direction="row"
         spacing={1.2}
         sx={{
-          alignItems: "flex-end",
+          alignItems: "center",
           display: { xs: "none", md: "flex" },
-          left: "50%",
-          maxWidth: 360,
+          maxWidth: 348,
           pointerEvents: "none",
           position: "absolute",
-          top: "28%",
-          transform: "translateX(-8%)",
+          right: { md: 14, lg: 20 },
+          top: { md: 22, lg: 28 },
           zIndex: 4,
         }}
       >
-        <RollerBadge isDark={isDark} state={content.state} />
         <Box
           sx={{
             bgcolor: isDark ? alpha("#0f1720", 0.92) : alpha("#ffffff", 0.96),
@@ -682,8 +515,19 @@ function RollerGuidance({
               ? "0 18px 38px rgba(0,0,0,0.34)"
               : "0 18px 38px rgba(15,23,42,0.16)",
             color: "text.primary",
-            maxWidth: 260,
+            maxWidth: 230,
             p: 1.4,
+            position: "relative",
+            "&::after": {
+              borderBottom: "9px solid transparent",
+              borderLeft: `10px solid ${isDark ? alpha("#0f1720", 0.92) : alpha("#ffffff", 0.96)}`,
+              borderTop: "9px solid transparent",
+              content: '""',
+              position: "absolute",
+              right: -10,
+              top: "50%",
+              transform: "translateY(-50%)",
+            },
           }}
         >
           <Typography sx={{ fontSize: 14, fontWeight: 900, lineHeight: 1.35 }}>
@@ -693,6 +537,7 @@ function RollerGuidance({
             {content.detail}
           </Typography>
         </Box>
+        <RollerBadge isDark={isDark} />
       </Stack>
 
       <Stack
@@ -720,7 +565,7 @@ function RollerGuidance({
           width: "min(calc(100% - 28px), calc(100vw - 56px))",
         }}
       >
-        <RollerBadge isDark={isDark} state={content.state} />
+        <RollerBadge isDark={isDark} />
         <Box sx={{ minWidth: 0 }}>
           <Typography
             sx={{ fontSize: 13, fontWeight: 900, lineHeight: 1.35, overflowWrap: "break-word" }}
