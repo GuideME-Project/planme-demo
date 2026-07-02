@@ -21,8 +21,8 @@ export const metadata: Metadata = {
   },
   description: "GuideME 스타일의 여정으로 안내하는 PlanME 일정 데모입니다.",
   openGraph: {
-    title: "PlanME 오사카 1박 2일 추천 일정",
-    description: "Standard / CarryME 동선 비교와 상세 지도를 확인하세요.",
+    title: "PlanME 부산 BTS 공연 1박 2일 추천 일정",
+    description: "인천공항 입국 후 부산 공연장으로 바로 향하는 CarryME 동선을 확인하세요.",
     images: ["/og"],
     type: "website",
   },
@@ -38,6 +38,7 @@ export default function RootLayout({
       lang="ko"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head />
       <body className="min-h-full flex flex-col">
         <ThemeRegistry>{children}</ThemeRegistry>
       </body>

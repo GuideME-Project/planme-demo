@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ItineraryDashboard } from "@/components/itinerary/ItineraryDashboard";
-import { getItineraryById } from "@planme/core";
+import { getPlanmeItineraryById } from "@planme/core";
 
 type ItineraryPageProps = {
   params: Promise<{
@@ -16,7 +16,7 @@ export async function generateMetadata({
   params,
 }: ItineraryPageProps): Promise<Metadata> {
   const { id } = await params;
-  const itinerary = getItineraryById(id);
+  const itinerary = getPlanmeItineraryById(id);
 
   if (!itinerary) {
     return {
@@ -40,7 +40,7 @@ export async function generateMetadata({
  */
 export default async function ItineraryPage({ params }: ItineraryPageProps) {
   const { id } = await params;
-  const itinerary = getItineraryById(id);
+  const itinerary = getPlanmeItineraryById(id);
 
   if (!itinerary) {
     notFound();

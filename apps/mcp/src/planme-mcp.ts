@@ -160,7 +160,7 @@ export function createPlanmeMcpServer(): McpServer {
     "recommend_planme_itinerary",
     {
       title: "Recommend PlanME itinerary",
-      description: "Recommend the current PlanME Osaka demo itinerary and render a timeline widget.",
+      description: "Recommend a PlanME itinerary from travel inputs and render a timeline widget.",
       inputSchema: {
         destination: z.string().optional(),
         durationDays: z.number().int().min(1).max(14).optional(),

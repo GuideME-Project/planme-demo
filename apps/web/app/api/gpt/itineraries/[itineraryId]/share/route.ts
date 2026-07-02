@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getItineraryById } from "@planme/core";
+import { getPlanmeItineraryById } from "@planme/core";
 import { createItineraryShareResponse } from "@planme/core";
 
 type ItineraryShareRouteContext = {
@@ -14,8 +14,8 @@ type ItineraryShareRouteContext = {
 export async function POST(request: Request, context: ItineraryShareRouteContext) {
   const { itineraryId } = await context.params;
 
-  if (!getItineraryById(itineraryId)) {
-    // The demo only exposes known itinerary ids to avoid GPT returning broken links.
+  if (!getPlanmeItineraryById(itineraryId)) {
+    // The API only exposes generated or known demo itinerary ids to avoid broken links.
     return NextResponse.json({ error: "ITINERARY_NOT_FOUND" }, { status: 404 });
   }
 
