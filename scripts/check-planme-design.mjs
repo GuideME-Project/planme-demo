@@ -30,6 +30,13 @@ const requiredSourceFragments = [
   "캐리미로 짐을 이동하니, 편하게 관광할 수 있네요",
 ];
 
+const requiredDashboardSourceFragments = [
+  'type InternalDestinationRole = "origin" | "stop" | "luggageDestination" | "finalDestination";',
+  "function createComparisonRouteRows",
+  "luggageDestination",
+  "finalDestination",
+];
+
 const forbiddenHtmlFragments = [
   "data-planme-roller-wing",
 ];
@@ -64,6 +71,10 @@ for (const fragment of requiredHtmlFragments) {
 
 for (const fragment of requiredSourceFragments) {
   assert.ok(routeMapSource.includes(fragment), `Expected RouteMap source to include: ${fragment}`);
+}
+
+for (const fragment of requiredDashboardSourceFragments) {
+  assert.ok(itineraryDashboardSource.includes(fragment), `Expected ItineraryDashboard source to include: ${fragment}`);
 }
 
 for (const fragment of forbiddenHtmlFragments) {

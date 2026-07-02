@@ -73,6 +73,15 @@ type DestinationRow = {
   placeId?: string;
 };
 
+type InternalDestinationRole = "origin" | "stop" | "luggageDestination" | "finalDestination";
+
+type InferredDestinationRoles = {
+  finalDestination?: DestinationRow;
+  luggageDestination?: DestinationRow;
+  origin?: DestinationRow;
+  stops: DestinationRow[];
+};
+
 type DestinationDragPreview = {
   label: string;
   width: number;
@@ -350,6 +359,174 @@ function createRouteRequestRows(route: RoutePlan): DestinationRow[] {
     mode: index === 0 ? "transit" : "walk",
     name: stop.label,
   }));
+}
+
+/**
+ * Normalizes row names so internal role inference does not depend on spaces or case.
+ */
+function normalizeDestinationName(name: string) {
+  return name.trim().replace(/\s+/g, "").toLocaleLowerCase("ko-KR");
+}
+
+/**
+ * Checks whether two rows point to the same destination without relying on row order.
+ */
+function isSameDestination(left: DestinationRow, right: DestinationRow) {
+  if (left.placeId && right.placeId) {
+    return left.placeId === right.placeId;
+  }
+
+  if (left.coordinate && right.coordinate) {
+    return (
+      Math.abs(left.coordinate.lat - right.coordinate.lat) < 0.00001 &&
+      Math.abs(left.coordinate.lng - right.coordinate.lng) < 0.00001
+    );
+  }
+
+  return normalizeDestinationName(left.name) === normalizeDestinationName(right.name);
+}
+
+/**
+ * Uses only stable accommodation hints for the internal luggage destination role.
+ */
+function hasLuggageDestinationHint(row: DestinationRow) {
+  const normalizedName = normalizeDestinationName(row.name);
+
+  return normalizedName.includes("호텔") || normalizedName.includes("숙소");
+}
+
+/**
+ * Finds the row that should receive luggage by preferring the original Standard detour context.
+ */
+function findLuggageDestinationRow(rows: DestinationRow[], standardRows: DestinationRow[]) {
+  const baselineLuggageRow =
+    standardRows.slice(1, -1).find(hasLuggageDestinationHint) ??
+    standardRows.find(hasLuggageDestinationHint);
+
+  if (baselineLuggageRow) {
+    const matchingRow = rows.find((row) => isSameDestination(row, baselineLuggageRow));
+
+    if (matchingRow) {
+      return matchingRow;
+    }
+  }
+
+  return rows.find(hasLuggageDestinationHint);
+}
+
+/**
+ * Assigns internal route roles without exposing role controls in the destination editor UI.
+ */
+function getInternalDestinationRole({
+  index,
+  luggageDestination,
+  row,
+  total,
+}: {
+  index: number;
+  luggageDestination?: DestinationRow;
+  row: DestinationRow;
+  total: number;
+}): InternalDestinationRole {
+  if (index === 0) {
+    return "origin";
+  }
+
+  if (luggageDestination && isSameDestination(row, luggageDestination)) {
+    return "luggageDestination";
+  }
+
+  if (index === total - 1) {
+    return "finalDestination";
+  }
+
+  return "stop";
+}
+
+/**
+ * Infers the minimum roles needed to compare a luggage detour with the CarryME path.
+ */
+function inferDestinationRoles(
+  rows: DestinationRow[],
+  standardRows: DestinationRow[],
+): InferredDestinationRoles {
+  const luggageDestination = findLuggageDestinationRow(rows, standardRows);
+  const roles: InferredDestinationRoles = {
+    finalDestination: rows[rows.length - 1],
+    luggageDestination,
+    origin: rows[0],
+    stops: [],
+  };
+
+  rows.forEach((row, index) => {
+    const role = getInternalDestinationRole({
+      index,
+      luggageDestination,
+      row,
+      total: rows.length,
+    });
+
+    if (role === "stop") {
+      roles.stops.push(row);
+    }
+  });
+
+  return roles;
+}
+
+/**
+ * Appends a route row while allowing the final destination to repeat after a luggage detour.
+ */
+function appendRouteRow(
+  routeRows: DestinationRow[],
+  row: DestinationRow | undefined,
+  options: { allowDuplicate?: boolean } = {},
+) {
+  if (!row) {
+    return;
+  }
+
+  if (!options.allowDuplicate && routeRows.some((current) => isSameDestination(current, row))) {
+    return;
+  }
+
+  routeRows.push(row);
+}
+
+/**
+ * Creates Standard and CarryME request rows from the same edited destinations and internal roles.
+ */
+function createComparisonRouteRows(
+  rows: DestinationRow[],
+  standardRows: DestinationRow[],
+): Record<RoutePlanId, DestinationRow[]> {
+  const roles = inferDestinationRoles(rows, standardRows);
+
+  if (!roles.origin || !roles.luggageDestination) {
+    return {
+      carryme: [...rows],
+      standard: [...rows],
+    };
+  }
+
+  const carrymeRows: DestinationRow[] = [roles.origin];
+  roles.stops.forEach((row) => appendRouteRow(carrymeRows, row));
+  appendRouteRow(carrymeRows, roles.finalDestination);
+
+  const standardDetourRows: DestinationRow[] = [roles.origin];
+  appendRouteRow(standardDetourRows, roles.luggageDestination);
+  roles.stops.forEach((row) => appendRouteRow(standardDetourRows, row));
+  appendRouteRow(standardDetourRows, roles.finalDestination, {
+    allowDuplicate: Boolean(
+      roles.finalDestination &&
+        isSameDestination(roles.finalDestination, roles.luggageDestination),
+    ),
+  });
+
+  return {
+    carryme: carrymeRows,
+    standard: standardDetourRows,
+  };
 }
 
 /**
@@ -1768,7 +1945,14 @@ export function ItineraryDashboard({
 
   useEffect(() => {
     let cancelled = false;
-    const routes = [selectedDayPlan.standard, selectedDayPlan.carryme];
+    const initialComparisonRows = createComparisonRouteRows(
+      createDestinationRows(selectedDayPlan.carryme),
+      createRouteRequestRows(selectedDayPlan.standard),
+    );
+    const initialRouteEntries: Array<[RoutePlanId, DestinationRow[]]> = [
+      ["standard", initialComparisonRows.standard],
+      ["carryme", initialComparisonRows.carryme],
+    ];
 
     queueMicrotask(() => {
       if (!cancelled) {
@@ -1776,10 +1960,9 @@ export function ItineraryDashboard({
       }
     });
 
-    async function computeInitialRoute(route: RoutePlan) {
+    async function computeInitialRoute(routeId: RoutePlanId, rows: DestinationRow[]) {
       try {
         // Initial map rendering uses verified provider coordinates instead of bundled demo lines.
-        const rows = createRouteRequestRows(route);
         const { payload, responseOk } = await requestRouteCheck(rows);
 
         if (cancelled || !responseOk || !payload.ok || !payload.path?.length) {
@@ -1798,15 +1981,15 @@ export function ItineraryDashboard({
 
         setComputedRoutes((current) => ({
           ...current,
-          [route.id]: result,
+          [routeId]: result,
         }));
       } catch {
         // Keep the static demo path when the live route APIs are temporarily unavailable.
       }
     }
 
-    routes.forEach((route) => {
-      void computeInitialRoute(route);
+    initialRouteEntries.forEach(([routeId, rows]) => {
+      void computeInitialRoute(routeId, rows);
     });
 
     return () => {
@@ -2688,11 +2871,7 @@ function DestinationEditor({
     setRouteMessage("경로를 확인하는 중입니다.");
 
     try {
-      const requestRowsByRoute: Record<RoutePlanId, DestinationRow[]> = {
-        // The editor rows represent the CarryME candidate; Standard must stay as the baseline.
-        carryme: rows,
-        standard: standardRows,
-      };
+      const requestRowsByRoute = createComparisonRouteRows(rows, standardRows);
       const hasSameComparisonRoute =
         getRouteRowsSignature(requestRowsByRoute.standard) ===
         getRouteRowsSignature(requestRowsByRoute.carryme);
