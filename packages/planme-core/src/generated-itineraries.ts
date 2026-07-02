@@ -41,7 +41,7 @@ type AirportTemplate = {
 type NormalizedGeneratedItineraryRequest = {
   destination: string;
   durationDays: number;
-  arrivalAirport: string;
+  arrivalAirport: string | null;
   arrivalTime: string;
   hotelName: string;
   travelerCount: number;
@@ -119,7 +119,9 @@ const destinationTemplates: DestinationTemplate[] = [
 export function createGeneratedItinerary(input: GeneratedItineraryRequest): PlanmeItinerary {
   const normalizedInput = normalizeGeneratedItineraryRequest(input);
   const destinationTemplate = findDestinationTemplate(normalizedInput.destination);
-  const airportTemplate = findAirportTemplate(normalizedInput.arrivalAirport);
+  const airportTemplate = normalizedInput.arrivalAirport
+    ? findAirportTemplate(normalizedInput.arrivalAirport)
+    : null;
   const primaryPreference = getPrimaryPreference(normalizedInput.preferences, destinationTemplate);
   const itineraryId = createGeneratedItineraryId(normalizedInput, primaryPreference);
   const durationLabel = formatDurationLabel(normalizedInput.durationDays);
@@ -149,17 +151,60 @@ export function createGeneratedItinerary(input: GeneratedItineraryRequest): Plan
     title: `PlanME ${destinationTemplate.destinationLabel} ${primaryPreference} ${durationLabel} 추천 일정`,
     region: destinationTemplate.destinationLabel,
     duration: durationLabel,
-    summary: `${airportTemplate.label} 입국 후 ${mainEventName}(으)로 바로 향하는 CarryME 동선을 확인하세요.`,
+    summary: airportTemplate
+      ? `${airportTemplate.label} 입국 후 ${mainEventName}(으)로 바로 향하는 CarryME 동선을 확인하세요.`
+      : `${hotelName} 출발 후 ${mainEventName}(으)로 바로 향하는 CarryME 동선을 확인하세요.`,
     detailUrl: `/itinerary/${itineraryId}`,
     carrymeSaving: `약 ${savingMinutes}분 절약 예상`,
     totalDurationLabel: `${formatMinutes(standardMinutes)} → ${formatMinutes(carrymeMinutes)}`,
     savedDurationLabel: `약 ${savingMinutes}분 절약`,
     days: normalizedInput.durationDays > 1 ? [dayOne, dayTwo] : [dayOne],
+    benefits: createGeneratedBenefits({
+      destinationLabel: destinationTemplate.destinationLabel,
+      hotelName,
+      originLabel: airportTemplate?.label ?? hotelName,
+    }),
   };
 
   generatedItineraryStore.set(itinerary.id, itinerary);
 
   return itinerary;
+}
+
+/**
+ * Creates destination-specific benefit copy so generated pages do not leak demo city text.
+ */
+function createGeneratedBenefits({
+  destinationLabel,
+  hotelName,
+  originLabel,
+}: {
+  destinationLabel: string;
+  hotelName: string;
+  originLabel: string;
+}) {
+  return [
+    {
+      title: "안전한 짐 배송",
+      description: `${originLabel}에서 ${hotelName}까지 안전하게 배송`,
+      icon: "shield" as const,
+    },
+    {
+      title: "시간 절약",
+      description: "수하물 보관소 경유 없이 목적지로 바로 이동",
+      icon: "time" as const,
+    },
+    {
+      title: "가벼운 여행",
+      description: `짐 없이 ${destinationLabel} 여행을 즐기세요`,
+      icon: "luggage" as const,
+    },
+    {
+      title: "실시간 알림",
+      description: "수거부터 도착까지 알림 제공",
+      icon: "phone" as const,
+    },
+  ];
 }
 
 /**
@@ -188,7 +233,7 @@ function normalizeGeneratedItineraryRequest(
   const preferences = normalizePreferences(input.preferences);
 
   return {
-    arrivalAirport: normalizeText(input.arrivalAirport, "ICN").toUpperCase(),
+    arrivalAirport: normalizeArrivalAirport(input.arrivalAirport),
     arrivalTime: normalizeTime(input.arrivalTime ?? "09:30"),
     destination,
     durationDays,
@@ -212,7 +257,7 @@ function createGeneratedDayOne({
   savingMinutes,
   standardMinutes,
 }: {
-  airportTemplate: AirportTemplate;
+  airportTemplate: AirportTemplate | null;
   arrivalTime: string;
   carrymeMinutes: number;
   destinationTemplate: DestinationTemplate;
@@ -221,9 +266,22 @@ function createGeneratedDayOne({
   savingMinutes: number;
   standardMinutes: number;
 }): ItineraryDay {
-  const airportStop = createRouteStop(airportTemplate.label, "입국", airportTemplate.coordinate, "airport");
   const eventStop = createRouteStop(mainEventName, "방문지", destinationTemplate.eventCoordinate, "event");
   const hotelStop = createRouteStop(hotelName, "짐 도착", destinationTemplate.hotelCoordinate, "hotel");
+
+  if (!airportTemplate) {
+    return createLocalGeneratedDayOne({
+      carrymeMinutes,
+      eventStop,
+      hotelStop,
+      savingMinutes,
+      standardMinutes,
+      stationName: destinationTemplate.stationName,
+      stationCoordinate: destinationTemplate.stationCoordinate,
+    });
+  }
+
+  const airportStop = createRouteStop(airportTemplate.label, "입국", airportTemplate.coordinate, "airport");
 
   return {
     day: 1,
@@ -269,6 +327,122 @@ function createGeneratedDayOne({
       savingMinutes,
     }),
   };
+}
+
+/**
+ * Builds Day 1 for domestic/local requests that already start inside the destination city.
+ */
+function createLocalGeneratedDayOne({
+  carrymeMinutes,
+  eventStop,
+  hotelStop,
+  savingMinutes,
+  standardMinutes,
+  stationCoordinate,
+  stationName,
+}: {
+  carrymeMinutes: number;
+  eventStop: RouteStop;
+  hotelStop: RouteStop;
+  savingMinutes: number;
+  standardMinutes: number;
+  stationCoordinate: MapCoordinate;
+  stationName: string;
+}): ItineraryDay {
+  const stationStop = createRouteStop(stationName, "수하물 보관", stationCoordinate, "station");
+
+  return {
+    day: 1,
+    label: "Day 1",
+    savingMinutes,
+    standard: {
+      id: "standard",
+      label: "Standard",
+      badge: "Standard",
+      routeText: `${hotelStop.label} → ${stationStop.label} → ${eventStop.label}`,
+      description: `수하물 보관을 위해 ${stationStop.label}을 먼저 경유`,
+      durationLabel: formatMinutes(standardMinutes),
+      durationMinutes: standardMinutes,
+      stops: [hotelStop, stationStop, eventStop],
+      geoPath: createGeoPath([hotelStop, stationStop, eventStop]),
+      mapPath: [
+        { x: 34, y: 56 },
+        { x: 26, y: 72 },
+        { x: 76, y: 44 },
+      ],
+    },
+    carryme: {
+      id: "carryme",
+      label: "CarryME",
+      badge: "CarryME",
+      routeText: `${hotelStop.label} → ${eventStop.label}`,
+      description: "수하물은 캐리미가 보관 지점으로, 여행자는 목적지로 바로 이동",
+      durationLabel: formatMinutes(carrymeMinutes),
+      durationMinutes: carrymeMinutes,
+      stops: [hotelStop, eventStop],
+      geoPath: createGeoPath([hotelStop, eventStop]),
+      mapPath: [
+        { x: 34, y: 56 },
+        { x: 76, y: 44 },
+      ],
+    },
+    timeline: createLocalGeneratedDayOneTimeline({
+      eventName: eventStop.label,
+      hotelName: hotelStop.label,
+      savingMinutes,
+      stationName,
+    }),
+  };
+}
+
+/**
+ * Creates the Day 1 timeline for domestic/local requests without inventing an airport arrival.
+ */
+function createLocalGeneratedDayOneTimeline({
+  eventName,
+  hotelName,
+  savingMinutes,
+  stationName,
+}: {
+  eventName: string;
+  hotelName: string;
+  savingMinutes: number;
+  stationName: string;
+}): TimelineEvent[] {
+  return [
+    {
+      time: "09:30",
+      title: `${hotelName} 출발`,
+      description: "숙소에서 바로 여행 일정 시작",
+      category: "hotel",
+    },
+    {
+      time: "10:00",
+      title: "캐리미 짐 탁송 완료",
+      description: `${hotelName}에서 ${stationName} 보관 지점으로 배송 접수 완료`,
+      category: "carryme",
+      highlight: true,
+    },
+    {
+      time: "10:20",
+      title: `${eventName} 이동 시작`,
+      description: "짐 없이 바로 목적지로 이동",
+      category: "transit",
+      savingLabel: `약 ${savingMinutes}분 절약`,
+    },
+    {
+      time: "15:00",
+      title: `${eventName} 방문`,
+      description: "수하물 보관소 경유 없이 바로 목적지 도착",
+      category: "event",
+    },
+    {
+      time: "21:30",
+      title: `${stationName} 짐 수령`,
+      description: "일정 후 안전하게 도착한 내 짐 확인",
+      category: "transit",
+    },
+  ];
 }
 
 /**
@@ -503,6 +677,15 @@ function normalizeText(value: string | undefined, fallback: string) {
   const normalizedValue = value?.trim();
 
   return normalizedValue && normalizedValue.length > 0 ? normalizedValue : fallback;
+}
+
+/**
+ * Keeps airport routing opt-in so domestic requests do not silently become Incheon arrivals.
+ */
+function normalizeArrivalAirport(value: string | undefined) {
+  const normalizedValue = value?.trim().toUpperCase();
+
+  return normalizedValue && normalizedValue.length > 0 ? normalizedValue : null;
 }
 
 /**

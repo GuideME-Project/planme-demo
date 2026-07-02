@@ -1333,9 +1333,7 @@ function isBusanKtxSegment(origin: DestinationRow, destination: DestinationRow) 
   return (
     origin.mode === "transit" &&
     origin.name.includes("인천") &&
-    (destination.name.includes("부산") ||
-      destination.name.includes("공연") ||
-      destination.name.includes("호텔"))
+    isBusanDestinationRow(destination)
   );
 }
 
@@ -1353,9 +1351,18 @@ function isTrainStationToBusanSegment(origin: DestinationRow, destination: Desti
   return (
     origin.mode === "transit" &&
     isTrainStationRow(origin) &&
-    (destination.name.includes("부산") ||
-      destination.name.includes("공연") ||
-      destination.name.includes("호텔"))
+    isBusanDestinationRow(destination)
+  );
+}
+
+/**
+ * Limits the Busan KTX shortcut to Busan-specific rows instead of generic hotel/event names.
+ */
+function isBusanDestinationRow(row: DestinationRow) {
+  return (
+    row.name.includes("부산") ||
+    row.name.includes("서면") ||
+    row.name.includes("해운대")
   );
 }
 

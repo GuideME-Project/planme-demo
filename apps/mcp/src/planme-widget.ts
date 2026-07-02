@@ -1,20 +1,3 @@
-import { getDemoItinerary } from "@planme/core";
-
-const fallbackItinerary = getDemoItinerary();
-
-/**
- * Escapes HTML-sensitive characters before embedding data into the widget shell.
- */
-function escapeHtml(value: string): string {
-  // Keep the widget resource self-contained without trusting itinerary copy as markup.
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
 /**
  * Serializes JSON safely for embedding in a script tag.
  */
@@ -30,20 +13,25 @@ function serializeForScript(value: object): string {
  * Builds the PlanME Apps SDK widget HTML returned as an MCP app resource.
  */
 export function createPlanmeWidgetHtml(): string {
-  const firstDay = fallbackItinerary.days[0];
-  const timelineItems = firstDay.timeline
-    .map(
-      (event) => `
-        <li class="${event.highlight ? "highlight" : ""}">
-          <span class="time">${escapeHtml(event.time)}</span>
-          <span class="dot"></span>
-          <div>
-            <strong>${escapeHtml(event.title)}</strong>
-            <p>${escapeHtml(event.description)}</p>
-          </div>
-        </li>`,
-    )
-    .join("");
+  const emptyItinerary = {
+    detailUrl: "https://planme-demo.vercel.app",
+    duration: "일정",
+    region: "PlanME",
+    savedDurationLabel: "계산 중",
+    days: [
+      {
+        standard: {
+          durationLabel: "확인 중",
+          routeText: "일정 데이터를 불러오는 중",
+        },
+        carryme: {
+          durationLabel: "확인 중",
+          routeText: "일정 데이터를 불러오는 중",
+        },
+        timeline: [],
+      },
+    ],
+  };
 
   return `<!doctype html>
 <html lang="ko">
@@ -194,6 +182,11 @@ export function createPlanmeWidgetHtml(): string {
         color: var(--green);
         font-size: 22px;
       }
+      .empty {
+        color: var(--muted);
+        font-size: 15px;
+        padding: 18px 0;
+      }
       .link {
         color: white;
         background: var(--blue);
@@ -216,32 +209,103 @@ export function createPlanmeWidgetHtml(): string {
       <section class="head">
         <div>
           <div class="brand">PlanME</div>
-          <h1>${escapeHtml(fallbackItinerary.region)} ${escapeHtml(fallbackItinerary.duration)}</h1>
+          <h1 data-planme-title>PlanME 일정</h1>
         </div>
-        <div class="saving">${escapeHtml(fallbackItinerary.savedDurationLabel)}</div>
+        <div class="saving" data-planme-saving>계산 중</div>
       </section>
       <section class="summary" aria-label="동선 비교 요약">
         <div class="card">
           <strong>Standard</strong>
-          <p>${escapeHtml(firstDay.standard.routeText)} · ${escapeHtml(firstDay.standard.durationLabel)}</p>
+          <p data-planme-standard>일정 데이터를 불러오는 중</p>
         </div>
         <div class="card">
           <strong>CarryME</strong>
-          <p>${escapeHtml(firstDay.carryme.routeText)} · ${escapeHtml(firstDay.carryme.durationLabel)}</p>
+          <p data-planme-carryme>일정 데이터를 불러오는 중</p>
         </div>
       </section>
       <section class="timeline" aria-label="CarryME 일정 타임라인">
-        <ul>${timelineItems}</ul>
+        <ul data-planme-timeline><li><span class="time">--:--</span><span class="dot"></span><div><strong>일정 확인 중</strong><p>PlanME 일정 데이터를 불러오고 있습니다.</p></div></li></ul>
       </section>
       <section class="footer">
         <div>
           <div>CarryME 총 이동 시간(예상)</div>
-          <strong>${escapeHtml(firstDay.carryme.durationLabel)}</strong>
+          <strong data-planme-carryme-duration>확인 중</strong>
         </div>
-        <a class="link" href="${escapeHtml(fallbackItinerary.detailUrl)}" target="_blank" rel="noreferrer">상세 일정 열기</a>
+        <a class="link" data-planme-link href="https://planme-demo.vercel.app" target="_blank" rel="noreferrer">상세 일정 열기</a>
       </section>
     </main>
-    <script type="application/json" id="planme-fallback">${serializeForScript(fallbackItinerary)}</script>
+    <script type="application/json" id="planme-fallback">${serializeForScript(emptyItinerary)}</script>
+    <script>
+      const fallbackItinerary = JSON.parse(document.getElementById("planme-fallback").textContent);
+
+	      function escapeText(value) {
+	        return String(value ?? "")
+	          .replaceAll("&", "&amp;")
+	          .replaceAll("<", "&lt;")
+	          .replaceAll(">", "&gt;")
+	          .replaceAll('"', "&quot;")
+	          .replaceAll("'", "&#39;");
+	      }
+
+	      function setText(selector, value) {
+	        const element = document.querySelector(selector);
+
+	        if (element) {
+	          element.textContent = String(value ?? "");
+	        }
+	      }
+
+	      function getWidgetItinerary() {
+	        const bridge = window.openai;
+	        const metadataItinerary = bridge?.toolResponseMetadata?.itinerary;
+	        const outputItinerary = bridge?.toolOutput?.itinerary;
+
+	        // Apps SDK exposes tool output and result metadata through the component bridge.
+	        return metadataItinerary || outputItinerary || fallbackItinerary;
+	      }
+
+	      function renderTimeline(timeline) {
+	        const timelineElement = document.querySelector("[data-planme-timeline]");
+	        const items = Array.isArray(timeline) ? timeline : [];
+
+	        if (!timelineElement) {
+	          return;
+	        }
+
+	        if (items.length === 0) {
+	          timelineElement.innerHTML = '<li><span class="time">--:--</span><span class="dot"></span><div><strong>일정 확인 중</strong><p>PlanME 일정 데이터를 불러오고 있습니다.</p></div></li>';
+	          return;
+	        }
+
+	        timelineElement.innerHTML = items
+	          .map((event) => '<li class="' + (event.highlight ? "highlight" : "") + '"><span class="time">' + escapeText(event.time) + '</span><span class="dot"></span><div><strong>' + escapeText(event.title) + '</strong><p>' + escapeText(event.description) + '</p></div></li>')
+	          .join("");
+	      }
+
+	      function renderPlanmeWidget() {
+	        const itinerary = getWidgetItinerary();
+	        const firstDay = itinerary.days?.[0] || fallbackItinerary.days[0];
+	        const standard = firstDay.standard || fallbackItinerary.days[0].standard;
+	        const carryme = firstDay.carryme || fallbackItinerary.days[0].carryme;
+
+	        setText("[data-planme-title]", String(itinerary.region ?? "") + " " + String(itinerary.duration ?? ""));
+	        setText("[data-planme-saving]", itinerary.savedDurationLabel);
+	        setText("[data-planme-standard]", String(standard.routeText ?? "") + " · " + String(standard.durationLabel ?? ""));
+	        setText("[data-planme-carryme]", String(carryme.routeText ?? "") + " · " + String(carryme.durationLabel ?? ""));
+        setText("[data-planme-carryme-duration]", carryme.durationLabel);
+
+        const link = document.querySelector("[data-planme-link]");
+
+        if (link) {
+          link.href = String(itinerary.detailUrl ?? fallbackItinerary.detailUrl);
+        }
+
+        renderTimeline(firstDay.timeline);
+      }
+
+      renderPlanmeWidget();
+      window.setTimeout(renderPlanmeWidget, 100);
+    </script>
   </body>
 </html>`;
 }
