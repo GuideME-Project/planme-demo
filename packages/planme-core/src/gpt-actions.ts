@@ -103,7 +103,7 @@ export function createRecommendedItineraryResponse(
     input: {
       destination: input.destination ?? itinerary.region,
       durationDays: input.durationDays ?? 2,
-      arrivalAirport: input.arrivalAirport ?? "ICN",
+      arrivalAirport: input.arrivalAirport ?? null,
       arrivalTime: input.arrivalTime ?? "09:30",
       hotelName: input.hotelName ?? null,
       travelerCount: input.travelerCount ?? 1,

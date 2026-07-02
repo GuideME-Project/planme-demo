@@ -144,6 +144,11 @@ type ComputedRouteState = Partial<
 
 type RouteComputationPayload = Record<RoutePlanId, ComputedRouteResult>;
 
+type DisplayHeaderCopy = {
+  summary: string;
+  title: string;
+};
+
 const stopIcons: Record<RouteStop["icon"], ReactNode> = {
   airport: <FlightTakeoffRoundedIcon />,
   attraction: <AttractionsRoundedIcon />,
@@ -1333,9 +1338,7 @@ function isBusanKtxSegment(origin: DestinationRow, destination: DestinationRow) 
   return (
     origin.mode === "transit" &&
     origin.name.includes("인천") &&
-    (destination.name.includes("부산") ||
-      destination.name.includes("공연") ||
-      destination.name.includes("호텔"))
+    isBusanDestinationRow(destination)
   );
 }
 
@@ -1353,9 +1356,18 @@ function isTrainStationToBusanSegment(origin: DestinationRow, destination: Desti
   return (
     origin.mode === "transit" &&
     isTrainStationRow(origin) &&
-    (destination.name.includes("부산") ||
-      destination.name.includes("공연") ||
-      destination.name.includes("호텔"))
+    isBusanDestinationRow(destination)
+  );
+}
+
+/**
+ * Limits the Busan KTX shortcut to Busan-specific rows instead of generic hotel/event names.
+ */
+function isBusanDestinationRow(row: DestinationRow) {
+  return (
+    row.name.includes("부산") ||
+    row.name.includes("서면") ||
+    row.name.includes("해운대")
   );
 }
 
@@ -1630,6 +1642,56 @@ function applyComputedRoute(route: RoutePlan, computedRoute?: ComputedRouteState
 }
 
 /**
+ * Extracts the visible origin and destination from the current route.
+ */
+function getRouteEndpointLabels(route: RoutePlan) {
+  const originLabel = route.stops[0]?.label ?? "출발지";
+  const destinationLabel = route.stops[route.stops.length - 1]?.label ?? "도착지";
+
+  return { destinationLabel, originLabel };
+}
+
+/**
+ * Builds header copy from the committed route after manual recalculation.
+ */
+function createRecalculatedHeaderCopy(route: RoutePlan): DisplayHeaderCopy {
+  const { destinationLabel, originLabel } = getRouteEndpointLabels(route);
+
+  return {
+    summary: `${originLabel}에서 ${destinationLabel}(으)로 이동하는 CarryME 동선을 확인하세요.`,
+    title: `PlanME ${originLabel} → ${destinationLabel} 추천 일정`,
+  };
+}
+
+/**
+ * Builds route-independent benefit copy so edited routes never leak demo city names.
+ */
+function createGenericBenefits(): BenefitItem[] {
+  return [
+    {
+      description: "수하물은 안전하게 보관하고 목적지까지 배송됩니다.",
+      icon: "shield",
+      title: "안전한 짐 배송",
+    },
+    {
+      description: "수하물 보관소를 직접 경유하지 않아 이동 시간을 줄일 수 있습니다.",
+      icon: "time",
+      title: "시간 절약",
+    },
+    {
+      description: "짐 없이 일정과 주변 여행을 편하게 즐길 수 있습니다.",
+      icon: "luggage",
+      title: "가벼운 여행",
+    },
+    {
+      description: "수거부터 도착까지 진행 상태를 알림으로 확인할 수 있습니다.",
+      icon: "phone",
+      title: "실시간 알림",
+    },
+  ];
+}
+
+/**
  * Returns route chunks that can be drawn without connecting missing coordinates.
  */
 function getDrawableRouteSegments(payload: RouteCheckApiResponse) {
@@ -1690,6 +1752,17 @@ export function ItineraryDashboard({
     () => applyComputedRoute(selectedDayPlan.carryme, computedRoutes.carryme),
     [computedRoutes.carryme, selectedDayPlan.carryme],
   );
+  const hasComputedRoute = Boolean(
+    computedRoutes.standard?.segments?.length || computedRoutes.carryme?.segments?.length,
+  );
+  const displayHeaderCopy = useMemo(
+    () =>
+      hasComputedRoute
+        ? createRecalculatedHeaderCopy(carrymeRoute)
+        : { summary: itinerary.summary, title: itinerary.title },
+    [carrymeRoute, hasComputedRoute, itinerary.summary, itinerary.title],
+  );
+  const displayBenefits = useMemo(() => createGenericBenefits(), []);
   const totalDurationLabel = `${standardRoute.durationLabel} → ${carrymeRoute.durationLabel}`;
   const savingLabel = formatSavingLabelFromMinutes(
     standardRoute.durationMinutes,
@@ -1854,9 +1927,9 @@ export function ItineraryDashboard({
           }}
         >
           <Box>
-            <Typography variant="h1">{itinerary.title}</Typography>
+            <Typography variant="h1">{displayHeaderCopy.title}</Typography>
             <Typography color="text.secondary" sx={{ fontSize: 18, mt: 1 }}>
-              {itinerary.summary}
+              {displayHeaderCopy.summary}
             </Typography>
           </Box>
           <Stack
@@ -2048,7 +2121,7 @@ export function ItineraryDashboard({
 
         </Box>
 
-        <BenefitStrip benefits={itinerary.benefits} />
+        <BenefitStrip benefits={displayBenefits} />
 
         {!compact ? (
           <Typography color="text.secondary" variant="body2">

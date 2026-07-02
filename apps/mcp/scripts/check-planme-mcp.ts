@@ -7,7 +7,12 @@ import { createPlanmeHttpServer } from "../src/server.js";
 
 type RecommendationContent = {
   itineraryId?: string;
+  pageUrl?: string;
+  title?: string;
   savedMinutes?: number;
+  timeline?: Array<{
+    title?: string;
+  }>;
 };
 
 type PlanmeWidgetResourceMeta = {
@@ -78,8 +83,27 @@ async function main(): Promise<void> {
     assert.equal(recommendation.isError, undefined);
     const structuredContent = recommendation.structuredContent as RecommendationContent | undefined;
 
-    assert.equal(structuredContent?.itineraryId, "busan-bts-1d1n");
+    assert.match(structuredContent?.itineraryId ?? "", /^generated-부산-/);
     assert.equal(structuredContent?.savedMinutes, 70);
+
+    const yeosuRecommendation = await client.callTool({
+      name: "recommend_planme_itinerary",
+      arguments: {
+        destination: "여수",
+        durationDays: 2,
+        hotelName: "여수 베네치아 호텔",
+        preferences: ["낚시여행"],
+        travelerCount: 1,
+        luggageCount: 1,
+      },
+    });
+    const yeosuStructuredContent =
+      yeosuRecommendation.structuredContent as RecommendationContent | undefined;
+
+    assert.equal(yeosuRecommendation.isError, undefined);
+    assert.equal(yeosuStructuredContent?.title, "PlanME 여수 낚시여행 1박 2일 추천 일정");
+    assert.ok(yeosuStructuredContent?.pageUrl?.includes("/itinerary/generated-"));
+    assert.equal(yeosuStructuredContent?.timeline?.[0]?.title, "여수 베네치아 호텔 출발");
 
     const resource = await client.readResource({
       uri: "ui://planme/itinerary-widget-v2.html",
@@ -111,6 +135,10 @@ async function main(): Promise<void> {
       ),
     );
     assert.match(firstResource.text, /PlanME/);
+    assert.match(firstResource.text, /window\.openai/);
+    assert.match(firstResource.text, /toolOutput/);
+    assert.doesNotMatch(firstResource.text, /부산 1박 2일/);
+    assert.doesNotMatch(firstResource.text, /인천공항 도착/);
     assert.doesNotMatch(firstResource.text, /planme-route-preview/);
     assert.doesNotMatch(firstResource.text, /동선 미리보기/);
     assert.doesNotMatch(firstResource.text, /maps\.googleapis\.com/);

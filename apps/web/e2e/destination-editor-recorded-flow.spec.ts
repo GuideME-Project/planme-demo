@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 type PlaceDetailsPayload = {
   message?: string;
@@ -20,6 +20,23 @@ const routePath = [
   { lat: 35.1796, lng: 129.0756 },
   { lat: 35.16, lng: 129.06 },
 ];
+
+const localDrivingPlaces = {
+  arisuRoad: {
+    coordinate: { lat: 37.5457, lng: 127.1781 },
+    mainText: "아리수로50길",
+    placeId: "place-arisu-road",
+    secondaryText: "경기도 하남시 아리수로50길",
+    text: "아리수로50길",
+  },
+  dongtanLakePark: {
+    coordinate: { lat: 37.1729, lng: 127.1059 },
+    mainText: "동탄호수공원",
+    placeId: "place-dongtan-lake-park",
+    secondaryText: "경기도 화성시 동탄순환대로",
+    text: "동탄호수공원",
+  },
+};
 
 const busanToJeongeupTransitPath = {
   result: {
@@ -106,6 +123,71 @@ function isTmapRequestUrl(requestUrl: string) {
   );
 }
 
+/**
+ * Ensures mocked route geometry is drawable by the map layer.
+ */
+function createDrawableMockPath(path: Array<{ lat: number; lng: number }>) {
+  if (path.length !== 2) {
+    return path;
+  }
+
+  return [
+    path[0],
+    {
+      lat: (path[0].lat + path[1].lat) / 2,
+      lng: (path[0].lng + path[1].lng) / 2,
+    },
+    path[1],
+  ];
+}
+
+/**
+ * Mocks Google Places for the local route-editing scenario without using external quota.
+ */
+async function mockLocalDrivingPlaces(page: Page) {
+  await page.route("**/api/places/autocomplete", async (route) => {
+    const body = route.request().postDataJSON() as { input?: string };
+    const input = body.input ?? "";
+    const place = input.includes("아리수로")
+      ? localDrivingPlaces.arisuRoad
+      : localDrivingPlaces.dongtanLakePark;
+
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        candidates: [
+          {
+            mainText: place.mainText,
+            placeId: place.placeId,
+            secondaryText: place.secondaryText,
+            text: place.text,
+          },
+        ],
+      },
+    });
+  });
+
+  await page.route("**/api/places/details", async (route) => {
+    const body = route.request().postDataJSON() as { placeId?: string };
+    const place =
+      body.placeId === localDrivingPlaces.arisuRoad.placeId
+        ? localDrivingPlaces.arisuRoad
+        : localDrivingPlaces.dongtanLakePark;
+
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        place: {
+          coordinate: place.coordinate,
+          placeId: place.placeId,
+          secondaryText: place.secondaryText,
+          text: place.text,
+        },
+      },
+    });
+  });
+}
+
 test.beforeEach(async ({ page }) => {
   odsayRequestUrls.length = 0;
   naverDriveRequestUrls.length = 0;
@@ -149,19 +231,20 @@ test.beforeEach(async ({ page }) => {
     const path = stops
       .map((stop) => stop.coordinate)
       .filter((coordinate): coordinate is { lat: number; lng: number } => Boolean(coordinate));
+    const drawablePath = createDrawableMockPath(path.length > 1 ? path : routePath);
 
     await route.fulfill({
       contentType: "application/json",
       json: {
         ok: true,
-        path: path.length > 1 ? path : routePath,
+        path: drawablePath,
         segments: [
           {
             distanceMeters: 12000,
             durationSeconds: 1800,
             mode: stops[0]?.mode ?? "drive",
-            path: path.length > 1 ? path : routePath,
-            paths: [path.length > 1 ? path : routePath],
+            path: drawablePath,
+            paths: [drawablePath],
           },
         ],
         totalDistanceMeters: 12000,
@@ -358,6 +441,51 @@ test("reuses persisted ODsay cache after page reload without calling the provide
     `[odsay-cache-counts] initial=${initialLoadRequestCount}, firstReload=${firstReloadRequestCount}, secondReload=${secondReloadRequestCount}`,
   );
   expect(odsayRequestUrls).toEqual([]);
+});
+
+test("updates the header and benefit copy after recalculating an edited local car route", async ({
+  page,
+}) => {
+  await mockLocalDrivingPlaces(page);
+  await page.goto("http://localhost:3000/");
+
+  await test.step("replace the demo route with a local two-point car route", async () => {
+    await page.getByRole("button", { name: "삭제" }).nth(2).click();
+
+    const departureInput = page.getByRole("textbox", { name: "출발지 행선지" });
+    await departureInput.fill("동탄호수공원");
+    await page.getByRole("button", { name: /동탄호수공원/ }).first().click();
+
+    const arrivalInput = page.getByRole("textbox", { name: "도착지 행선지" });
+    await arrivalInput.fill("아리수로50길");
+    await page.getByRole("button", { name: /아리수로50길/ }).first().click();
+
+    const modeSelects = page.getByRole("combobox");
+    await modeSelects.first().click();
+    await page.getByRole("option", { name: "자동차" }).click();
+  });
+
+  await test.step("recalculate and sync every visible summary surface", async () => {
+    await page.getByRole("button", { name: "경로 다시 계산" }).click();
+
+    await expect(page.getByText(/경로 체크 완료/)).toBeVisible();
+    await expect(
+      page.getByRole("heading", {
+        name: "PlanME 동탄호수공원 → 아리수로50길 추천 일정",
+      }),
+    ).toBeVisible();
+    await expect(page.getByText("PlanME 부산 BTS 공연 1박 2일 추천 일정")).toHaveCount(0);
+    await expect(
+      page.getByText("동탄호수공원에서 아리수로50길(으)로 이동하는 CarryME 동선을 확인하세요."),
+    ).toBeVisible();
+    await expect(
+      page.getByText("수하물은 안전하게 보관하고 목적지까지 배송됩니다."),
+    ).toBeVisible();
+    await expect(page.getByText("동탄호수공원에서 아리수로50길까지 안전하게 배송")).toHaveCount(
+      0,
+    );
+    await expect(page.getByText("인천공항에서 부산 호텔까지 안전하게 배송")).toHaveCount(0);
+  });
 });
 
 test("recorded destination editing flow keeps selected waypoint coordinates during recalculation", async ({
