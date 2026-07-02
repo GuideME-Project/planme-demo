@@ -1770,7 +1770,11 @@ export function ItineraryDashboard({
     let cancelled = false;
     const routes = [selectedDayPlan.standard, selectedDayPlan.carryme];
 
-    setComputedRoutes({});
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setComputedRoutes({});
+      }
+    });
 
     async function computeInitialRoute(route: RoutePlan) {
       try {
@@ -2392,6 +2396,34 @@ function DestinationEditor({
   };
 
   /**
+   * Moves a destination row to an insertion index in the current visible order.
+   */
+  const moveDestinationToIndex = (draggedId: string, rawInsertIndex: number) => {
+    // Adjust the insertion point after removing the dragged row from the current list.
+    setRows((current) => {
+      const draggedRow = current.find((row) => row.id === draggedId);
+      const draggedIndex = current.findIndex((row) => row.id === draggedId);
+
+      if (!draggedRow || draggedIndex < 0) {
+        return current;
+      }
+
+      const withoutDragged = current.filter((row) => row.id !== draggedId);
+      const adjustedIndex =
+        draggedIndex < rawInsertIndex ? rawInsertIndex - 1 : rawInsertIndex;
+      const insertIndex = Math.max(0, Math.min(adjustedIndex, withoutDragged.length));
+
+      return [
+        ...withoutDragged.slice(0, insertIndex),
+        draggedRow,
+        ...withoutDragged.slice(insertIndex),
+      ];
+    });
+    setRouteStatus("idle");
+    setRouteMessage(null);
+  };
+
+  /**
    * Completes the shared drag state at the provided viewport Y position.
    */
   const completeDestinationDrag = (clientY: number) => {
@@ -2733,34 +2765,6 @@ function DestinationEditor({
       setRouteStatus("error");
       setRouteMessage("경로 체크 요청을 완료하지 못했습니다.");
     }
-  };
-
-  /**
-   * Moves a destination row to an insertion index in the current visible order.
-   */
-  const moveDestinationToIndex = (draggedId: string, rawInsertIndex: number) => {
-    // Adjust the insertion point after removing the dragged row from the current list.
-    setRows((current) => {
-      const draggedRow = current.find((row) => row.id === draggedId);
-      const draggedIndex = current.findIndex((row) => row.id === draggedId);
-
-      if (!draggedRow || draggedIndex < 0) {
-        return current;
-      }
-
-      const withoutDragged = current.filter((row) => row.id !== draggedId);
-      const adjustedIndex =
-        draggedIndex < rawInsertIndex ? rawInsertIndex - 1 : rawInsertIndex;
-      const insertIndex = Math.max(0, Math.min(adjustedIndex, withoutDragged.length));
-
-      return [
-        ...withoutDragged.slice(0, insertIndex),
-        draggedRow,
-        ...withoutDragged.slice(insertIndex),
-      ];
-    });
-    setRouteStatus("idle");
-    setRouteMessage(null);
   };
 
   /**

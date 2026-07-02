@@ -176,13 +176,6 @@ function getFirstRouteCoordinate(route: RoutePlan) {
 }
 
 /**
- * Checks whether a route has drawable geographic line data.
- */
-function hasDrawableRoute(route: RoutePlan) {
-  return Boolean(route.geoSegments?.some((segment) => segment.length > 2));
-}
-
-/**
  * Loads the Naver Maps JavaScript SDK once for the PlanME route map.
  */
 function loadNaverMaps(clientId: string): Promise<NaverMapsNamespace> {
@@ -373,12 +366,14 @@ function NaverRouteMap({
     };
   }, [
     carrymeColor,
+    carrymeRoute,
     carrymeRoute.geoSegments,
     markers,
     onLoadFailed,
     showCarryme,
     showStandard,
     standardColor,
+    standardRoute,
     standardRoute.geoSegments,
   ]);
 
