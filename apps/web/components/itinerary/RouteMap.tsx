@@ -141,6 +141,33 @@ function formatDurationFromMinutes(minutes: number): string {
   return remainingMinutes === 0 ? `약 ${hours}시간` : `약 ${hours}시간 ${remainingMinutes}분`;
 }
 
+type RollerGuidanceContent = {
+  detail: string;
+  headline: string;
+  state: "comfort" | "time-saving";
+};
+
+/**
+ * Builds the Roller copy from existing Standard and CarryME duration values.
+ */
+function createRollerGuidanceContent(savingMinutes: number): RollerGuidanceContent {
+  if (savingMinutes > 0) {
+    return {
+      detail: "상세 길안내는 지도 앱에서 이어서 확인해요.",
+      headline: `CarryME로 짐을 먼저 보내두면 ${formatDurationFromMinutes(
+        savingMinutes,
+      )} 더 여유로워요.`,
+      state: "time-saving",
+    };
+  }
+
+  return {
+    detail: "상세 길안내는 지도 앱에서 이어서 확인해요.",
+    headline: "짐 없이 편하게 관광할 수 있어요.",
+    state: "comfort",
+  };
+}
+
 /**
  * Returns the first available route coordinate without forcing separate segments together.
  */
