@@ -23,6 +23,10 @@ const requiredHtmlFragments = [
   'data-planme-roller-motion="wing-flap"',
 ];
 
+const forbiddenHtmlFragments = [
+  "data-planme-roller-wing",
+];
+
 async function fetchHtml(path) {
   const response = await fetch(`${baseUrl}${path}`);
 
@@ -43,6 +47,10 @@ for (const text of requiredTexts) {
 
 for (const fragment of requiredHtmlFragments) {
   assert.ok(html.includes(fragment), `Expected rendered detail page to include HTML fragment: ${fragment}`);
+}
+
+for (const fragment of forbiddenHtmlFragments) {
+  assert.ok(!html.includes(fragment), `Expected rendered detail page not to include HTML fragment: ${fragment}`);
 }
 
 console.log("PlanME design contract passed");

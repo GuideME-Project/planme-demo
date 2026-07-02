@@ -426,92 +426,33 @@ function createNaverMarkerIcon({
 function RollerBadge({ isDark }: { isDark: boolean }) {
   return (
     <Box
+      alt=""
       aria-hidden="true"
+      component="img"
       data-planme-roller-motion="wing-flap"
+      src={rollerImageSrc}
       sx={{
-        animation: "planmeRollerFloat 2.6s ease-in-out infinite",
-        display: "inline-block",
+        animation: "planmeRollerWingFlap 0.72s ease-in-out infinite",
+        display: "block",
         flexShrink: 0,
         filter: isDark
           ? "drop-shadow(0 16px 26px rgba(0,0,0,0.42))"
           : "drop-shadow(0 16px 24px rgba(15,23,42,0.24))",
         height: { xs: 58, md: 82 },
-        position: "relative",
+        objectFit: "contain",
         transformOrigin: "50% 55%",
         willChange: "transform",
         width: { xs: 72, md: 108 },
-        "@keyframes planmeRollerFloat": {
-          "0%, 100%": { transform: "translate3d(0, 2px, 0) rotate(-1deg)" },
-          "50%": { transform: "translate3d(0, -4px, 0) rotate(1deg)" },
-        },
-        "@keyframes planmeRollerLeftWing": {
-          "0%, 100%": { transform: "rotate(-3deg) scaleY(1)" },
-          "45%": { transform: "rotate(9deg) scaleY(0.86)" },
-        },
-        "@keyframes planmeRollerRightWing": {
-          "0%, 100%": { transform: "rotate(3deg) scaleY(1)" },
-          "45%": { transform: "rotate(-9deg) scaleY(0.86)" },
+        "@keyframes planmeRollerWingFlap": {
+          "0%, 100%": { transform: "translate3d(0, 2px, 0) rotate(-1deg) scaleY(1)" },
+          "45%": { transform: "translate3d(0, -4px, 0) rotate(1deg) scaleY(0.94)" },
+          "65%": { transform: "translate3d(0, -2px, 0) rotate(-0.5deg) scaleY(1.03)" },
         },
         "@media (prefers-reduced-motion: reduce)": {
           animation: "none",
-          "& [data-planme-roller-wing]": {
-            animation: "none",
-          },
         },
       }}
-    >
-      {/* Split the single Roller PNG into clipped layers so the wings can move independently. */}
-      <Box
-        alt=""
-        component="img"
-        src={rollerImageSrc}
-        sx={{
-          clipPath: "polygon(26% 0, 76% 0, 76% 100%, 24% 100%)",
-          height: "100%",
-          inset: 0,
-          objectFit: "contain",
-          position: "absolute",
-          width: "100%",
-          zIndex: 2,
-        }}
-      />
-      <Box
-        alt=""
-        component="img"
-        data-planme-roller-wing="left"
-        src={rollerImageSrc}
-        sx={{
-          animation: "planmeRollerLeftWing 0.72s ease-in-out infinite",
-          clipPath: "polygon(0 8%, 50% 12%, 52% 74%, 0 90%)",
-          height: "100%",
-          inset: 0,
-          objectFit: "contain",
-          position: "absolute",
-          transformOrigin: "48% 56%",
-          width: "100%",
-          willChange: "transform",
-          zIndex: 1,
-        }}
-      />
-      <Box
-        alt=""
-        component="img"
-        data-planme-roller-wing="right"
-        src={rollerImageSrc}
-        sx={{
-          animation: "planmeRollerRightWing 0.72s ease-in-out infinite",
-          clipPath: "polygon(50% 12%, 100% 8%, 100% 90%, 48% 74%)",
-          height: "100%",
-          inset: 0,
-          objectFit: "contain",
-          position: "absolute",
-          transformOrigin: "52% 56%",
-          width: "100%",
-          willChange: "transform",
-          zIndex: 1,
-        }}
-      />
-    </Box>
+    />
   );
 }
 
