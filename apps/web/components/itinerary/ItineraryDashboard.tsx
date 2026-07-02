@@ -3,7 +3,6 @@
 import AccessTimeRoundedIcon from "@mui/icons-material/AccessTimeRounded";
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import AttractionsRoundedIcon from "@mui/icons-material/AttractionsRounded";
-import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import DirectionsBusRoundedIcon from "@mui/icons-material/DirectionsBusRounded";
 import DirectionsCarRoundedIcon from "@mui/icons-material/DirectionsCarRounded";
@@ -1735,7 +1734,6 @@ export function ItineraryDashboard({
     standard: true,
     carryme: true,
   });
-  const [copyLabel, setCopyLabel] = useState("일정 URL 복사");
   const [computedRoutes, setComputedRoutes] = useState<ComputedRouteState>({});
 
   const isDark = mode === "dark";
@@ -1877,26 +1875,6 @@ export function ItineraryDashboard({
     }));
   };
 
-  /**
-   * Copies the public itinerary URL for the demo handoff flow.
-   */
-  const handleCopyUrl = async () => {
-    try {
-      // Use the current browser origin when available so local demos copy a usable URL.
-      const url =
-        typeof window === "undefined"
-          ? itinerary.detailUrl
-          : `${window.location.origin}/itinerary/${itinerary.id}`;
-
-      await navigator.clipboard.writeText(url);
-      setCopyLabel("복사 완료");
-      window.setTimeout(() => setCopyLabel("일정 URL 복사"), 1600);
-    } catch {
-      setCopyLabel("복사 실패");
-      window.setTimeout(() => setCopyLabel("일정 URL 복사"), 1600);
-    }
-  };
-
   if (!selectedDayPlan) {
     return null;
   }
@@ -1910,12 +1888,7 @@ export function ItineraryDashboard({
       }}
     >
       <Stack spacing={3}>
-        <TopBar
-          copyLabel={copyLabel}
-          mode={mode}
-          onCopyUrl={handleCopyUrl}
-          onToggleMode={toggleMode}
-        />
+        <TopBar mode={mode} onToggleMode={toggleMode} />
 
         <Box
           sx={{
@@ -2134,16 +2107,14 @@ export function ItineraryDashboard({
 }
 
 type TopBarProps = {
-  copyLabel: string;
   mode: "light" | "dark";
-  onCopyUrl: () => void;
   onToggleMode: () => void;
 };
 
 /**
  * Renders the compact PlanME header controls.
  */
-function TopBar({ copyLabel, mode, onCopyUrl, onToggleMode }: TopBarProps) {
+function TopBar({ mode, onToggleMode }: TopBarProps) {
   return (
     <Stack
       direction="row"
@@ -2168,13 +2139,6 @@ function TopBar({ copyLabel, mode, onCopyUrl, onToggleMode }: TopBarProps) {
           <Typography component="span" sx={{ ml: 0.8, fontSize: 12 }}>
             {mode === "dark" ? "Dark" : "Light"}
           </Typography>
-        </Button>
-        <Button
-          onClick={onCopyUrl}
-          startIcon={<ContentCopyRoundedIcon />}
-          variant="contained"
-        >
-          {copyLabel}
         </Button>
       </Stack>
     </Stack>
