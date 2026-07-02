@@ -455,52 +455,184 @@ function RollerBadge({
   isDark: boolean;
   state: RollerGuidanceContent["state"];
 }) {
+  const wingLift = state === "time-saving" ? "-26deg" : "-10deg";
+  const oppositeWingLift = state === "time-saving" ? "26deg" : "10deg";
+
   return (
     <Box
       aria-hidden="true"
       sx={{
-        "&::after": {
-          bgcolor: "#e0f2fe",
-          border: "2px solid",
-          borderColor: isDark ? "#0f1720" : "#ffffff",
-          borderRadius: "999px",
-          content: "\"\"",
-          height: { xs: 18, md: 22 },
-          position: "absolute",
-          right: -7,
-          top: 18,
-          transform: "rotate(-18deg)",
-          width: { xs: 26, md: 31 },
-        },
-        "&::before": {
-          bgcolor: "#f3d35f",
-          borderRadius: "999px 999px 4px 4px",
-          content: "\"\"",
-          height: 16,
-          position: "absolute",
-          top: -5,
-          width: 36,
-        },
-        alignItems: "center",
-        bgcolor: state === "time-saving" ? "#8dd8ff" : "#bae6fd",
-        border: "3px solid",
-        borderColor: isDark ? "#0f1720" : "#ffffff",
-        borderRadius: "999px",
-        boxShadow: isDark
-          ? "0 14px 30px rgba(0,0,0,0.34)"
-          : "0 14px 30px rgba(15,23,42,0.22)",
-        color: "#0f3b60",
-        display: "flex",
+        bgcolor: "transparent",
+        display: "block",
         flexShrink: 0,
-        fontSize: 14,
-        fontWeight: 1000,
         height: { xs: 54, md: 62 },
-        justifyContent: "center",
         position: "relative",
         width: { xs: 54, md: 62 },
       }}
     >
-      {state === "time-saving" ? "GO" : "OK"}
+      <Box
+        sx={{
+          bgcolor: state === "time-saving" ? "#38bdf8" : "#7dd3fc",
+          border: "3px solid",
+          borderColor: isDark ? "#0f1720" : "#ffffff",
+          borderRadius: "999px 999px 999px 10px",
+          boxShadow: isDark
+            ? "0 14px 30px rgba(0,0,0,0.34)"
+            : "0 14px 30px rgba(15,23,42,0.22)",
+          height: { xs: 39, md: 45 },
+          left: { xs: 8, md: 9 },
+          position: "absolute",
+          top: { xs: 13, md: 14 },
+          width: { xs: 39, md: 45 },
+          zIndex: 2,
+        }}
+      />
+      <Box
+        sx={{
+          bgcolor: "#f3d35f",
+          border: "2px solid",
+          borderColor: isDark ? "#0f1720" : "#ffffff",
+          borderRadius: "999px 999px 5px 5px",
+          height: { xs: 12, md: 14 },
+          left: { xs: 13, md: 15 },
+          position: "absolute",
+          top: { xs: 7, md: 8 },
+          transform: "rotate(-8deg)",
+          width: { xs: 31, md: 35 },
+          zIndex: 5,
+        }}
+      />
+      <Box
+        sx={{
+          bgcolor: "#0ea5e9",
+          border: "2px solid",
+          borderColor: isDark ? "#0f1720" : "#ffffff",
+          borderRadius: "999px 999px 999px 2px",
+          height: { xs: 21, md: 25 },
+          left: { xs: 25, md: 29 },
+          position: "absolute",
+          top: { xs: -1, md: -2 },
+          transform: "rotate(-10deg)",
+          width: { xs: 11, md: 13 },
+          zIndex: 4,
+        }}
+      />
+      <Box
+        sx={{
+          bgcolor: "#0ea5e9",
+          border: "2px solid",
+          borderColor: isDark ? "#0f1720" : "#ffffff",
+          borderRadius: "999px 999px 6px 999px",
+          height: { xs: 18, md: 21 },
+          left: { xs: 0, md: 1 },
+          position: "absolute",
+          top: { xs: 25, md: 28 },
+          transform: `rotate(${wingLift})`,
+          transformOrigin: "right center",
+          width: { xs: 25, md: 29 },
+          zIndex: 1,
+        }}
+      />
+      <Box
+        sx={{
+          bgcolor: "#0ea5e9",
+          border: "2px solid",
+          borderColor: isDark ? "#0f1720" : "#ffffff",
+          borderRadius: "999px 999px 999px 6px",
+          height: { xs: 18, md: 21 },
+          position: "absolute",
+          right: { xs: 0, md: 1 },
+          top: { xs: 25, md: 28 },
+          transform: `rotate(${oppositeWingLift})`,
+          transformOrigin: "left center",
+          width: { xs: 25, md: 29 },
+          zIndex: 1,
+        }}
+      />
+      <Box
+        sx={{
+          bgcolor: "#ffffff",
+          borderRadius: "999px",
+          height: { xs: 16, md: 18 },
+          left: { xs: 18, md: 20 },
+          position: "absolute",
+          top: { xs: 25, md: 28 },
+          width: { xs: 24, md: 28 },
+          zIndex: 3,
+        }}
+      />
+      <Box
+        sx={{
+          bgcolor: "#0f172a",
+          borderRadius: "999px",
+          height: 5,
+          left: { xs: 18, md: 21 },
+          position: "absolute",
+          top: { xs: 26, md: 29 },
+          width: 5,
+          zIndex: 6,
+        }}
+      />
+      <Box
+        sx={{
+          bgcolor: "#0f172a",
+          borderRadius: "999px",
+          height: 5,
+          left: { xs: 31, md: 35 },
+          position: "absolute",
+          top: { xs: 26, md: 29 },
+          width: 5,
+          zIndex: 6,
+        }}
+      />
+      <Box
+        sx={{
+          borderBottom: "4px solid transparent",
+          borderLeft: "7px solid #f59e0b",
+          borderTop: "4px solid transparent",
+          height: 0,
+          left: { xs: 25, md: 29 },
+          position: "absolute",
+          top: { xs: 32, md: 35 },
+          width: 0,
+          zIndex: 6,
+        }}
+      />
+      <Box
+        sx={{
+          bgcolor: "#f9a8d4",
+          borderRadius: "999px",
+          height: 6,
+          left: { xs: 13, md: 15 },
+          opacity: 0.85,
+          position: "absolute",
+          top: { xs: 34, md: 38 },
+          width: 6,
+          zIndex: 6,
+        }}
+      />
+      <Box
+        sx={{
+          alignItems: "center",
+          bgcolor: "#f3d35f",
+          border: "2px solid",
+          borderColor: isDark ? "#0f1720" : "#ffffff",
+          borderRadius: "999px",
+          bottom: { xs: 1, md: 2 },
+          color: "#0f3b60",
+          display: "flex",
+          fontSize: 8,
+          fontWeight: 1000,
+          height: { xs: 15, md: 17 },
+          justifyContent: "center",
+          position: "absolute",
+          right: { xs: 4, md: 5 },
+          width: { xs: 15, md: 17 },
+          zIndex: 7,
+        }}
+      >
+        C
+      </Box>
     </Box>
   );
 }
@@ -524,6 +656,7 @@ function RollerGuidance({
   return (
     <>
       <Stack
+        data-planme-roller-guidance="anchor"
         direction="row"
         spacing={1.2}
         sx={{
@@ -563,6 +696,7 @@ function RollerGuidance({
       </Stack>
 
       <Stack
+        data-planme-roller-guidance="panel"
         direction="row"
         spacing={1.2}
         sx={{
@@ -583,14 +717,20 @@ function RollerGuidance({
           zIndex: 4,
           px: 1.3,
           py: 1.1,
+          width: "min(calc(100% - 28px), calc(100vw - 56px))",
         }}
       >
         <RollerBadge isDark={isDark} state={content.state} />
         <Box sx={{ minWidth: 0 }}>
-          <Typography sx={{ fontSize: 13, fontWeight: 900, lineHeight: 1.35 }}>
+          <Typography
+            sx={{ fontSize: 13, fontWeight: 900, lineHeight: 1.35, overflowWrap: "break-word" }}
+          >
             {content.headline}
           </Typography>
-          <Typography color="text.secondary" sx={{ fontSize: 11.5, fontWeight: 700, mt: 0.3 }}>
+          <Typography
+            color="text.secondary"
+            sx={{ fontSize: 11.5, fontWeight: 700, mt: 0.3, overflowWrap: "break-word" }}
+          >
             {content.detail}
           </Typography>
         </Box>
@@ -845,10 +985,14 @@ export function RouteMap({
           m: { xs: 1.25, md: 1.5 },
           px: { xs: 1.5, md: 2 },
           py: 1.25,
+          width: { xs: "min(calc(100% - 20px), calc(100vw - 56px))", md: "auto" },
         }}
       >
         <InfoRoundedIcon color="primary" fontSize="small" />
-        <Typography color="primary" sx={{ fontSize: 13, fontWeight: 700 }}>
+        <Typography
+          color="primary"
+          sx={{ fontSize: 13, fontWeight: 700, lineHeight: 1.35, minWidth: 0, overflowWrap: "break-word" }}
+        >
           {rollerGuidance.headline}
         </Typography>
       </Stack>
