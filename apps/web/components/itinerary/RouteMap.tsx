@@ -131,15 +131,16 @@ type RollerGuidanceContent = {
 };
 
 const rollerImageSrc = "/roller/roller-flying.png";
-const rollerGuidanceHeadline = "캐리미로 짐을 이동하니, 관광할 시간이 1시간 더 많아졌어요";
+const rollerComfortHeadline = "캐리미로 짐을 이동하니, 편하게 관광할 수 있네요";
+const rollerTimeSavingHeadline = "캐리미로 짐을 이동하니, 관광할 시간이 1시간 더 많아졌어요";
 const rollerMapNotice = "CarryME 경로를 지도에서 확인해요.";
 
 /**
- * Builds the Roller copy agreed for the CarryME benefit callout.
+ * Builds the Roller copy agreed for CarryME benefit states.
  */
-function createRollerGuidanceContent(): RollerGuidanceContent {
+function createRollerGuidanceContent(savingMinutes: number): RollerGuidanceContent {
   return {
-    headline: rollerGuidanceHeadline,
+    headline: savingMinutes > 0 ? rollerTimeSavingHeadline : rollerComfortHeadline,
   };
 }
 
@@ -576,7 +577,8 @@ export function RouteMap({
   const isDark = themeMode === "dark";
   const standardColor = theme.palette.primary.main;
   const carrymeColor = theme.palette.secondary.main;
-  const rollerGuidance = createRollerGuidanceContent();
+  const savingMinutes = standardRoute.durationMinutes - carrymeRoute.durationMinutes;
+  const rollerGuidance = createRollerGuidanceContent(savingMinutes);
   const canUseNaver = Boolean(naverMapsClientId && !naverFailed);
   const mapBackground = isDark
     ? "linear-gradient(135deg, #111827 0%, #17212d 48%, #0e2530 100%)"

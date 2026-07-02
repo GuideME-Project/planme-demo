@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 const baseUrl = process.env.PLANME_BASE_URL ?? "http://localhost:3009";
+const routeMapPath = new URL("../apps/web/components/itinerary/RouteMap.tsx", import.meta.url);
 
 const requiredTexts = [
   "테마 버전",
@@ -23,6 +25,10 @@ const requiredHtmlFragments = [
   'data-planme-roller-motion="wing-flap"',
 ];
 
+const requiredSourceFragments = [
+  "캐리미로 짐을 이동하니, 편하게 관광할 수 있네요",
+];
+
 const forbiddenHtmlFragments = [
   "data-planme-roller-wing",
 ];
@@ -40,6 +46,7 @@ async function fetchHtml(path) {
 }
 
 const html = await fetchHtml("/itinerary/busan-bts-1d1n");
+const routeMapSource = await readFile(routeMapPath, "utf8");
 
 for (const text of requiredTexts) {
   assert.ok(html.includes(text), `Expected rendered detail page to include: ${text}`);
@@ -47,6 +54,10 @@ for (const text of requiredTexts) {
 
 for (const fragment of requiredHtmlFragments) {
   assert.ok(html.includes(fragment), `Expected rendered detail page to include HTML fragment: ${fragment}`);
+}
+
+for (const fragment of requiredSourceFragments) {
+  assert.ok(routeMapSource.includes(fragment), `Expected RouteMap source to include: ${fragment}`);
 }
 
 for (const fragment of forbiddenHtmlFragments) {
