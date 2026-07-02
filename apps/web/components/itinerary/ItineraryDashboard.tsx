@@ -2261,6 +2261,7 @@ export function ItineraryDashboard({
 
               <RouteMap
                 carrymeRoute={carrymeRoute}
+                savingLabel={savingLabel}
                 showCarryme={visibleRoutes.carryme}
                 showStandard={visibleRoutes.standard}
                 standardRoute={standardRoute}

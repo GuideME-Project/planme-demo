@@ -12,6 +12,7 @@ type RouteMapProps = {
   attachedToComparison?: boolean;
   standardRoute: RoutePlan;
   carrymeRoute: RoutePlan;
+  savingLabel: string;
   showStandard: boolean;
   showCarryme: boolean;
   themeMode: PlanmeThemeMode;
@@ -132,15 +133,20 @@ type RollerGuidanceContent = {
 
 const rollerImageSrc = "/roller/roller-flying.png";
 const rollerComfortHeadline = "캐리미로 짐을 이동하니, 편하게 관광할 수 있네요";
-const rollerTimeSavingHeadline = "캐리미로 짐을 이동하니, 관광할 시간이 1시간 더 많아졌어요";
 const rollerMapNotice = "CarryME 경로를 지도에서 확인해요.";
 
 /**
  * Builds the Roller copy agreed for CarryME benefit states.
  */
-function createRollerGuidanceContent(savingMinutes: number): RollerGuidanceContent {
+function createRollerGuidanceContent(savingLabel: string): RollerGuidanceContent {
+  const savingDurationLabel = savingLabel.replace(/\s*절약$/, "").trim();
+
+  // Keep the map bubble in sync with the same saving label used by the header and timeline.
   return {
-    headline: savingMinutes > 0 ? rollerTimeSavingHeadline : rollerComfortHeadline,
+    headline:
+      savingDurationLabel && savingDurationLabel !== "절약 없음"
+        ? `캐리미로 짐을 이동하니, 관광할 시간이 ${savingDurationLabel} 더 많아졌어요`
+        : rollerComfortHeadline,
   };
 }
 
@@ -567,6 +573,7 @@ export function RouteMap({
   attachedToComparison = false,
   standardRoute,
   carrymeRoute,
+  savingLabel,
   showStandard,
   showCarryme,
   themeMode,
@@ -577,8 +584,7 @@ export function RouteMap({
   const isDark = themeMode === "dark";
   const standardColor = theme.palette.primary.main;
   const carrymeColor = theme.palette.secondary.main;
-  const savingMinutes = standardRoute.durationMinutes - carrymeRoute.durationMinutes;
-  const rollerGuidance = createRollerGuidanceContent(savingMinutes);
+  const rollerGuidance = createRollerGuidanceContent(savingLabel);
   const canUseNaver = Boolean(naverMapsClientId && !naverFailed);
   const mapBackground = isDark
     ? "linear-gradient(135deg, #111827 0%, #17212d 48%, #0e2530 100%)"

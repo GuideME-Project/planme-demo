@@ -18,7 +18,6 @@ const requiredTexts = [
   "CarryME로 짐 맡기기 (데모)",
   "안전한 짐 배송",
   "실시간 알림",
-  "캐리미로 짐을 이동하니, 관광할 시간이 1시간 더 많아졌어요",
 ];
 
 const requiredHtmlFragments = [
@@ -28,6 +27,7 @@ const requiredHtmlFragments = [
 
 const requiredSourceFragments = [
   "캐리미로 짐을 이동하니, 편하게 관광할 수 있네요",
+  "function createRollerGuidanceContent(savingLabel: string)",
 ];
 
 const requiredDashboardSourceFragments = [
@@ -35,6 +35,7 @@ const requiredDashboardSourceFragments = [
   "function createComparisonRouteRows",
   "luggageDestination",
   "finalDestination",
+  "savingLabel={savingLabel}",
 ];
 
 const forbiddenHtmlFragments = [
@@ -43,6 +44,10 @@ const forbiddenHtmlFragments = [
 
 const forbiddenSourceFragments = [
   "standard: rows,",
+];
+
+const forbiddenRouteMapSourceFragments = [
+  "캐리미로 짐을 이동하니, 관광할 시간이 1시간 더 많아졌어요",
 ];
 
 async function fetchHtml(path) {
@@ -83,6 +88,10 @@ for (const fragment of forbiddenHtmlFragments) {
 
 for (const fragment of forbiddenSourceFragments) {
   assert.ok(!itineraryDashboardSource.includes(fragment), `Expected ItineraryDashboard source not to include: ${fragment}`);
+}
+
+for (const fragment of forbiddenRouteMapSourceFragments) {
+  assert.ok(!routeMapSource.includes(fragment), `Expected RouteMap source not to include: ${fragment}`);
 }
 
 console.log("PlanME design contract passed");
