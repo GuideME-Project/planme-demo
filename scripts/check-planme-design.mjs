@@ -4,8 +4,6 @@ const baseUrl = process.env.PLANME_BASE_URL ?? "http://localhost:3009";
 
 const requiredTexts = [
   "테마 버전",
-  "이용 방법",
-  "일정 URL 복사",
   "총 이동 시간(예상)",
   "약 6시간 30분 → 5시간 20분",
   "절약 시간(예상)",
@@ -17,6 +15,9 @@ const requiredTexts = [
   "CarryME로 짐 맡기기 (데모)",
   "안전한 짐 배송",
   "실시간 알림",
+  "CarryME로 짐을 먼저 보내두면",
+  "더 여유로워요",
+  "상세 길안내는 지도 앱에서 이어서 확인해요",
 ];
 
 async function fetchHtml(path) {
