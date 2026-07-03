@@ -5,10 +5,12 @@ import {
   registerAppTool,
 } from "@modelcontextprotocol/ext-apps/server";
 import {
+  assessPlanmePlanningInput,
   createRecommendedItineraryResponse,
   getGptActionItineraryResponse,
   type GptActionItineraryResponse,
   type PlanmeItinerary,
+  type PlanmePlanningRequest,
   type RecommendItineraryRequest,
 } from "@planme/core";
 import { z } from "zod";
@@ -51,6 +53,21 @@ const timelineEventSchema = z.object({
   savingLabel: z.string().optional(),
 });
 
+const planningSlotSchema = z.enum([
+  "destination",
+  "origin",
+  "durationDays",
+  "hotelName",
+  "preferences",
+]);
+
+const planningQuestionSchema = z.object({
+  slot: planningSlotSchema,
+  text: z.string(),
+  required: z.boolean(),
+  examples: z.array(z.string()),
+});
+
 const itinerarySummarySchema = {
   itineraryId: z.string(),
   title: z.string(),
@@ -60,6 +77,21 @@ const itinerarySummarySchema = {
   standardTotalMinutes: z.number(),
   carrymeTotalMinutes: z.number(),
   timeline: z.array(timelineEventSchema),
+};
+
+const planningAssessmentSchema = {
+  status: z.enum(["needs_input", "ready"]),
+  missingSlots: z.array(planningSlotSchema),
+  questions: z.array(planningQuestionSchema),
+  normalizedInput: z.object({
+    destination: z.string().nullable(),
+    origin: z.string().nullable(),
+    arrivalAirport: z.string().nullable(),
+    durationDays: z.number().nullable(),
+    hotelName: z.string().nullable(),
+    preferences: z.array(z.string()),
+  }),
+  nextAction: z.enum(["ask_user", "call_recommend_planme_itinerary"]),
 };
 
 type ItinerarySummary = {
@@ -157,10 +189,58 @@ export function createPlanmeMcpServer(): McpServer {
 
   registerAppTool(
     server,
+    "start_planme_planning",
+    {
+      title: "Start PlanME planning",
+      description:
+        "Check whether a PlanME request has enough detail. Use this first when origin, destination, trip length, lodging, or preferences are unclear; ask the returned questions before recommending an itinerary.",
+      inputSchema: {
+        message: z.string().optional(),
+        destination: z.string().optional(),
+        durationDays: z.number().int().min(1).max(14).optional(),
+        arrivalAirport: z.string().optional(),
+        arrivalTime: z.string().optional(),
+        hotelName: z.string().optional(),
+        origin: z.string().optional(),
+        travelerCount: z.number().int().min(1).max(20).optional(),
+        luggageCount: z.number().int().min(0).max(20).optional(),
+        preferences: z.array(z.string()).optional(),
+        theme: z.enum(["light", "dark"]).optional(),
+      },
+      outputSchema: planningAssessmentSchema,
+      _meta: {
+        "openai/toolInvocation/invoking": "PlanME 일정 조건을 확인하는 중입니다.",
+        "openai/toolInvocation/invoked": "PlanME 일정 질문이 준비됐습니다.",
+      },
+    },
+    async (input: PlanmePlanningRequest) => {
+      const assessment = assessPlanmePlanningInput(input);
+
+      // This preflight tool does not render the widget; it tells ChatGPT what to ask next.
+      return {
+        structuredContent: assessment,
+        content: [
+          {
+            type: "text" as const,
+            text:
+              assessment.status === "ready"
+                ? "PlanME 일정 생성에 필요한 기본 조건이 준비됐습니다. recommend_planme_itinerary를 호출하세요."
+                : `PlanME 일정 생성 전에 ${assessment.questions
+                    .map((question) => question.text)
+                    .join(" ")}`,
+          },
+        ],
+      };
+    },
+  );
+
+  registerAppTool(
+    server,
     "recommend_planme_itinerary",
     {
       title: "Recommend PlanME itinerary",
-      description: "Recommend a PlanME itinerary from travel inputs and render a timeline widget.",
+      description:
+        "Recommend a PlanME itinerary from travel inputs and render a timeline widget. If origin, destination, or trip length is unclear, call start_planme_planning first and ask its questions.",
       inputSchema: {
         destination: z.string().optional(),
         durationDays: z.number().int().min(1).max(14).optional(),
