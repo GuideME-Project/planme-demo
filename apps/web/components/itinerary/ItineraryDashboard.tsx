@@ -482,6 +482,34 @@ function appendRouteRow(
 }
 
 /**
+ * Clones the accommodation row when the final destination must act as a Standard detour stop.
+ */
+function createStandardDetourLuggageRow(
+  roles: InferredDestinationRoles,
+): DestinationRow | undefined {
+  if (!roles.luggageDestination) {
+    return undefined;
+  }
+
+  const shouldUseAsIntermediateStop =
+    roles.finalDestination &&
+    isSameDestination(roles.luggageDestination, roles.finalDestination) &&
+    roles.stops.length > 0;
+
+  if (!shouldUseAsIntermediateStop) {
+    return roles.luggageDestination;
+  }
+
+  return {
+    ...roles.luggageDestination,
+    id: `${roles.luggageDestination.id}-standard-detour`,
+    // Final rows do not expose a segment selector, so the generated detour row inherits
+    // the next visible stop's mode before it is sent to route providers.
+    mode: roles.stops[0].mode,
+  };
+}
+
+/**
  * Creates Standard and CarryME request rows from the same edited destinations and internal roles.
  */
 function createComparisonRouteRows(
@@ -502,7 +530,7 @@ function createComparisonRouteRows(
   appendRouteRow(carrymeRows, roles.finalDestination);
 
   const standardDetourRows: DestinationRow[] = [roles.origin];
-  appendRouteRow(standardDetourRows, roles.luggageDestination);
+  appendRouteRow(standardDetourRows, createStandardDetourLuggageRow(roles));
   roles.stops.forEach((row) => appendRouteRow(standardDetourRows, row));
   appendRouteRow(standardDetourRows, roles.finalDestination, {
     allowDuplicate: Boolean(
