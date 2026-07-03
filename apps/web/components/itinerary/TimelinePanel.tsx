@@ -8,11 +8,8 @@ import TrainRoundedIcon from "@mui/icons-material/TrainRounded";
 import WorkRoundedIcon from "@mui/icons-material/WorkRounded";
 import { alpha, Box, Button, Chip, Stack, Typography, useTheme } from "@mui/material";
 import type { ReactNode } from "react";
-import { useState } from "react";
 import type { TimelineEvent } from "@planme/core";
 import type { PlanmeThemeMode } from "@/theme/theme";
-
-type TimelineView = "standard" | "carryme";
 
 type TimelinePanelProps = {
   carrymeDurationLabel: string;
@@ -32,76 +29,45 @@ const categoryIcons: Record<TimelineEvent["category"], ReactNode> = {
   event: <AttractionsRoundedIcon fontSize="small" />,
 };
 
+type RouteTimelineColumnProps = {
+  durationLabel: string;
+  durationTitle: string;
+  events: TimelineEvent[];
+  isCarryme?: boolean;
+  isDark: boolean;
+  savingLabel: string;
+};
+
 /**
- * Renders the selected day's confirmed Standard or CarryME timeline.
+ * Renders one route's confirmed timeline and duration summary.
  */
-export function TimelinePanel({
-  carrymeDurationLabel,
-  carrymeEvents,
-  mode,
+function RouteTimelineColumn({
+  durationLabel,
+  durationTitle,
+  events,
+  isCarryme = false,
+  isDark,
   savingLabel,
-  standardDurationLabel,
-  standardEvents,
-}: TimelinePanelProps) {
+}: RouteTimelineColumnProps) {
   const theme = useTheme();
-  const isDark = mode === "dark";
-  const [activeTimeline, setActiveTimeline] = useState<TimelineView>("carryme");
-  const isCarryme = activeTimeline === "carryme";
-  const events = isCarryme ? carrymeEvents : standardEvents;
-  const durationLabel = isCarryme ? carrymeDurationLabel : standardDurationLabel;
-  const durationTitle = isCarryme
-    ? "CarryME 총 이동 시간(예상)"
-    : "Standard 총 이동 시간(예상)";
+  const tone = isCarryme ? "secondary" : "primary";
 
   return (
-    <Box
-      data-testid="timeline-panel"
+    <Stack
+      data-testid={isCarryme ? "timeline-column-carryme" : "timeline-column-standard"}
+      spacing={1.5}
       sx={{
-        border: "1px solid",
+        borderRight: { xs: 0, lg: isCarryme ? 0 : "1px solid" },
         borderColor: "divider",
-        borderRadius: 2,
-        height: "100%",
-        overflow: "hidden",
+        minWidth: 0,
+        p: { xs: 2, md: 2.5 },
       }}
     >
-      <Stack
-        direction="row"
-        sx={{
-          borderBottom: "1px solid",
-          borderColor: "divider",
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-        }}
-      >
-        <Button
-          onClick={() => setActiveTimeline("standard")}
-          variant={activeTimeline === "standard" ? "outlined" : "text"}
-          sx={{
-            borderColor: "primary.main",
-            borderRadius: 0,
-            borderWidth: activeTimeline === "standard" ? "0 0 3px" : 0,
-            color: "primary.main",
-            minHeight: 46,
-          }}
-        >
-          Standard 일정
-        </Button>
-        <Button
-          color="secondary"
-          onClick={() => setActiveTimeline("carryme")}
-          variant={activeTimeline === "carryme" ? "outlined" : "text"}
-          sx={{
-            borderColor: "secondary.main",
-            borderRadius: 0,
-            borderWidth: activeTimeline === "carryme" ? "0 0 3px" : 0,
-            minHeight: 46,
-          }}
-        >
-          CarryME 일정
-        </Button>
-      </Stack>
+      <Typography color={tone} sx={{ fontSize: 16, fontWeight: 900 }}>
+        {isCarryme ? "CarryME 일정" : "Standard 일정"}
+      </Typography>
 
-      <Stack spacing={0} sx={{ p: { xs: 2, md: 2.5 } }}>
+      <Stack spacing={0}>
         {events.map((event, index) => (
           <Box
             key={`${event.time}-${event.title}`}
@@ -166,11 +132,12 @@ export function TimelinePanel({
                 borderRadius: 1.5,
                 mb: 1.2,
                 ml: 1,
+                minWidth: 0,
                 px: event.highlight ? 1.5 : 0,
                 py: event.highlight ? 1.2 : 0.4,
               }}
             >
-              <Stack direction="row" sx={{ alignItems: "center", gap: 1 }}>
+              <Stack direction="row" sx={{ alignItems: "center", gap: 1, minWidth: 0 }}>
                 <Typography sx={{ fontWeight: 900 }}>{event.title}</Typography>
                 {event.savingLabel ? (
                   <Chip
@@ -204,47 +171,98 @@ export function TimelinePanel({
             </Box>
           </Box>
         ))}
-
-        <Stack spacing={1.2} sx={{ mt: 1 }}>
-          <Box
-            sx={{
-              alignItems: "center",
-              bgcolor: alpha(theme.palette.secondary.main, isDark ? 0.12 : 0.08),
-              border: "1px solid",
-              borderColor: alpha(theme.palette.secondary.main, 0.28),
-              borderRadius: 1.5,
-              display: "flex",
-              justifyContent: "space-between",
-              px: 2,
-              py: 1.4,
-            }}
-          >
-            <Box>
-              <Typography color="secondary" sx={{ fontSize: 13, fontWeight: 800 }}>
-                {durationTitle}
-              </Typography>
-              <Typography color="secondary" sx={{ fontSize: 18, fontWeight: 900 }}>
-                {durationLabel}
-              </Typography>
-            </Box>
-            {isCarryme ? <Chip color="error" label={savingLabel} /> : null}
-          </Box>
-          {isCarryme ? (
-            <Button
-              color="secondary"
-              fullWidth
-              size="large"
-              startIcon={<WorkRoundedIcon />}
-              variant="contained"
-            >
-              CarryME로 짐 맡기기 (데모)
-            </Button>
-          ) : null}
-          <Typography color="text.secondary" sx={{ fontSize: 12, textAlign: "center" }}>
-            * 실제 결제 기능은 포함되어 있지 않은 데모입니다.
-          </Typography>
-        </Stack>
       </Stack>
+
+      <Box
+        sx={{
+          alignItems: "center",
+          bgcolor: alpha(theme.palette[tone].main, isDark ? 0.12 : 0.08),
+          border: "1px solid",
+          borderColor: alpha(theme.palette[tone].main, 0.28),
+          borderRadius: 1.5,
+          display: "flex",
+          gap: 1,
+          justifyContent: "space-between",
+          mt: "auto",
+          px: 2,
+          py: 1.4,
+        }}
+      >
+        <Box>
+          <Typography color={tone} sx={{ fontSize: 13, fontWeight: 800 }}>
+            {durationTitle}
+          </Typography>
+          <Typography color={tone} sx={{ fontSize: 18, fontWeight: 900 }}>
+            {durationLabel}
+          </Typography>
+        </Box>
+        {isCarryme ? <Chip color="error" label={savingLabel} /> : null}
+      </Box>
+
+      {isCarryme ? (
+        <Button
+          color="secondary"
+          fullWidth
+          size="large"
+          startIcon={<WorkRoundedIcon />}
+          variant="contained"
+        >
+          CarryME로 짐 맡기기 (데모)
+        </Button>
+      ) : null}
+    </Stack>
+  );
+}
+
+/**
+ * Renders the selected day's confirmed Standard and CarryME timelines.
+ */
+export function TimelinePanel({
+  carrymeDurationLabel,
+  carrymeEvents,
+  mode,
+  savingLabel,
+  standardDurationLabel,
+  standardEvents,
+}: TimelinePanelProps) {
+  const isDark = mode === "dark";
+
+  return (
+    <Box
+      data-testid="timeline-panel"
+      sx={{
+        border: "1px solid",
+        borderColor: "divider",
+        borderRadius: 2,
+        overflow: "hidden",
+      }}
+    >
+      {/* Keep both timelines visible so 4+ stops never depend on compact chip wrapping. */}
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: { xs: "1fr", lg: "1fr 1fr" },
+        }}
+      >
+        <RouteTimelineColumn
+          durationLabel={standardDurationLabel}
+          durationTitle="Standard 총 이동 시간(예상)"
+          events={standardEvents}
+          isDark={isDark}
+          savingLabel={savingLabel}
+        />
+        <RouteTimelineColumn
+          durationLabel={carrymeDurationLabel}
+          durationTitle="CarryME 총 이동 시간(예상)"
+          events={carrymeEvents}
+          isCarryme
+          isDark={isDark}
+          savingLabel={savingLabel}
+        />
+      </Box>
+      <Typography color="text.secondary" sx={{ fontSize: 12, pb: 2, textAlign: "center" }}>
+        * 실제 결제 기능은 포함되어 있지 않은 데모입니다.
+      </Typography>
     </Box>
   );
 }

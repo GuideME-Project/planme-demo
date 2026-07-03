@@ -10,8 +10,10 @@ import type { PlanmeThemeMode } from "@/theme/theme";
 
 type RouteMapProps = {
   attachedToComparison?: boolean;
+  expanded?: boolean;
   standardRoute: RoutePlan;
   carrymeRoute: RoutePlan;
+  savingLabel: string;
   showStandard: boolean;
   showCarryme: boolean;
   themeMode: PlanmeThemeMode;
@@ -68,6 +70,7 @@ type NaverMapInstance = {
 
 type NaverPoint = object;
 type NaverSize = object;
+type NaverStrokeStyle = "solid" | "shortdash";
 
 type NaverMapsNamespace = {
   LatLng: new (lat: number, lng: number) => NaverLatLng;
@@ -103,8 +106,12 @@ type NaverMapsNamespace = {
     map: NaverMapInstance;
     path: NaverLatLng[];
     strokeColor: string;
+    strokeLineCap?: string;
+    strokeLineJoin?: string;
     strokeOpacity?: number;
+    strokeStyle?: NaverStrokeStyle;
     strokeWeight: number;
+    zIndex?: number;
   }) => void;
   Position: {
     BOTTOM_RIGHT: string;
@@ -126,19 +133,51 @@ function toPointString(points: MapPoint[]): string {
   return points.map((point) => `${point.x},${point.y}`).join(" ");
 }
 
+type RollerGuidanceContent = {
+  headline: string;
+};
+
+type RouteLineStyle = {
+  opacity: number;
+  strokeStyle: NaverStrokeStyle;
+  strokeWeight: number;
+  svgStrokeWidth: number;
+  zIndex: number;
+};
+
+const rollerImageSrc = "/roller/roller-flying.png";
+const rollerComfortHeadline = "캐리미로 짐을 이동하니, 편하게 관광할 수 있네요";
+const rollerMapNotice = "CarryME 경로를 지도에서 확인해요.";
+const routeLineStyles: Record<"standard" | "carryme", RouteLineStyle> = {
+  carryme: {
+    opacity: 0.96,
+    strokeStyle: "solid",
+    strokeWeight: 5,
+    svgStrokeWidth: 1.45,
+    zIndex: 20,
+  },
+  standard: {
+    opacity: 0.82,
+    strokeStyle: "shortdash",
+    strokeWeight: 9,
+    svgStrokeWidth: 2.2,
+    zIndex: 10,
+  },
+};
+
 /**
- * Formats a minute duration into the compact Korean label used in the route summary.
+ * Builds the Roller copy agreed for CarryME benefit states.
  */
-function formatDurationFromMinutes(minutes: number): string {
-  if (minutes < 60) {
-    return `약 ${minutes}분`;
-  }
+function createRollerGuidanceContent(savingLabel: string): RollerGuidanceContent {
+  const savingDurationLabel = savingLabel.replace(/\s*절약$/, "").trim();
 
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-
-  // Keep zero-minute labels short so the bottom guide line does not wrap awkwardly.
-  return remainingMinutes === 0 ? `약 ${hours}시간` : `약 ${hours}시간 ${remainingMinutes}분`;
+  // Keep the map bubble in sync with the same saving label used by the header and timeline.
+  return {
+    headline:
+      savingDurationLabel && savingDurationLabel !== "절약 없음"
+        ? `캐리미로 짐을 이동하니, 관광할 시간이 ${savingDurationLabel} 더 많아졌어요`
+        : rollerComfortHeadline,
+  };
 }
 
 /**
@@ -146,13 +185,6 @@ function formatDurationFromMinutes(minutes: number): string {
  */
 function getFirstRouteCoordinate(route: RoutePlan) {
   return route.geoSegments?.find((segment) => segment.length > 0)?.[0];
-}
-
-/**
- * Checks whether a route has drawable geographic line data.
- */
-function hasDrawableRoute(route: RoutePlan) {
-  return Boolean(route.geoSegments?.some((segment) => segment.length > 2));
 }
 
 /**
@@ -263,7 +295,7 @@ function NaverRouteMap({
         const addRouteSegment = (
           path: MapCoordinate[],
           color: string,
-          opacity = 0.95,
+          routeStyle: RouteLineStyle,
         ) => {
           if (path.length <= 2) {
             return;
@@ -280,31 +312,35 @@ function NaverRouteMap({
             map,
             path: naverPath,
             strokeColor: color,
-            strokeOpacity: opacity,
-            strokeWeight: 5,
+            strokeLineCap: "round",
+            strokeLineJoin: "round",
+            strokeOpacity: routeStyle.opacity,
+            strokeStyle: routeStyle.strokeStyle,
+            strokeWeight: routeStyle.strokeWeight,
+            zIndex: routeStyle.zIndex,
           });
         };
 
         const addRoute = (
           route: RoutePlan,
           color: string,
-          opacity = 0.95,
+          routeStyle: RouteLineStyle,
         ) => {
           const segments = route.geoSegments?.filter((segment) => segment.length > 2);
 
           if (segments?.length) {
-            segments.forEach((segment) => addRouteSegment(segment, color, opacity));
+            segments.forEach((segment) => addRouteSegment(segment, color, routeStyle));
             return;
           }
 
         };
 
         if (showStandard) {
-          addRoute(standardRoute, standardColor);
+          addRoute(standardRoute, standardColor, routeLineStyles.standard);
         }
 
         if (showCarryme) {
-          addRoute(carrymeRoute, carrymeColor);
+          addRoute(carrymeRoute, carrymeColor, routeLineStyles.carryme);
         }
 
         markers.forEach((marker, index) => {
@@ -346,12 +382,14 @@ function NaverRouteMap({
     };
   }, [
     carrymeColor,
+    carrymeRoute,
     carrymeRoute.geoSegments,
     markers,
     onLoadFailed,
     showCarryme,
     showStandard,
     standardColor,
+    standardRoute,
     standardRoute.geoSegments,
   ]);
 
@@ -424,12 +462,153 @@ function createNaverMarkerIcon({
 }
 
 /**
+ * Renders the compact Roller badge used in CarryME guidance overlays.
+ */
+function RollerBadge({ isDark }: { isDark: boolean }) {
+  return (
+    <Box
+      alt=""
+      aria-hidden="true"
+      component="img"
+      data-planme-roller-motion="wing-flap"
+      src={rollerImageSrc}
+      sx={{
+        animation: "planmeRollerWingFlap 0.72s ease-in-out infinite",
+        display: "block",
+        flexShrink: 0,
+        filter: isDark
+          ? "drop-shadow(0 16px 26px rgba(0,0,0,0.42))"
+          : "drop-shadow(0 16px 24px rgba(15,23,42,0.24))",
+        height: { xs: 58, md: 82 },
+        objectFit: "contain",
+        transformOrigin: "50% 55%",
+        willChange: "transform",
+        width: { xs: 72, md: 108 },
+        "@keyframes planmeRollerWingFlap": {
+          "0%, 100%": { transform: "translate3d(0, 2px, 0) rotate(-1deg) scaleY(1)" },
+          "45%": { transform: "translate3d(0, -4px, 0) rotate(1deg) scaleY(0.94)" },
+          "65%": { transform: "translate3d(0, -2px, 0) rotate(-0.5deg) scaleY(1.03)" },
+        },
+        "@media (prefers-reduced-motion: reduce)": {
+          animation: "none",
+        },
+      }}
+    />
+  );
+}
+
+/**
+ * Shows CarryME benefit copy as a map-anchored Roller guide with mobile fallback.
+ */
+function RollerGuidance({
+  content,
+  isDark,
+  show,
+}: {
+  content: RollerGuidanceContent;
+  isDark: boolean;
+  show: boolean;
+}) {
+  if (!show) {
+    return null;
+  }
+
+  return (
+    <>
+      <Stack
+        data-planme-roller-guidance="anchor"
+        direction="row"
+        spacing={1.2}
+        sx={{
+          alignItems: "center",
+          display: { xs: "none", md: "flex" },
+          maxWidth: 348,
+          pointerEvents: "none",
+          position: "absolute",
+          right: { md: 14, lg: 20 },
+          top: { md: 22, lg: 28 },
+          zIndex: 4,
+        }}
+      >
+        <Box
+          sx={{
+            bgcolor: isDark ? alpha("#0f1720", 0.92) : alpha("#ffffff", 0.96),
+            border: "1px solid",
+            borderColor: isDark ? alpha("#ffffff", 0.18) : alpha("#0f1720", 0.14),
+            borderRadius: 2,
+            boxShadow: isDark
+              ? "0 18px 38px rgba(0,0,0,0.34)"
+              : "0 18px 38px rgba(15,23,42,0.16)",
+            color: "text.primary",
+            maxWidth: 230,
+            p: 1.4,
+            position: "relative",
+            "&::after": {
+              borderBottom: "9px solid transparent",
+              borderLeft: `10px solid ${isDark ? alpha("#0f1720", 0.92) : alpha("#ffffff", 0.96)}`,
+              borderTop: "9px solid transparent",
+              content: '""',
+              position: "absolute",
+              right: -10,
+              top: "50%",
+              transform: "translateY(-50%)",
+            },
+          }}
+        >
+          <Typography sx={{ fontSize: 14, fontWeight: 900, lineHeight: 1.35 }}>
+            {content.headline}
+          </Typography>
+        </Box>
+        <RollerBadge isDark={isDark} />
+      </Stack>
+
+      <Stack
+        data-planme-roller-guidance="panel"
+        direction="row"
+        spacing={1.2}
+        sx={{
+          alignItems: "center",
+          bgcolor: isDark ? alpha("#0f1720", 0.9) : alpha("#ffffff", 0.95),
+          border: "1px solid",
+          borderColor: "divider",
+          borderRadius: 2,
+          bottom: 14,
+          boxShadow: isDark
+            ? "0 18px 38px rgba(0,0,0,0.32)"
+            : "0 18px 38px rgba(15,23,42,0.14)",
+          display: { xs: "flex", md: "none" },
+          left: 14,
+          pointerEvents: "none",
+          position: "absolute",
+          right: 14,
+          zIndex: 4,
+          px: 1.3,
+          py: 1.1,
+          width: "min(calc(100% - 28px), calc(100vw - 56px))",
+        }}
+      >
+        <RollerBadge isDark={isDark} />
+        <Box sx={{ minWidth: 0 }}>
+          <Typography
+            sx={{ fontSize: 13, fontWeight: 900, lineHeight: 1.35, overflowWrap: "break-word" }}
+          >
+            {content.headline}
+          </Typography>
+        </Box>
+      </Stack>
+    </>
+  );
+}
+
+/**
  * Renders a Naver-backed route view with a static fallback.
  */
 export function RouteMap({
   attachedToComparison = false,
+  expanded = false,
   standardRoute,
   carrymeRoute,
+  savingLabel,
   showStandard,
   showCarryme,
   themeMode,
@@ -440,13 +619,15 @@ export function RouteMap({
   const isDark = themeMode === "dark";
   const standardColor = theme.palette.primary.main;
   const carrymeColor = theme.palette.secondary.main;
-  const savingMinutes = standardRoute.durationMinutes - carrymeRoute.durationMinutes;
-  const savingLabel =
-    savingMinutes > 0 ? formatDurationFromMinutes(savingMinutes) : "절약 없음";
+  const rollerGuidance = createRollerGuidanceContent(savingLabel);
   const canUseNaver = Boolean(naverMapsClientId && !naverFailed);
   const mapBackground = isDark
     ? "linear-gradient(135deg, #111827 0%, #17212d 48%, #0e2530 100%)"
     : "linear-gradient(135deg, #dceeff 0%, #f6fbff 48%, #e9f8ec 100%)";
+  // The detail-map tab intentionally trades editing access for a taller inspection surface.
+  const mapMinHeight = expanded
+    ? { xs: 560, md: 620, lg: 680 }
+    : { xs: 320, md: 360 };
 
   return (
     <Box
@@ -462,9 +643,10 @@ export function RouteMap({
       }}
     >
       <Box
+        data-testid="route-map-viewport"
         sx={{
           background: mapBackground,
-          minHeight: { xs: 320, md: 360 },
+          minHeight: mapMinHeight,
           overflow: "hidden",
           position: "relative",
         }}
@@ -552,9 +734,11 @@ export function RouteMap({
             markerEnd="url(#standardArrow)"
             points={toPointString(standardRoute.mapPath)}
             stroke={standardColor}
+            strokeDasharray="5 4"
             strokeLinecap="round"
             strokeLinejoin="round"
-            strokeWidth="1.45"
+            strokeOpacity={routeLineStyles.standard.opacity}
+            strokeWidth={routeLineStyles.standard.svgStrokeWidth}
             vectorEffect="non-scaling-stroke"
           />
         ) : null}
@@ -568,7 +752,8 @@ export function RouteMap({
             stroke={carrymeColor}
             strokeLinecap="round"
             strokeLinejoin="round"
-            strokeWidth="1.45"
+            strokeOpacity={routeLineStyles.carryme.opacity}
+            strokeWidth={routeLineStyles.carryme.svgStrokeWidth}
             vectorEffect="non-scaling-stroke"
           />
         ) : null}
@@ -655,6 +840,7 @@ export function RouteMap({
       </Stack>
         </>
       )}
+        <RollerGuidance content={rollerGuidance} isDark={isDark} show={showCarryme} />
       </Box>
 
       <Stack
@@ -669,13 +855,15 @@ export function RouteMap({
           m: { xs: 1.25, md: 1.5 },
           px: { xs: 1.5, md: 2 },
           py: 1.25,
+          width: { xs: "min(calc(100% - 20px), calc(100vw - 56px))", md: "auto" },
         }}
       >
         <InfoRoundedIcon color="primary" fontSize="small" />
-        <Typography color="primary" sx={{ fontSize: 13, fontWeight: 700 }}>
-          {savingMinutes > 0
-            ? `CarryME 이용 시 호텔 경유가 없어 ${savingLabel}을 절약할 수 있습니다.`
-            : "현재 경로 계산 기준으로는 절약 시간이 없습니다."}
+        <Typography
+          color="primary"
+          sx={{ fontSize: 13, fontWeight: 700, lineHeight: 1.35, minWidth: 0, overflowWrap: "break-word" }}
+        >
+          {rollerMapNotice}
         </Typography>
       </Stack>
     </Box>

@@ -11,6 +11,7 @@ type PlaceDetailsPayload = {
 const odsayRequestUrls: string[] = [];
 const naverDriveRequestUrls: string[] = [];
 const tmapRouteRequestUrls: string[] = [];
+let forceOdsayFailure = false;
 let forceJeongeupTransitRateLimit = false;
 
 const routePath = [
@@ -35,6 +36,13 @@ const localDrivingPlaces = {
     placeId: "place-dongtan-lake-park",
     secondaryText: "경기도 화성시 동탄순환대로",
     text: "동탄호수공원",
+  },
+  yeosuHotelHaven: {
+    coordinate: { lat: 34.7369, lng: 127.7434 },
+    mainText: "여수호텔헤이븐",
+    placeId: "place-yeosu-hotel-haven",
+    secondaryText: "전라남도 여수시 돌산읍 진두해안길",
+    text: "여수호텔헤이븐",
   },
 };
 
@@ -150,7 +158,9 @@ async function mockLocalDrivingPlaces(page: Page) {
     const input = body.input ?? "";
     const place = input.includes("아리수로")
       ? localDrivingPlaces.arisuRoad
-      : localDrivingPlaces.dongtanLakePark;
+      : input.includes("여수")
+        ? localDrivingPlaces.yeosuHotelHaven
+        : localDrivingPlaces.dongtanLakePark;
 
     await route.fulfill({
       contentType: "application/json",
@@ -172,7 +182,9 @@ async function mockLocalDrivingPlaces(page: Page) {
     const place =
       body.placeId === localDrivingPlaces.arisuRoad.placeId
         ? localDrivingPlaces.arisuRoad
-        : localDrivingPlaces.dongtanLakePark;
+        : body.placeId === localDrivingPlaces.yeosuHotelHaven.placeId
+          ? localDrivingPlaces.yeosuHotelHaven
+          : localDrivingPlaces.dongtanLakePark;
 
     await route.fulfill({
       contentType: "application/json",
@@ -192,6 +204,7 @@ test.beforeEach(async ({ page }) => {
   odsayRequestUrls.length = 0;
   naverDriveRequestUrls.length = 0;
   tmapRouteRequestUrls.length = 0;
+  forceOdsayFailure = false;
   forceJeongeupTransitRateLimit = false;
 
   await page.addInitScript(() => {
@@ -228,6 +241,20 @@ test.beforeEach(async ({ page }) => {
       stops?: Array<{ coordinate?: { lat: number; lng: number }; mode?: string }>;
     };
     const stops = body.stops ?? [];
+
+    if (stops.slice(0, -1).some((stop) => stop.mode !== "drive")) {
+      await route.fulfill({
+        contentType: "application/json",
+        json: {
+          message:
+            "Naver Directions 자동차 경로 API는 자동차 구간만 처리합니다. 대중교통은 ODsay 경로를 사용합니다.",
+          ok: false,
+        },
+        status: 400,
+      });
+      return;
+    }
+
     const path = stops
       .map((stop) => stop.coordinate)
       .filter((coordinate): coordinate is { lat: number; lng: number } => Boolean(coordinate));
@@ -259,6 +286,14 @@ test.beforeEach(async ({ page }) => {
     const endpoint = url.pathname.split("/").pop();
 
     odsayRequestUrls.push(route.request().url());
+
+    if (forceOdsayFailure) {
+      await route.fulfill({
+        contentType: "application/json",
+        json: { error: { code: "500", message: "Forced ODsay failure" } },
+      });
+      return;
+    }
 
     if (endpoint === "trainTerminals") {
       const terminalName = url.searchParams.get("terminalName") ?? "정읍";
@@ -485,6 +520,44 @@ test("updates the header and benefit copy after recalculating an edited local ca
       0,
     );
     await expect(page.getByText("인천공항에서 부산 호텔까지 안전하게 배송")).toHaveCount(0);
+  });
+});
+
+test("recalculates an airport to local waypoint to hotel car route without leaking hidden walk modes", async ({
+  page,
+}) => {
+  forceOdsayFailure = true;
+  await mockLocalDrivingPlaces(page);
+  await page.goto("http://localhost:3000/");
+
+  await test.step("set the reproduced three-point car-only route", async () => {
+    const visitInput = page.getByRole("textbox", { name: "방문지 행선지" }).first();
+    await visitInput.fill("동탄호수공원");
+    await page.getByRole("button", { name: /동탄호수공원/ }).first().click();
+
+    const arrivalInput = page.getByRole("textbox", { name: "도착지 행선지" });
+    await arrivalInput.fill("여수호텔헤이븐");
+    await page.getByRole("button", { name: /여수호텔헤이븐/ }).first().click();
+
+    const modeSelects = page.getByRole("combobox");
+    await modeSelects.first().click();
+    await page.getByRole("option", { name: "자동차" }).click();
+    await modeSelects.nth(1).click();
+    await page.getByRole("option", { name: "자동차" }).click();
+
+    await expect(page.getByText("인천공항 → 동탄호수공원")).toBeVisible();
+    await expect(page.getByText("동탄호수공원 → 여수호텔헤이븐")).toBeVisible();
+    await expect(modeSelects.first()).toContainText("자동차");
+    await expect(modeSelects.nth(1)).toContainText("자동차");
+  });
+
+  await test.step("recalculate without sending non-drive rows to the car API", async () => {
+    await page.getByRole("button", { name: "경로 다시 계산" }).click();
+
+    await expect(page.getByText(/경로 체크 완료/)).toBeVisible();
+    await expect(page.getByText(/자동차 경로 API는 자동차 구간만 처리합니다/)).toHaveCount(
+      0,
+    );
   });
 });
 

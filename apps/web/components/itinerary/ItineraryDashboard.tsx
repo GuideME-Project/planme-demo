@@ -2,20 +2,16 @@
 
 import AccessTimeRoundedIcon from "@mui/icons-material/AccessTimeRounded";
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
-import AttractionsRoundedIcon from "@mui/icons-material/AttractionsRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import DirectionsBusRoundedIcon from "@mui/icons-material/DirectionsBusRounded";
 import DirectionsCarRoundedIcon from "@mui/icons-material/DirectionsCarRounded";
 import DirectionsWalkRoundedIcon from "@mui/icons-material/DirectionsWalkRounded";
 import DragIndicatorRoundedIcon from "@mui/icons-material/DragIndicatorRounded";
-import FlightTakeoffRoundedIcon from "@mui/icons-material/FlightTakeoffRounded";
-import HotelRoundedIcon from "@mui/icons-material/HotelRounded";
 import LocationOnOutlinedIcon from "@mui/icons-material/LocationOnOutlined";
 import MapOutlinedIcon from "@mui/icons-material/MapOutlined";
 import PhoneIphoneRoundedIcon from "@mui/icons-material/PhoneIphoneRounded";
 import RouteRoundedIcon from "@mui/icons-material/RouteRounded";
 import ShieldRoundedIcon from "@mui/icons-material/ShieldRounded";
-import TrainRoundedIcon from "@mui/icons-material/TrainRounded";
 import WbSunnyRoundedIcon from "@mui/icons-material/WbSunnyRounded";
 import WorkRoundedIcon from "@mui/icons-material/WorkRounded";
 import {
@@ -71,6 +67,15 @@ type DestinationRow = {
   mode: DestinationMode;
   name: string;
   placeId?: string;
+};
+
+type InternalDestinationRole = "origin" | "stop" | "luggageDestination" | "finalDestination";
+
+type InferredDestinationRoles = {
+  finalDestination?: DestinationRow;
+  luggageDestination?: DestinationRow;
+  origin?: DestinationRow;
+  stops: DestinationRow[];
 };
 
 type DestinationDragPreview = {
@@ -145,14 +150,6 @@ type RouteComputationPayload = Record<RoutePlanId, ComputedRouteResult>;
 type DisplayHeaderCopy = {
   summary: string;
   title: string;
-};
-
-const stopIcons: Record<RouteStop["icon"], ReactNode> = {
-  airport: <FlightTakeoffRoundedIcon />,
-  attraction: <AttractionsRoundedIcon />,
-  event: <AttractionsRoundedIcon />,
-  hotel: <HotelRoundedIcon />,
-  station: <TrainRoundedIcon />,
 };
 
 const benefitIcons: Record<BenefitItem["icon"], ReactNode> = {
@@ -350,6 +347,202 @@ function createRouteRequestRows(route: RoutePlan): DestinationRow[] {
     mode: index === 0 ? "transit" : "walk",
     name: stop.label,
   }));
+}
+
+/**
+ * Normalizes row names so internal role inference does not depend on spaces or case.
+ */
+function normalizeDestinationName(name: string) {
+  return name.trim().replace(/\s+/g, "").toLocaleLowerCase("ko-KR");
+}
+
+/**
+ * Checks whether two rows point to the same destination without relying on row order.
+ */
+function isSameDestination(left: DestinationRow, right: DestinationRow) {
+  if (left.placeId && right.placeId) {
+    return left.placeId === right.placeId;
+  }
+
+  if (left.coordinate && right.coordinate) {
+    return (
+      Math.abs(left.coordinate.lat - right.coordinate.lat) < 0.00001 &&
+      Math.abs(left.coordinate.lng - right.coordinate.lng) < 0.00001
+    );
+  }
+
+  return normalizeDestinationName(left.name) === normalizeDestinationName(right.name);
+}
+
+/**
+ * Uses only stable accommodation hints for the internal luggage destination role.
+ */
+function hasLuggageDestinationHint(row: DestinationRow) {
+  const normalizedName = normalizeDestinationName(row.name);
+
+  return normalizedName.includes("호텔") || normalizedName.includes("숙소");
+}
+
+/**
+ * Finds the row that should receive luggage by preferring the original Standard detour context.
+ */
+function findLuggageDestinationRow(rows: DestinationRow[], standardRows: DestinationRow[]) {
+  const baselineLuggageRow =
+    standardRows.slice(1, -1).find(hasLuggageDestinationHint) ??
+    standardRows.find(hasLuggageDestinationHint);
+
+  if (baselineLuggageRow) {
+    const matchingRow = rows.find((row) => isSameDestination(row, baselineLuggageRow));
+
+    if (matchingRow) {
+      return matchingRow;
+    }
+  }
+
+  return rows.find(hasLuggageDestinationHint);
+}
+
+/**
+ * Assigns internal route roles without exposing role controls in the destination editor UI.
+ */
+function getInternalDestinationRole({
+  index,
+  luggageDestination,
+  row,
+  total,
+}: {
+  index: number;
+  luggageDestination?: DestinationRow;
+  row: DestinationRow;
+  total: number;
+}): InternalDestinationRole {
+  if (index === 0) {
+    return "origin";
+  }
+
+  if (luggageDestination && isSameDestination(row, luggageDestination)) {
+    return "luggageDestination";
+  }
+
+  if (index === total - 1) {
+    return "finalDestination";
+  }
+
+  return "stop";
+}
+
+/**
+ * Infers the minimum roles needed to compare a luggage detour with the CarryME path.
+ */
+function inferDestinationRoles(
+  rows: DestinationRow[],
+  standardRows: DestinationRow[],
+): InferredDestinationRoles {
+  const luggageDestination = findLuggageDestinationRow(rows, standardRows);
+  const roles: InferredDestinationRoles = {
+    finalDestination: rows[rows.length - 1],
+    luggageDestination,
+    origin: rows[0],
+    stops: [],
+  };
+
+  rows.forEach((row, index) => {
+    const role = getInternalDestinationRole({
+      index,
+      luggageDestination,
+      row,
+      total: rows.length,
+    });
+
+    if (role === "stop") {
+      roles.stops.push(row);
+    }
+  });
+
+  return roles;
+}
+
+/**
+ * Appends a route row while allowing the final destination to repeat after a luggage detour.
+ */
+function appendRouteRow(
+  routeRows: DestinationRow[],
+  row: DestinationRow | undefined,
+  options: { allowDuplicate?: boolean } = {},
+) {
+  if (!row) {
+    return;
+  }
+
+  if (!options.allowDuplicate && routeRows.some((current) => isSameDestination(current, row))) {
+    return;
+  }
+
+  routeRows.push(row);
+}
+
+/**
+ * Clones the accommodation row when the final destination must act as a Standard detour stop.
+ */
+function createStandardDetourLuggageRow(
+  roles: InferredDestinationRoles,
+): DestinationRow | undefined {
+  if (!roles.luggageDestination) {
+    return undefined;
+  }
+
+  const shouldUseAsIntermediateStop =
+    roles.finalDestination &&
+    isSameDestination(roles.luggageDestination, roles.finalDestination) &&
+    roles.stops.length > 0;
+
+  if (!shouldUseAsIntermediateStop) {
+    return roles.luggageDestination;
+  }
+
+  return {
+    ...roles.luggageDestination,
+    id: `${roles.luggageDestination.id}-standard-detour`,
+    // Final rows do not expose a segment selector, so the generated detour row inherits
+    // the next visible stop's mode before it is sent to route providers.
+    mode: roles.stops[0].mode,
+  };
+}
+
+/**
+ * Creates Standard and CarryME request rows from the same edited destinations and internal roles.
+ */
+function createComparisonRouteRows(
+  rows: DestinationRow[],
+  standardRows: DestinationRow[],
+): Record<RoutePlanId, DestinationRow[]> {
+  const roles = inferDestinationRoles(rows, standardRows);
+
+  if (!roles.origin || !roles.luggageDestination) {
+    return {
+      carryme: [...rows],
+      standard: [...rows],
+    };
+  }
+
+  const carrymeRows: DestinationRow[] = [roles.origin];
+  roles.stops.forEach((row) => appendRouteRow(carrymeRows, row));
+  appendRouteRow(carrymeRows, roles.finalDestination);
+
+  const standardDetourRows: DestinationRow[] = [roles.origin];
+  appendRouteRow(standardDetourRows, createStandardDetourLuggageRow(roles));
+  roles.stops.forEach((row) => appendRouteRow(standardDetourRows, row));
+  appendRouteRow(standardDetourRows, roles.finalDestination, {
+    allowDuplicate: Boolean(
+      roles.finalDestination &&
+        isSameDestination(roles.finalDestination, roles.luggageDestination),
+    ),
+  });
+
+  return {
+    carryme: carrymeRows,
+    standard: standardDetourRows,
+  };
 }
 
 /**
@@ -1768,14 +1961,24 @@ export function ItineraryDashboard({
 
   useEffect(() => {
     let cancelled = false;
-    const routes = [selectedDayPlan.standard, selectedDayPlan.carryme];
+    const initialComparisonRows = createComparisonRouteRows(
+      createDestinationRows(selectedDayPlan.carryme),
+      createRouteRequestRows(selectedDayPlan.standard),
+    );
+    const initialRouteEntries: Array<[RoutePlanId, DestinationRow[]]> = [
+      ["standard", initialComparisonRows.standard],
+      ["carryme", initialComparisonRows.carryme],
+    ];
 
-    setComputedRoutes({});
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setComputedRoutes({});
+      }
+    });
 
-    async function computeInitialRoute(route: RoutePlan) {
+    async function computeInitialRoute(routeId: RoutePlanId, rows: DestinationRow[]) {
       try {
         // Initial map rendering uses verified provider coordinates instead of bundled demo lines.
-        const rows = createRouteRequestRows(route);
         const { payload, responseOk } = await requestRouteCheck(rows);
 
         if (cancelled || !responseOk || !payload.ok || !payload.path?.length) {
@@ -1794,15 +1997,15 @@ export function ItineraryDashboard({
 
         setComputedRoutes((current) => ({
           ...current,
-          [route.id]: result,
+          [routeId]: result,
         }));
       } catch {
         // Keep the static demo path when the live route APIs are temporarily unavailable.
       }
     }
 
-    routes.forEach((route) => {
-      void computeInitialRoute(route);
+    initialRouteEntries.forEach(([routeId, rows]) => {
+      void computeInitialRoute(routeId, rows);
     });
 
     return () => {
@@ -2032,21 +2235,19 @@ export function ItineraryDashboard({
             sx={{
               display: "grid",
               gap: 2,
-              gridTemplateColumns: { xs: "1fr", md: "minmax(0, 2fr) minmax(300px, 0.95fr)" },
+              gridTemplateColumns: { xs: "1fr" },
               p: { xs: 1.5, md: 2 },
             }}
           >
-            <Stack spacing={0}>
+            <Stack spacing={1.5}>
               <Box
                 sx={{
                   display: activeView === "compare" ? "grid" : "none",
                   border: "1px solid",
-                  borderBottom: 0,
                   borderColor: "divider",
-                  borderRadius: "8px 8px 0 0",
+                  borderRadius: 2,
                   gap: 0,
                   gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" },
-                  mb: 0,
                   overflow: "hidden",
                 }}
               >
@@ -2058,21 +2259,36 @@ export function ItineraryDashboard({
                 <RouteComparisonCard
                   position="right"
                   route={carrymeRoute}
-                  savingLabel={savingLabel}
                   tone="secondary"
                 />
               </Box>
 
-              <DestinationEditor
-                key={selectedDayPlan.uiId}
-                initialRows={createDestinationRows(carrymeRoute)}
-                mode={mode}
-                onRoutesComputed={handleRoutesComputed}
-                savingLabel={savingLabel}
-              />
+              {activeView === "compare" ? (
+                <>
+                  <TimelinePanel
+                    carrymeDurationLabel={carrymeRoute.durationLabel}
+                    carrymeEvents={computedRoutes.carryme?.timeline ?? selectedDayPlan.timeline}
+                    mode={mode}
+                    savingLabel={savingLabel}
+                    standardDurationLabel={standardRoute.durationLabel}
+                    standardEvents={computedRoutes.standard?.timeline ?? selectedDayPlan.timeline}
+                  />
+
+                  <DestinationEditor
+                    key={selectedDayPlan.uiId}
+                    initialRows={createDestinationRows(carrymeRoute)}
+                    mode={mode}
+                    onRoutesComputed={handleRoutesComputed}
+                    savingLabel={savingLabel}
+                    standardRows={createRouteRequestRows(selectedDayPlan.standard)}
+                  />
+                </>
+              ) : null}
 
               <RouteMap
                 carrymeRoute={carrymeRoute}
+                expanded={activeView === "map"}
+                savingLabel={savingLabel}
                 showCarryme={visibleRoutes.carryme}
                 showStandard={visibleRoutes.standard}
                 standardRoute={standardRoute}
@@ -2080,15 +2296,6 @@ export function ItineraryDashboard({
                 themeMode={mode}
               />
             </Stack>
-
-            <TimelinePanel
-              carrymeDurationLabel={carrymeRoute.durationLabel}
-              carrymeEvents={computedRoutes.carryme?.timeline ?? selectedDayPlan.timeline}
-              mode={mode}
-              savingLabel={savingLabel}
-              standardDurationLabel={standardRoute.durationLabel}
-              standardEvents={computedRoutes.standard?.timeline ?? selectedDayPlan.timeline}
-            />
           </Box>
 
         </Box>
@@ -2226,7 +2433,6 @@ function RouteToggleButton({
 type RouteComparisonCardProps = {
   position: "left" | "right";
   route: RoutePlan;
-  savingLabel?: string;
   tone: "primary" | "secondary";
 };
 
@@ -2236,7 +2442,6 @@ type RouteComparisonCardProps = {
 function RouteComparisonCard({
   position,
   route,
-  savingLabel,
   tone,
 }: RouteComparisonCardProps) {
   const theme = useTheme();
@@ -2274,51 +2479,6 @@ function RouteComparisonCard({
             {route.description}
           </Typography>
         </Box>
-
-        <Box
-          sx={{
-            display: "grid",
-            gap: 1,
-            gridTemplateColumns: "1fr auto 1fr auto 1fr",
-            mb: 0.2,
-          }}
-        >
-          {route.stops.map((stop, index) => (
-            <RouteStopCell
-              key={`${route.id}-${stop.label}`}
-              showArrow={index < route.stops.length - 1}
-              stop={stop}
-            />
-          ))}
-        </Box>
-
-        <Stack
-          direction="row"
-          sx={{
-            alignItems: "center",
-            bgcolor: tone === "secondary" ? "rgba(34, 197, 94, 0.1)" : "rgba(37, 99, 235, 0.08)",
-            borderRadius: 1.2,
-            gap: 1,
-            justifyContent: "center",
-            minHeight: 46,
-            px: 1.5,
-            py: 1.05,
-          }}
-        >
-          <AccessTimeRoundedIcon color={tone} fontSize="small" />
-          <Typography
-            color={tone}
-            sx={{ fontSize: 13, fontWeight: 800, whiteSpace: "nowrap" }}
-          >
-            총 이동 시간(예상)
-          </Typography>
-          <Typography color={tone} sx={{ fontWeight: 900, whiteSpace: "nowrap" }}>
-            {route.durationLabel}
-          </Typography>
-          {savingLabel ? (
-            <Chip color="error" label={savingLabel} size="small" />
-          ) : null}
-        </Stack>
       </Stack>
     </Box>
   );
@@ -2329,6 +2489,7 @@ type DestinationEditorProps = {
   mode: "light" | "dark";
   onRoutesComputed: (payload: RouteComputationPayload) => void;
   savingLabel: string;
+  standardRows: DestinationRow[];
 };
 
 /**
@@ -2339,6 +2500,7 @@ function DestinationEditor({
   mode,
   onRoutesComputed,
   savingLabel,
+  standardRows,
 }: DestinationEditorProps) {
   const theme = useTheme();
   const [rows, setRows] = useState<DestinationRow[]>(initialRows);
@@ -2389,6 +2551,34 @@ function DestinationEditor({
     setDragPreview((current) =>
       current ? { ...current, y: clientY - 22 } : current,
     );
+  };
+
+  /**
+   * Moves a destination row to an insertion index in the current visible order.
+   */
+  const moveDestinationToIndex = (draggedId: string, rawInsertIndex: number) => {
+    // Adjust the insertion point after removing the dragged row from the current list.
+    setRows((current) => {
+      const draggedRow = current.find((row) => row.id === draggedId);
+      const draggedIndex = current.findIndex((row) => row.id === draggedId);
+
+      if (!draggedRow || draggedIndex < 0) {
+        return current;
+      }
+
+      const withoutDragged = current.filter((row) => row.id !== draggedId);
+      const adjustedIndex =
+        draggedIndex < rawInsertIndex ? rawInsertIndex - 1 : rawInsertIndex;
+      const insertIndex = Math.max(0, Math.min(adjustedIndex, withoutDragged.length));
+
+      return [
+        ...withoutDragged.slice(0, insertIndex),
+        draggedRow,
+        ...withoutDragged.slice(insertIndex),
+      ];
+    });
+    setRouteStatus("idle");
+    setRouteMessage(null);
   };
 
   /**
@@ -2653,10 +2843,7 @@ function DestinationEditor({
     setRouteMessage("경로를 확인하는 중입니다.");
 
     try {
-      const requestRowsByRoute: Record<RoutePlanId, DestinationRow[]> = {
-        carryme: rows,
-        standard: rows,
-      };
+      const requestRowsByRoute = createComparisonRouteRows(rows, standardRows);
       const hasSameComparisonRoute =
         getRouteRowsSignature(requestRowsByRoute.standard) ===
         getRouteRowsSignature(requestRowsByRoute.carryme);
@@ -2733,34 +2920,6 @@ function DestinationEditor({
       setRouteStatus("error");
       setRouteMessage("경로 체크 요청을 완료하지 못했습니다.");
     }
-  };
-
-  /**
-   * Moves a destination row to an insertion index in the current visible order.
-   */
-  const moveDestinationToIndex = (draggedId: string, rawInsertIndex: number) => {
-    // Adjust the insertion point after removing the dragged row from the current list.
-    setRows((current) => {
-      const draggedRow = current.find((row) => row.id === draggedId);
-      const draggedIndex = current.findIndex((row) => row.id === draggedId);
-
-      if (!draggedRow || draggedIndex < 0) {
-        return current;
-      }
-
-      const withoutDragged = current.filter((row) => row.id !== draggedId);
-      const adjustedIndex =
-        draggedIndex < rawInsertIndex ? rawInsertIndex - 1 : rawInsertIndex;
-      const insertIndex = Math.max(0, Math.min(adjustedIndex, withoutDragged.length));
-
-      return [
-        ...withoutDragged.slice(0, insertIndex),
-        draggedRow,
-        ...withoutDragged.slice(insertIndex),
-      ];
-    });
-    setRouteStatus("idle");
-    setRouteMessage(null);
   };
 
   /**
@@ -3342,67 +3501,6 @@ function DestinationEditor({
         ) : null}
       </Stack>
     </Box>
-  );
-}
-
-type RouteStopCellProps = {
-  showArrow: boolean;
-  stop: RouteStop;
-};
-
-/**
- * Renders one stop in a compact route summary.
- */
-function RouteStopCell({ showArrow, stop }: RouteStopCellProps) {
-  return (
-    <>
-      <Stack spacing={0.7} sx={{ alignItems: "center", minWidth: 0 }}>
-        <Box
-          sx={{
-            alignItems: "center",
-            bgcolor: "action.hover",
-            border: "1px solid",
-            borderColor: "divider",
-            borderRadius: "999px",
-            color: "text.primary",
-            display: "flex",
-            height: 48,
-            justifyContent: "center",
-            width: 48,
-          }}
-        >
-          {stopIcons[stop.icon]}
-        </Box>
-        <Typography
-          sx={{
-            fontSize: 13,
-            fontWeight: 800,
-            textAlign: "center",
-            whiteSpace: { md: "nowrap" },
-          }}
-        >
-          {stop.label}
-        </Typography>
-        <Typography
-          color="text.secondary"
-          sx={{
-            fontSize: 12,
-            textAlign: "center",
-            whiteSpace: { md: "nowrap" },
-          }}
-        >
-          {stop.caption}
-        </Typography>
-      </Stack>
-      {showArrow ? (
-        <Typography
-          color="text.secondary"
-          sx={{ alignSelf: "center", fontSize: 28, fontWeight: 500 }}
-        >
-          →
-        </Typography>
-      ) : null}
-    </>
   );
 }
 
