@@ -2235,26 +2235,31 @@ export function ItineraryDashboard({
                 />
               </Box>
 
-              <TimelinePanel
-                carrymeDurationLabel={carrymeRoute.durationLabel}
-                carrymeEvents={computedRoutes.carryme?.timeline ?? selectedDayPlan.timeline}
-                mode={mode}
-                savingLabel={savingLabel}
-                standardDurationLabel={standardRoute.durationLabel}
-                standardEvents={computedRoutes.standard?.timeline ?? selectedDayPlan.timeline}
-              />
+              {activeView === "compare" ? (
+                <>
+                  <TimelinePanel
+                    carrymeDurationLabel={carrymeRoute.durationLabel}
+                    carrymeEvents={computedRoutes.carryme?.timeline ?? selectedDayPlan.timeline}
+                    mode={mode}
+                    savingLabel={savingLabel}
+                    standardDurationLabel={standardRoute.durationLabel}
+                    standardEvents={computedRoutes.standard?.timeline ?? selectedDayPlan.timeline}
+                  />
 
-              <DestinationEditor
-                key={selectedDayPlan.uiId}
-                initialRows={createDestinationRows(carrymeRoute)}
-                mode={mode}
-                onRoutesComputed={handleRoutesComputed}
-                savingLabel={savingLabel}
-                standardRows={createRouteRequestRows(selectedDayPlan.standard)}
-              />
+                  <DestinationEditor
+                    key={selectedDayPlan.uiId}
+                    initialRows={createDestinationRows(carrymeRoute)}
+                    mode={mode}
+                    onRoutesComputed={handleRoutesComputed}
+                    savingLabel={savingLabel}
+                    standardRows={createRouteRequestRows(selectedDayPlan.standard)}
+                  />
+                </>
+              ) : null}
 
               <RouteMap
                 carrymeRoute={carrymeRoute}
+                expanded={activeView === "map"}
                 savingLabel={savingLabel}
                 showCarryme={visibleRoutes.carryme}
                 showStandard={visibleRoutes.standard}

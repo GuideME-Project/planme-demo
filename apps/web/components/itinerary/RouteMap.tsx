@@ -10,6 +10,7 @@ import type { PlanmeThemeMode } from "@/theme/theme";
 
 type RouteMapProps = {
   attachedToComparison?: boolean;
+  expanded?: boolean;
   standardRoute: RoutePlan;
   carrymeRoute: RoutePlan;
   savingLabel: string;
@@ -604,6 +605,7 @@ function RollerGuidance({
  */
 export function RouteMap({
   attachedToComparison = false,
+  expanded = false,
   standardRoute,
   carrymeRoute,
   savingLabel,
@@ -622,6 +624,10 @@ export function RouteMap({
   const mapBackground = isDark
     ? "linear-gradient(135deg, #111827 0%, #17212d 48%, #0e2530 100%)"
     : "linear-gradient(135deg, #dceeff 0%, #f6fbff 48%, #e9f8ec 100%)";
+  // The detail-map tab intentionally trades editing access for a taller inspection surface.
+  const mapMinHeight = expanded
+    ? { xs: 560, md: 620, lg: 680 }
+    : { xs: 320, md: 360 };
 
   return (
     <Box
@@ -637,9 +643,10 @@ export function RouteMap({
       }}
     >
       <Box
+        data-testid="route-map-viewport"
         sx={{
           background: mapBackground,
-          minHeight: { xs: 320, md: 360 },
+          minHeight: mapMinHeight,
           overflow: "hidden",
           position: "relative",
         }}
