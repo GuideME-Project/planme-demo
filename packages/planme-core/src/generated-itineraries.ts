@@ -14,6 +14,7 @@ export type GeneratedItineraryRequest = {
   arrivalAirport?: string;
   arrivalTime?: string;
   hotelName?: string;
+  origin?: string;
   travelerCount?: number;
   luggageCount?: number;
   preferences?: string[];
@@ -38,12 +39,20 @@ type AirportTemplate = {
   coordinate: MapCoordinate;
 };
 
+type OriginTemplate = {
+  cityLabel: string;
+  coordinate: MapCoordinate;
+  key: string;
+  label: string;
+};
+
 type NormalizedGeneratedItineraryRequest = {
   destination: string;
   durationDays: number;
   arrivalAirport: string | null;
   arrivalTime: string;
   hotelName: string;
+  origin: string | null;
   travelerCount: number;
   luggageCount: number;
   preferences: string[];
@@ -57,6 +66,21 @@ const airportTemplates: Record<string, AirportTemplate> = {
   ICN: { label: "인천공항", coordinate: { lat: 37.4602, lng: 126.4407 } },
   PUS: { label: "김해공항", coordinate: { lat: 35.1796, lng: 128.9382 } },
 };
+
+const originTemplates: OriginTemplate[] = [
+  {
+    cityLabel: "서울",
+    coordinate: { lat: 37.5547, lng: 126.9706 },
+    key: "서울",
+    label: "서울역",
+  },
+  {
+    cityLabel: "부산",
+    coordinate: { lat: 35.1151, lng: 129.0403 },
+    key: "부산",
+    label: "부산역",
+  },
+];
 
 const destinationTemplates: DestinationTemplate[] = [
   {
@@ -122,6 +146,10 @@ export function createGeneratedItinerary(input: GeneratedItineraryRequest): Plan
   const airportTemplate = normalizedInput.arrivalAirport
     ? findAirportTemplate(normalizedInput.arrivalAirport)
     : null;
+  const originTemplate =
+    !airportTemplate && normalizedInput.origin
+      ? findOriginTemplate(normalizedInput.origin)
+      : null;
   const primaryPreference = getPrimaryPreference(normalizedInput.preferences, destinationTemplate);
   const itineraryId = createGeneratedItineraryId(normalizedInput, primaryPreference);
   const durationLabel = formatDurationLabel(normalizedInput.durationDays);
@@ -137,6 +165,7 @@ export function createGeneratedItinerary(input: GeneratedItineraryRequest): Plan
     destinationTemplate,
     hotelName,
     mainEventName,
+    originTemplate,
     savingMinutes,
     standardMinutes,
   });
@@ -148,11 +177,18 @@ export function createGeneratedItinerary(input: GeneratedItineraryRequest): Plan
   const itinerary: PlanmeItinerary = {
     ...getDemoItinerary(),
     id: itineraryId,
-    title: `PlanME ${destinationTemplate.destinationLabel} ${primaryPreference} ${durationLabel} 추천 일정`,
+    title: createGeneratedItineraryTitle({
+      destinationTemplate,
+      durationLabel,
+      originTemplate,
+      primaryPreference,
+    }),
     region: destinationTemplate.destinationLabel,
     duration: durationLabel,
     summary: airportTemplate
       ? `${airportTemplate.label} 입국 후 ${mainEventName}(으)로 바로 향하는 CarryME 동선을 확인하세요.`
+      : originTemplate
+        ? `${originTemplate.label} 출발 후 ${mainEventName}(으)로 바로 향하는 CarryME 동선을 확인하세요.`
       : `${hotelName} 출발 후 ${mainEventName}(으)로 바로 향하는 CarryME 동선을 확인하세요.`,
     detailUrl: `/itinerary/${itineraryId}`,
     carrymeSaving: `약 ${savingMinutes}분 절약 예상`,
@@ -162,7 +198,7 @@ export function createGeneratedItinerary(input: GeneratedItineraryRequest): Plan
     benefits: createGeneratedBenefits({
       destinationLabel: destinationTemplate.destinationLabel,
       hotelName,
-      originLabel: airportTemplate?.label ?? hotelName,
+      originLabel: airportTemplate?.label ?? originTemplate?.label ?? hotelName,
     }),
   };
 
@@ -230,7 +266,8 @@ function normalizeGeneratedItineraryRequest(
   const destination = normalizeText(input.destination, "부산");
   const destinationTemplate = findDestinationTemplate(destination);
   const durationDays = clampInteger(input.durationDays ?? 2, 1, 14);
-  const preferences = normalizePreferences(input.preferences);
+  const preferenceHints = normalizePreferences(input.preferences, destinationTemplate);
+  const origin = normalizeOrigin(input.origin) ?? preferenceHints.origin;
 
   return {
     arrivalAirport: normalizeArrivalAirport(input.arrivalAirport),
@@ -239,7 +276,8 @@ function normalizeGeneratedItineraryRequest(
     durationDays,
     hotelName: normalizeText(input.hotelName, destinationTemplate.defaultHotelName),
     luggageCount: clampInteger(input.luggageCount ?? 1, 0, 20),
-    preferences,
+    origin,
+    preferences: preferenceHints.preferences,
     travelerCount: clampInteger(input.travelerCount ?? 1, 1, 20),
   };
 }
@@ -254,6 +292,7 @@ function createGeneratedDayOne({
   destinationTemplate,
   hotelName,
   mainEventName,
+  originTemplate,
   savingMinutes,
   standardMinutes,
 }: {
@@ -263,11 +302,23 @@ function createGeneratedDayOne({
   destinationTemplate: DestinationTemplate;
   hotelName: string;
   mainEventName: string;
+  originTemplate: OriginTemplate | null;
   savingMinutes: number;
   standardMinutes: number;
 }): ItineraryDay {
   const eventStop = createRouteStop(mainEventName, "방문지", destinationTemplate.eventCoordinate, "event");
   const hotelStop = createRouteStop(hotelName, "짐 도착", destinationTemplate.hotelCoordinate, "hotel");
+
+  if (originTemplate) {
+    return createOriginGeneratedDayOne({
+      carrymeMinutes,
+      eventStop,
+      hotelStop,
+      originTemplate,
+      savingMinutes,
+      standardMinutes,
+    });
+  }
 
   if (!airportTemplate) {
     return createLocalGeneratedDayOne({
@@ -324,6 +375,76 @@ function createGeneratedDayOne({
       arrivalTime,
       hotelName,
       mainEventName,
+      savingMinutes,
+    }),
+  };
+}
+
+/**
+ * Builds Day 1 for domestic requests that include a clear origin city.
+ */
+function createOriginGeneratedDayOne({
+  carrymeMinutes,
+  eventStop,
+  hotelStop,
+  originTemplate,
+  savingMinutes,
+  standardMinutes,
+}: {
+  carrymeMinutes: number;
+  eventStop: RouteStop;
+  hotelStop: RouteStop;
+  originTemplate: OriginTemplate;
+  savingMinutes: number;
+  standardMinutes: number;
+}): ItineraryDay {
+  const originStop = createRouteStop(
+    originTemplate.label,
+    "출발지",
+    originTemplate.coordinate,
+    "station",
+  );
+
+  return {
+    day: 1,
+    label: "Day 1",
+    savingMinutes,
+    standard: {
+      id: "standard",
+      label: "Standard",
+      badge: "Standard",
+      routeText: `${originStop.label} → ${hotelStop.label} → ${eventStop.label}`,
+      description: `수하물 보관을 위해 ${hotelStop.label}을 먼저 경유`,
+      durationLabel: formatMinutes(standardMinutes),
+      durationMinutes: standardMinutes,
+      stops: [originStop, hotelStop, eventStop],
+      geoPath: createGeoPath([originStop, hotelStop, eventStop]),
+      mapPath: [
+        { x: 14, y: 22 },
+        { x: 78, y: 74 },
+        { x: 84, y: 66 },
+      ],
+    },
+    carryme: {
+      id: "carryme",
+      label: "CarryME",
+      badge: "CarryME",
+      routeText: `${originStop.label} → ${eventStop.label} → ${hotelStop.label}`,
+      description: "수하물은 캐리미가 호텔로, 여행자는 목적지로 바로 이동",
+      durationLabel: formatMinutes(carrymeMinutes),
+      durationMinutes: carrymeMinutes,
+      stops: [originStop, eventStop, hotelStop],
+      geoPath: createGeoPath([originStop, eventStop, hotelStop]),
+      mapPath: [
+        { x: 14, y: 22 },
+        { x: 84, y: 66 },
+        { x: 78, y: 74 },
+      ],
+    },
+    timeline: createOriginGeneratedDayOneTimeline({
+      hotelName: hotelStop.label,
+      mainEventName: eventStop.label,
+      originLabel: originStop.label,
       savingMinutes,
     }),
   };
@@ -599,6 +720,56 @@ function createGeneratedDayOneTimeline({
 }
 
 /**
+ * Creates the Day 1 timeline for domestic origin-to-destination requests.
+ */
+function createOriginGeneratedDayOneTimeline({
+  hotelName,
+  mainEventName,
+  originLabel,
+  savingMinutes,
+}: {
+  hotelName: string;
+  mainEventName: string;
+  originLabel: string;
+  savingMinutes: number;
+}): TimelineEvent[] {
+  return [
+    {
+      time: "09:30",
+      title: `${originLabel} 출발`,
+      description: "출발지에서 여행 일정 시작",
+      category: "arrival",
+    },
+    {
+      time: "10:00",
+      title: "캐리미 짐 탁송 완료",
+      description: `${originLabel}에서 ${hotelName} 배송 접수 완료`,
+      category: "carryme",
+      highlight: true,
+    },
+    {
+      time: "10:20",
+      title: `${mainEventName} 이동 시작`,
+      description: "짐 없이 바로 목적지로 이동",
+      category: "transit",
+      savingLabel: `약 ${savingMinutes}분 절약`,
+    },
+    {
+      time: "15:00",
+      title: `${mainEventName} 방문`,
+      description: "호텔 경유 없이 바로 목적지 도착",
+      category: "event",
+    },
+    {
+      time: "21:30",
+      title: `${hotelName} 도착`,
+      description: "일정 후 안전하게 도착한 내 짐 확인",
+      category: "hotel",
+    },
+  ];
+}
+
+/**
  * Creates a route stop with a stable label, caption, coordinate, and icon.
  */
 function createRouteStop(
@@ -653,6 +824,38 @@ function findAirportTemplate(airportCode: string): AirportTemplate {
 }
 
 /**
+ * Finds a supported domestic origin template by city or station text.
+ */
+function findOriginTemplate(origin: string): OriginTemplate {
+  return (
+    originTemplates.find(
+      (template) => origin.includes(template.key) || origin.includes(template.label),
+    ) ?? originTemplates[0]
+  );
+}
+
+/**
+ * Builds a generated itinerary title without duplicating origin or destination labels.
+ */
+function createGeneratedItineraryTitle({
+  destinationTemplate,
+  durationLabel,
+  originTemplate,
+  primaryPreference,
+}: {
+  destinationTemplate: DestinationTemplate;
+  durationLabel: string;
+  originTemplate: OriginTemplate | null;
+  primaryPreference: string;
+}) {
+  if (originTemplate) {
+    return `PlanME ${originTemplate.cityLabel} → ${destinationTemplate.destinationLabel} ${primaryPreference} ${durationLabel} 추천 일정`;
+  }
+
+  return `PlanME ${destinationTemplate.destinationLabel} ${primaryPreference} ${durationLabel} 추천 일정`;
+}
+
+/**
  * Creates a human-facing main event label from the first preference.
  */
 function createMainEventName(primaryPreference: string, destinationTemplate: DestinationTemplate) {
@@ -680,6 +883,15 @@ function normalizeText(value: string | undefined, fallback: string) {
 }
 
 /**
+ * Normalizes a direct origin field when GPT Actions can provide one.
+ */
+function normalizeOrigin(value: string | undefined) {
+  const normalizedValue = value?.trim();
+
+  return normalizedValue && normalizedValue.length > 0 ? normalizedValue : null;
+}
+
+/**
  * Keeps airport routing opt-in so domestic requests do not silently become Incheon arrivals.
  */
 function normalizeArrivalAirport(value: string | undefined) {
@@ -689,12 +901,97 @@ function normalizeArrivalAirport(value: string | undefined) {
 }
 
 /**
- * Normalizes optional preference text values.
+ * Normalizes optional preference text values and extracts origin hints that GPT may put there.
  */
-function normalizePreferences(preferences: string[] | undefined) {
-  return (preferences ?? [])
-    .map((preference) => preference.trim())
-    .filter((preference) => preference.length > 0);
+function normalizePreferences(
+  preferences: string[] | undefined,
+  destinationTemplate: DestinationTemplate,
+) {
+  let origin: string | null = null;
+  const normalizedPreferences: string[] = [];
+
+  (preferences ?? []).forEach((preference) => {
+    const normalizedPreference = preference.trim();
+
+    if (normalizedPreference.length === 0) {
+      return;
+    }
+
+    const originHint = extractOriginHint(normalizedPreference, destinationTemplate);
+
+    if (originHint) {
+      origin = origin ?? originHint;
+      return;
+    }
+
+    const destinationSpecificPreference = normalizeDestinationPreference(
+      normalizedPreference,
+      destinationTemplate,
+    );
+
+    if (destinationSpecificPreference) {
+      normalizedPreferences.push(destinationSpecificPreference);
+    }
+  });
+
+  return {
+    origin,
+    preferences: normalizedPreferences,
+  };
+}
+
+/**
+ * Extracts phrases like "서울 출발" so they do not become attraction names.
+ */
+function extractOriginHint(preference: string, destinationTemplate: DestinationTemplate) {
+  const departureMatch = /^(.+?)\s*출발$/.exec(preference);
+  const fromToMatch = /^(.+?)에서\s*(.+)$/.exec(preference);
+  const originCandidate = departureMatch?.[1]?.trim();
+
+  if (originCandidate) {
+    return isKnownOrigin(originCandidate) ? originCandidate : null;
+  }
+
+  if (fromToMatch) {
+    const maybeOrigin = fromToMatch[1]?.trim();
+    const maybeDestination = fromToMatch[2]?.trim() ?? "";
+
+    if (
+      maybeOrigin &&
+      isKnownOrigin(maybeOrigin) &&
+      maybeDestination.includes(destinationTemplate.destinationLabel)
+    ) {
+      return maybeOrigin;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Drops generic destination request words so titles use a real attraction fallback.
+ */
+function normalizeDestinationPreference(
+  preference: string,
+  destinationTemplate: DestinationTemplate,
+) {
+  const withoutDestinationPrefix = preference
+    .replace(new RegExp(`^${destinationTemplate.destinationLabel}\\s*`), "")
+    .trim();
+  const normalizedPreference = withoutDestinationPrefix || preference;
+
+  return /^(추천|여행|일정|출발)$/.test(normalizedPreference)
+    ? null
+    : normalizedPreference;
+}
+
+/**
+ * Checks whether a text fragment maps to a supported origin template.
+ */
+function isKnownOrigin(value: string) {
+  return originTemplates.some(
+    (template) => value.includes(template.key) || value.includes(template.label),
+  );
 }
 
 /**
@@ -756,7 +1053,9 @@ function createGeneratedItineraryId(
   input: NormalizedGeneratedItineraryRequest,
   primaryPreference: string,
 ) {
-  const slug = slugifyItineraryPart(`${input.destination}-${primaryPreference}`);
+  const slug = slugifyItineraryPart(
+    [input.destination, input.origin, primaryPreference].filter(Boolean).join("-"),
+  );
   const hash = hashString(
     [
       input.arrivalAirport,
@@ -765,6 +1064,7 @@ function createGeneratedItineraryId(
       input.durationDays,
       input.hotelName,
       input.luggageCount,
+      input.origin,
       input.preferences.join("|"),
       input.travelerCount,
     ].join(":"),
@@ -827,11 +1127,16 @@ function createFallbackGeneratedItineraryFromId(id: string) {
   const slugParts = match[1].split("-");
   const durationDays = Number(match[2]);
   const destination = slugParts[0] ?? "부산";
-  const preference = slugParts.slice(1).join(" ") || undefined;
+  const remainingSlugParts = slugParts.slice(1);
+  const originIndex = remainingSlugParts.findIndex(isKnownOrigin);
+  const origin = originIndex >= 0 ? remainingSlugParts[originIndex] : undefined;
+  const preference =
+    remainingSlugParts.filter((_, index) => index !== originIndex).join(" ") || undefined;
 
   return createGeneratedItinerary({
     destination,
     durationDays,
+    origin,
     preferences: preference ? [preference] : undefined,
   });
 }

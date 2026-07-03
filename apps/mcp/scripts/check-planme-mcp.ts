@@ -105,6 +105,27 @@ async function main(): Promise<void> {
     assert.ok(yeosuStructuredContent?.pageUrl?.includes("/itinerary/generated-"));
     assert.equal(yeosuStructuredContent?.timeline?.[0]?.title, "여수 베네치아 호텔 출발");
 
+    const seoulToYeosuRecommendation = await client.callTool({
+      name: "recommend_planme_itinerary",
+      arguments: {
+        destination: "여수",
+        durationDays: 2,
+        hotelName: "여수 베네치아 호텔",
+        preferences: ["서울 출발"],
+        travelerCount: 1,
+        luggageCount: 1,
+      },
+    });
+    const seoulToYeosuStructuredContent =
+      seoulToYeosuRecommendation.structuredContent as RecommendationContent | undefined;
+
+    assert.equal(seoulToYeosuRecommendation.isError, undefined);
+    assert.equal(
+      seoulToYeosuStructuredContent?.title,
+      "PlanME 서울 → 여수 밤바다 1박 2일 추천 일정",
+    );
+    assert.doesNotMatch(seoulToYeosuStructuredContent?.title ?? "", /여수 서울 출발/);
+
     const resource = await client.readResource({
       uri: "ui://planme/itinerary-widget-v2.html",
     });
@@ -137,6 +158,8 @@ async function main(): Promise<void> {
     assert.match(firstResource.text, /PlanME/);
     assert.match(firstResource.text, /window\.openai/);
     assert.match(firstResource.text, /toolOutput/);
+    assert.match(firstResource.text, /openai:set_globals/);
+    assert.match(firstResource.text, /ui\/notifications\/tool-result/);
     assert.doesNotMatch(firstResource.text, /부산 1박 2일/);
     assert.doesNotMatch(firstResource.text, /인천공항 도착/);
     assert.doesNotMatch(firstResource.text, /planme-route-preview/);

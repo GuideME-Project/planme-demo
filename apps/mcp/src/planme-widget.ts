@@ -237,6 +237,7 @@ export function createPlanmeWidgetHtml(): string {
     <script type="application/json" id="planme-fallback">${serializeForScript(emptyItinerary)}</script>
     <script>
       const fallbackItinerary = JSON.parse(document.getElementById("planme-fallback").textContent);
+      let latestToolResultItinerary = null;
 
 	      function escapeText(value) {
 	        return String(value ?? "")
@@ -255,13 +256,28 @@ export function createPlanmeWidgetHtml(): string {
 	        }
 	      }
 
+	      function pickItinerary(value) {
+	        if (!value || typeof value !== "object") {
+	          return null;
+	        }
+
+	        return (
+	          value.itinerary ||
+	          value.structuredContent?.itinerary ||
+	          value._meta?.itinerary ||
+	          value.mcp_tool_result?._meta?.itinerary ||
+	          value.call_tool_result?._meta?.itinerary ||
+	          null
+	        );
+	      }
+
 	      function getWidgetItinerary() {
 	        const bridge = window.openai;
-	        const metadataItinerary = bridge?.toolResponseMetadata?.itinerary;
-	        const outputItinerary = bridge?.toolOutput?.itinerary;
+	        const metadataItinerary = pickItinerary(bridge?.toolResponseMetadata);
+	        const outputItinerary = pickItinerary(bridge?.toolOutput);
 
-	        // Apps SDK exposes tool output and result metadata through the component bridge.
-	        return metadataItinerary || outputItinerary || fallbackItinerary;
+	        // ChatGPT can deliver tool output after iframe load, so cache the latest bridge result.
+	        return latestToolResultItinerary || metadataItinerary || outputItinerary || fallbackItinerary;
 	      }
 
 	      function renderTimeline(timeline) {
@@ -303,8 +319,26 @@ export function createPlanmeWidgetHtml(): string {
         renderTimeline(firstDay.timeline);
       }
 
+	      function handleToolResultMessage(event) {
+	        if (event.source !== window.parent) {
+	          return;
+	        }
+
+	        const message = event.data;
+
+	        if (!message || message.jsonrpc !== "2.0" || message.method !== "ui/notifications/tool-result") {
+	          return;
+	        }
+
+	        latestToolResultItinerary = pickItinerary(message.params) || latestToolResultItinerary;
+	        renderPlanmeWidget();
+	      }
+
       renderPlanmeWidget();
+      window.addEventListener("openai:set_globals", renderPlanmeWidget);
+      window.addEventListener("message", handleToolResultMessage);
       window.setTimeout(renderPlanmeWidget, 100);
+      window.setTimeout(renderPlanmeWidget, 500);
     </script>
   </body>
 </html>`;
