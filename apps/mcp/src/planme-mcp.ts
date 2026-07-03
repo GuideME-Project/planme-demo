@@ -167,6 +167,7 @@ export function createPlanmeMcpServer(): McpServer {
         arrivalAirport: z.string().optional(),
         arrivalTime: z.string().optional(),
         hotelName: z.string().optional(),
+        origin: z.string().optional(),
         travelerCount: z.number().int().min(1).max(20).optional(),
         luggageCount: z.number().int().min(0).max(20).optional(),
         preferences: z.array(z.string()).optional(),

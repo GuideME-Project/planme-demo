@@ -36,6 +36,11 @@ export function GET(request: Request) {
                     arrivalAirport: { type: "string", description: "Arrival airport code" },
                     arrivalTime: { type: "string", description: "Arrival time in HH:mm format" },
                     hotelName: { type: "string", description: "Optional hotel name" },
+                    origin: {
+                      type: "string",
+                      description:
+                        "Optional departure city or station, for example Seoul or Seoul Station",
+                    },
                     travelerCount: { type: "integer", minimum: 1, maximum: 20 },
                     luggageCount: { type: "integer", minimum: 0, maximum: 20 },
                     preferences: {

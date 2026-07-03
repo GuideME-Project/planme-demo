@@ -9,6 +9,9 @@ type GptItineraryResponse = {
       carryme: {
         routeText: string;
       };
+      standard: {
+        routeText: string;
+      };
       timeline: Array<{
         time: string;
         title: string;
@@ -53,6 +56,48 @@ test("keeps a local Yeosu fishing itinerary out of the Busan airport fallback", 
   await expect(page.getByText("인천공항").first()).not.toBeVisible();
   await expect(page.getByText(/부산/).first()).not.toBeVisible();
   await expect(page.getByText("여수 베네치아 호텔 → 여수 낚시여행").first()).toBeVisible();
+});
+
+test("keeps a Seoul departure hint out of the Yeosu attraction name", async ({
+  page,
+  request,
+}) => {
+  const response = await request.post("/api/gpt/itineraries/recommend", {
+    data: {
+      destination: "여수",
+      durationDays: 2,
+      hotelName: "여수 베네치아 호텔",
+      luggageCount: 1,
+      preferences: ["서울 출발"],
+      travelerCount: 1,
+    },
+  });
+
+  expect(response.ok()).toBeTruthy();
+
+  const data = (await response.json()) as GptItineraryResponse;
+  const serializedResponse = JSON.stringify(data);
+
+  expect(data.title).toBe("PlanME 서울 → 여수 밤바다 1박 2일 추천 일정");
+  expect(serializedResponse).not.toContain("여수 서울 출발");
+  expect(data.itinerary.days[0].standard.routeText).toBe(
+    "서울역 → 여수 베네치아 호텔 → 여수 밤바다",
+  );
+  expect(data.itinerary.days[0].carryme.routeText).toBe(
+    "서울역 → 여수 밤바다 → 여수 베네치아 호텔",
+  );
+  expect(data.itinerary.days[0].timeline[0]).toMatchObject({
+    time: "09:30",
+    title: "서울역 출발",
+  });
+
+  const pageUrl = new URL(data.pageUrl);
+
+  await page.goto(pageUrl.pathname);
+
+  await expect(page.getByRole("heading", { name: data.title })).toBeVisible();
+  await expect(page.getByText("여수 서울 출발")).toHaveCount(0);
+  await expect(page.getByText("서울역 → 여수 밤바다 → 여수 베네치아 호텔").first()).toBeVisible();
 });
 
 test("creates a destination-specific itinerary from GPT Action input and opens the generated page", async ({

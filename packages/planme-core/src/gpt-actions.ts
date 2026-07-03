@@ -10,6 +10,7 @@ export type RecommendItineraryRequest = {
   arrivalAirport?: string;
   arrivalTime?: string;
   hotelName?: string;
+  origin?: string;
   travelerCount?: number;
   luggageCount?: number;
   preferences?: string[];
@@ -106,6 +107,7 @@ export function createRecommendedItineraryResponse(
       arrivalAirport: input.arrivalAirport ?? null,
       arrivalTime: input.arrivalTime ?? "09:30",
       hotelName: input.hotelName ?? null,
+      origin: input.origin ?? null,
       travelerCount: input.travelerCount ?? 1,
       luggageCount: input.luggageCount ?? 1,
       preferences: input.preferences ?? ["BTS 공연", "CarryME comparison"],

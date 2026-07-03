@@ -31,6 +31,10 @@ export function GET() {
                       type: "string",
                       description: "여행 목적지",
                     },
+                    origin: {
+                      type: "string",
+                      description: "출발 도시 또는 역",
+                    },
                     nights: {
                       type: "integer",
                       description: "숙박 수",

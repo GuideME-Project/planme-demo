@@ -9,6 +9,7 @@ type PlanRequestBody = {
   hotelName?: string;
   luggageCount?: number;
   nights?: number;
+  origin?: string;
   preferences?: string[];
   travelerCount?: number;
 };
@@ -42,6 +43,7 @@ export async function POST(request: Request) {
     durationDays: body.days ?? (typeof body.nights === "number" ? body.nights + 1 : undefined),
     hotelName: body.hotelName,
     luggageCount: body.luggageCount,
+    origin: body.origin,
     preferences: body.preferences,
     travelerCount: body.travelerCount,
   });
