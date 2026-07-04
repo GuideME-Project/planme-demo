@@ -42,7 +42,7 @@ type AirportTemplate = {
 
 type OriginTemplate = {
   cityLabel: string;
-  coordinate: MapCoordinate;
+  coordinate?: MapCoordinate;
   key: string;
   label: string;
 };
@@ -84,6 +84,11 @@ const originTemplates: OriginTemplate[] = [
     coordinate: { lat: 35.1151, lng: 129.0403 },
     key: "부산",
     label: "부산역",
+  },
+  {
+    cityLabel: "동탄",
+    key: "동탄",
+    label: "동탄",
   },
 ];
 
@@ -282,7 +287,7 @@ function normalizeGeneratedItineraryRequest(
   const destinationTemplate = findDestinationTemplate(destination);
   const durationDays = clampInteger(input.durationDays ?? 2, 1, 14);
   const preferenceHints = normalizePreferences(input.preferences, destinationTemplate);
-  const origin = normalizeOrigin(input.origin) ?? preferenceHints.origin;
+  const origin = normalizeOrigin(input.origin) ?? routeDestination?.origin ?? preferenceHints.origin;
 
   return {
     arrivalAirport: normalizeArrivalAirport(input.arrivalAirport),
@@ -850,11 +855,20 @@ function findAirportTemplate(airportCode: string): AirportTemplate {
  * Finds a supported domestic origin template by city or station text.
  */
 function findOriginTemplate(origin: string): OriginTemplate {
-  return (
-    originTemplates.find(
-      (template) => origin.includes(template.key) || origin.includes(template.label),
-    ) ?? originTemplates[0]
+  const matchedTemplate = originTemplates.find(
+    (template) => origin.includes(template.key) || origin.includes(template.label),
   );
+
+  if (matchedTemplate) {
+    return matchedTemplate;
+  }
+
+  // Preserve user-provided origins instead of silently falling back to Seoul.
+  return {
+    cityLabel: origin,
+    key: origin,
+    label: origin,
+  };
 }
 
 /**
@@ -901,7 +915,7 @@ function getPrimaryPreference(preferences: string[], destinationTemplate: Destin
  */
 function normalizeRouteLikeDestination(destination: string) {
   const segments = destination
-    .split(/\s*(?:→|->|·)\s*/)
+    .split(/\s*(?:→|->|·|,|:|：)\s*/)
     .map((segment) => segment.trim())
     .filter(Boolean);
 
@@ -909,12 +923,16 @@ function normalizeRouteLikeDestination(destination: string) {
     return null;
   }
 
-  const mainEventName = segments[0] ?? destination;
+  const inferredDestination = inferDestinationLabelFromRouteSegments(segments);
+  const origin = segments.find(isKnownOrigin);
+  const mainEventName =
+    findMainEventSegmentFromRoute(segments, inferredDestination, origin) ?? segments[0] ?? destination;
 
   // Unknown-region generated pages should stay regional instead of turning the whole POI chain into the region.
   return {
-    destination: inferDestinationLabelFromRouteSegments(segments),
+    destination: inferredDestination,
     mainEventName,
+    origin,
   };
 }
 
@@ -934,6 +952,38 @@ function inferDestinationLabelFromRouteSegments(segments: string[]) {
   }
 
   return segments[0]?.split(/\s+/)[0] ?? "PlanME";
+}
+
+/**
+ * Picks the first actual attraction segment after any origin or generic trip label.
+ */
+function findMainEventSegmentFromRoute(
+  segments: string[],
+  destinationLabel: string,
+  origin: string | undefined,
+) {
+  return segments.find((segment) => {
+    if (origin && segment === origin) {
+      return false;
+    }
+
+    if (isGenericRouteSegment(segment, destinationLabel)) {
+      return false;
+    }
+
+    return !/숙소|호텔/.test(segment);
+  });
+}
+
+/**
+ * Filters labels like "남해 가족여행" that describe intent rather than a POI.
+ */
+function isGenericRouteSegment(segment: string, destinationLabel: string) {
+  const withoutDestination = segment
+    .replace(new RegExp(`^${destinationLabel}\\s*`), "")
+    .trim();
+
+  return /^(?:(가족\s*)?여행|일정|추천|코스)$/.test(withoutDestination);
 }
 
 /**

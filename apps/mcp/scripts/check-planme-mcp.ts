@@ -483,6 +483,32 @@ async function main(): Promise<void> {
     assert.equal(namhaeArrowRouteContent?.timeline?.[2]?.title, "남해 독일마을 이동 시작");
     assert.doesNotMatch(namhaeArrowRouteContent?.timeline?.[2]?.title ?? "", /→/);
 
+    const namhaeCommaRouteWithOrigin = await client.callTool({
+      name: "recommend_planme_itinerary",
+      arguments: {
+        destination: "남해 가족여행: 동탄, 남해 독일마을, 원예예술촌, 상주은모래비치 인근 숙소",
+        durationDays: 2,
+        preferences: ["아이 동반"],
+        travelerCount: 4,
+        luggageCount: 2,
+      },
+    });
+    const namhaeCommaRouteContent =
+      namhaeCommaRouteWithOrigin.structuredContent as RecommendationContent | undefined;
+    const namhaeCommaRouteMeta = JSON.stringify(namhaeCommaRouteWithOrigin._meta ?? {});
+
+    assert.equal(namhaeCommaRouteWithOrigin.isError, undefined);
+    assert.equal(
+      namhaeCommaRouteContent?.title,
+      "PlanME 동탄 → 남해 독일마을 1박 2일 추천 일정",
+    );
+    assert.equal(namhaeCommaRouteContent?.timeline?.[0]?.title, "동탄 출발");
+    assert.equal(namhaeCommaRouteContent?.timeline?.[2]?.title, "남해 독일마을 이동 시작");
+    assert.match(namhaeCommaRouteMeta, /동탄/);
+    assert.match(namhaeCommaRouteMeta, /남해 독일마을/);
+    assert.doesNotMatch(namhaeCommaRouteMeta, /인천공항/);
+    assert.doesNotMatch(namhaeCommaRouteMeta, /Namhae German Village/);
+
     const yeosuFamilyPreview = await client.callTool({
       name: "preview_planme_itinerary",
       arguments: {
