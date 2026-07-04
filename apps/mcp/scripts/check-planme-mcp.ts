@@ -325,6 +325,73 @@ async function main(): Promise<void> {
     assert.match(namhaeDraftWithWrongAirportMeta, /동탄/);
     assert.doesNotMatch(namhaeDraftWithWrongAirportMeta, /인천공항/);
 
+    const namhaeDraftMissingOriginWithWrongAirport = await client.callTool({
+      name: "preview_planme_itinerary",
+      arguments: {
+        title: "Namhae German Village, House N Garden, Sangju Silver Sand Beach 1박 2일",
+        region: "남해",
+        duration: "1박 2일",
+        summary: "아이 동반 가족이 남해 대표 방문지를 무리 없이 보는 초안입니다.",
+        assumptions: ["아이 동반"],
+        savedMinutes: 70,
+        days: [
+          {
+            day: 1,
+            label: "Day 1",
+            stops: [
+              { name: "인천공항", role: "origin", caption: "입국" },
+              {
+                name: "Namhae German Village, House N Garden, Sangju Silver Sand Beach",
+                role: "visit",
+                caption: "관광",
+              },
+              {
+                name: "Lodging near Sangju Silver Sand Beach",
+                role: "luggageDestination",
+                caption: "짐 도착",
+              },
+            ],
+            timeline: [
+              {
+                time: "09:30",
+                title: "인천공항 도착",
+                description: "입국 후 여행 일정 시작",
+                category: "arrival",
+              },
+              {
+                time: "10:20",
+                title: "Namhae German Village, House N Garden, Sangju Silver Sand Beach 이동 시작",
+                description: "아이 동반 가족 여행을 시작합니다.",
+                category: "transit",
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const namhaeDraftMissingOriginContent =
+      namhaeDraftMissingOriginWithWrongAirport.structuredContent as DraftPreviewContent | undefined;
+    const namhaeDraftMissingOriginMeta = JSON.stringify(
+      namhaeDraftMissingOriginWithWrongAirport._meta ?? {},
+    );
+
+    assert.equal(namhaeDraftMissingOriginWithWrongAirport.isError, undefined);
+    assert.equal(namhaeDraftMissingOriginContent?.status, "needs_revision");
+    assert.ok(
+      namhaeDraftMissingOriginContent?.validationIssues?.some(
+        (issue) => issue.code === "missing_explicit_origin",
+      ),
+    );
+    assert.equal(namhaeDraftMissingOriginContent?.title, "남해 1박 2일 일정 초안");
+    assert.equal(namhaeDraftMissingOriginContent?.timeline?.[0]?.title, "출발지 확인 필요");
+    assert.equal(namhaeDraftMissingOriginContent?.timeline?.[1]?.title, "남해 독일마을 이동 시작");
+    assert.match(namhaeDraftMissingOriginMeta, /출발지 확인 필요/);
+    assert.match(namhaeDraftMissingOriginMeta, /남해 독일마을/);
+    assert.match(namhaeDraftMissingOriginMeta, /원예예술촌/);
+    assert.match(namhaeDraftMissingOriginMeta, /상주은모래비치/);
+    assert.doesNotMatch(namhaeDraftMissingOriginMeta, /인천공항/);
+    assert.doesNotMatch(namhaeDraftMissingOriginMeta, /Namhae German Village/);
+
     const namhaeLongRouteTitle =
       "남해 독일마을 · 원예예술촌 · 물건방조어부림 · 남해보물섬전망대 · 설리스카이워크 · 상주은모래비치 1박 2일";
     const namhaeLongDraftRecommendation = await client.callTool({
