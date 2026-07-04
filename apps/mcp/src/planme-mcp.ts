@@ -6,10 +6,11 @@ import {
 } from "@modelcontextprotocol/ext-apps/server";
 import {
   assessPlanmePlanningInput,
+  createAiRecommendedItineraryResponse,
   commitPlanmeDraftPreview,
   createPlanmeDraftPreview,
-  createRecommendedItineraryResponse,
   getGptActionItineraryResponse,
+  PlanmeAiConfigurationError,
   toGptActionItineraryResponse,
   updatePlanmeDraftPreview,
   type GptActionItineraryResponse,
@@ -508,7 +509,7 @@ export function createPlanmeMcpServer(): McpServer {
     {
       title: "Recommend or render PlanME itinerary",
       description:
-        "Render a PlanME widget. When ChatGPT has already drafted concrete stops or timeline events in conversation, include days with real POI names so the widget matches the draft. If days is omitted, this falls back to a deterministic technical demo.",
+        "Render a PlanME widget. When ChatGPT has already drafted concrete stops or timeline events in conversation, include days with real POI names so the widget matches the draft. If days is omitted, PlanME asks OpenAI to draft the itinerary server-side.",
       inputSchema: {
         title: z
           .string()
@@ -548,7 +549,37 @@ export function createPlanmeMcpServer(): McpServer {
       },
     },
     async (input: RecommendItineraryRequest) => {
-      const response = createRecommendedItineraryResponse("https://planme-demo.vercel.app/mcp", input);
+      let response: GptActionItineraryResponse;
+
+      try {
+        response = await createAiRecommendedItineraryResponse(
+          "https://planme-demo.vercel.app/mcp",
+          input,
+        );
+      } catch (error) {
+        if (error instanceof PlanmeAiConfigurationError) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: "text" as const,
+                text: "PlanME AI 일정 생성을 사용하려면 서버 환경변수 OPENAI_API_KEY가 필요합니다.",
+              },
+            ],
+          };
+        }
+
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text" as const,
+              text: "PlanME AI 일정 생성에 실패했습니다. 잠시 후 다시 시도하세요.",
+            },
+          ],
+        };
+      }
+
       const structuredContent = toItinerarySummary(response);
 
       // Return a concise text fallback for clients that do not render the widget.

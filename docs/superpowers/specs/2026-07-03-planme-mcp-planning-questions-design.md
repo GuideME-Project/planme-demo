@@ -63,4 +63,4 @@ PlanME MCP는 기존 일정 생성 도구(recommend_planme_itinerary)를 유지�
 - MCP 도구 목록에 질문 유도 도구(start_planme_planning)가 포함된다.
 - 목적지만 있는 입력은 상태(status)=needs_input과 출발지/기간 질문을 반환한다.
 - 목적지, 출발지, 여행 기간이 모두 있으면 상태(status)=ready와 다음 행동(nextAction)=call_recommend_planme_itinerary를 반환한다.
-- 기존 추천 도구(recommend_planme_itinerary)의 부산/여수 회귀 테스트는 그대로 통과한다.
+- 기존 추천 도구(recommend_planme_itinerary)는 concrete days가 없으면 로컬 POI 템플릿이 아니라 AI 생성 또는 명시적 설정 오류 경로를 탄다.

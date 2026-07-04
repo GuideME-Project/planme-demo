@@ -1,15 +1,28 @@
 import { NextResponse } from "next/server";
 import {
-  createRecommendedItineraryResponse,
+  createAiRecommendedItineraryResponse,
+  PlanmeAiConfigurationError,
   type RecommendItineraryRequest,
 } from "@planme/core";
 
 /**
- * Creates a technical-validation PlanME itinerary for Custom GPT Actions.
+ * Creates an AI-authored PlanME itinerary for Custom GPT Actions.
  */
 export async function POST(request: Request) {
   const body = (await request.json()) as RecommendItineraryRequest;
 
-  // The demo endpoint maps GPT action arguments into a deterministic mock itinerary response.
-  return NextResponse.json(createRecommendedItineraryResponse(request.url, body));
+  try {
+    return NextResponse.json(await createAiRecommendedItineraryResponse(request.url, body));
+  } catch (error) {
+    if (error instanceof PlanmeAiConfigurationError) {
+      return NextResponse.json(
+        {
+          error: "PlanME AI 일정 생성을 사용하려면 서버 환경변수 OPENAI_API_KEY가 필요합니다.",
+        },
+        { status: 503 },
+      );
+    }
+
+    return NextResponse.json({ error: "PlanME AI 일정 생성에 실패했습니다." }, { status: 502 });
+  }
 }
