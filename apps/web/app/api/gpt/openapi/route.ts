@@ -35,7 +35,8 @@ export function GET(request: Request) {
                   properties: {
                     title: {
                       type: "string",
-                      description: "ChatGPT-authored itinerary title shown in the widget",
+                      description:
+                        "Compact ChatGPT-authored itinerary title shown in the widget. Do not list every stop here.",
                     },
                     region: {
                       type: "string",
@@ -254,7 +255,10 @@ export function GET(request: Request) {
           type: "object",
           required: ["name"],
           properties: {
-            name: { type: "string" },
+            name: {
+              type: "string",
+              description: "Single stop or POI name only. Do not put a full route list in one stop.",
+            },
             role: {
               type: "string",
               enum: ["origin", "visit", "luggageDestination", "finalDestination"],
@@ -268,7 +272,11 @@ export function GET(request: Request) {
           required: ["time", "title", "description"],
           properties: {
             time: { type: "string" },
-            title: { type: "string" },
+            title: {
+              type: "string",
+              description:
+                "Short single-event title, such as 독일마을 산책. Do not repeat the full route.",
+            },
             description: { type: "string" },
             category: {
               type: "string",

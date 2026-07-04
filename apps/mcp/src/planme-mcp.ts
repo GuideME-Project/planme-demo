@@ -62,7 +62,10 @@ const timelineEventSchema = z.object({
 });
 
 const draftStopSchema = z.object({
-  name: z.string().min(1),
+  name: z
+    .string()
+    .min(1)
+    .describe("Single stop or POI name only. Do not put a full route list in one stop."),
   role: z
     .enum(["origin", "visit", "luggageDestination", "finalDestination"])
     .optional(),
@@ -77,7 +80,9 @@ const draftStopSchema = z.object({
 
 const draftTimelineEventSchema = z.object({
   time: z.string(),
-  title: z.string(),
+  title: z
+    .string()
+    .describe("Short single-event title only, such as 독일마을 산책. Do not repeat the full route."),
   description: z.string(),
   category: z
     .enum(["arrival", "carryme", "transit", "meal", "hotel", "event"])
@@ -352,7 +357,10 @@ export function createPlanmeMcpServer(): McpServer {
       description:
         "Render a PlanME widget from the itinerary draft ChatGPT just authored in the conversation. Use this as soon as a draft itinerary is available; do not wait for the user to explicitly ask to open PlanME.",
       inputSchema: {
-        title: z.string().min(1),
+        title: z
+          .string()
+          .min(1)
+          .describe("Compact itinerary title. Do not list every stop in the title."),
         region: z.string().optional(),
         duration: z.string().optional(),
         summary: z.string().optional(),
@@ -398,7 +406,10 @@ export function createPlanmeMcpServer(): McpServer {
       inputSchema: {
         previewId: z.string().min(1).optional(),
         baseVersion: z.number().int().min(1).optional(),
-        title: z.string().min(1),
+        title: z
+          .string()
+          .min(1)
+          .describe("Compact itinerary title. Do not list every stop in the title."),
         region: z.string().optional(),
         duration: z.string().optional(),
         summary: z.string().optional(),
@@ -497,7 +508,10 @@ export function createPlanmeMcpServer(): McpServer {
       description:
         "Render a PlanME widget. When ChatGPT has already drafted concrete stops or timeline events in conversation, include days with real POI names so the widget matches the draft. If days is omitted, this falls back to a deterministic technical demo.",
       inputSchema: {
-        title: z.string().optional(),
+        title: z
+          .string()
+          .optional()
+          .describe("Compact itinerary title. Do not list every stop in the title."),
         region: z.string().optional(),
         duration: z.string().optional(),
         summary: z.string().optional(),

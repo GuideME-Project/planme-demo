@@ -84,6 +84,10 @@ type DraftPreviewRecord = PlanmeDraftPreviewResult & {
 const draftPreviewStore = new Map<string, DraftPreviewRecord>();
 const committedDraftKeys = new Map<string, string>();
 
+// Route-like title detection keeps AI-generated multi-POI strings out of compact widget headings.
+const ROUTE_TITLE_SEPARATOR_THRESHOLD = 2;
+const DRAFT_TITLE_MAX_LENGTH = 44;
+
 /**
  * Converts a ChatGPT-authored PlanME draft into a widget-ready itinerary preview.
  */
@@ -208,12 +212,13 @@ function buildDraftItinerary(
 ): PlanmeItinerary {
   const region = input.region?.trim() || inferRegionFromTitle(input.title);
   const duration = input.duration?.trim() || "초안";
+  const title = normalizeDraftDisplayTitle(input.title, region, duration);
   const days = input.days.length > 0
     ? input.days.slice(0, 2).map((day, index) => buildDraftDay(day, index, input.savedMinutes ?? 0))
     : [buildEmptyDraftDay(input.savedMinutes ?? 0)];
   const firstDay = days[0];
   const savedMinutes = Math.max(0, input.savedMinutes ?? firstDay.savingMinutes);
-  const summaryPrefix = input.summary?.trim() || `${input.title}을 PlanME 위젯으로 미리 봅니다.`;
+  const summaryPrefix = input.summary?.trim() || `${title}을 PlanME 위젯으로 미리 봅니다.`;
   const issueSummary =
     validationIssues.length > 0
       ? ` 검증 필요: ${validationIssues.map((issue) => issue.message).join(" ")}`
@@ -221,7 +226,7 @@ function buildDraftItinerary(
 
   return {
     id: previewId,
-    title: input.title,
+    title,
     region,
     duration,
     summary: `${summaryPrefix}${issueSummary}`,
@@ -243,6 +248,7 @@ function buildDraftDay(
   savedMinutes: number,
 ): ItineraryDay {
   const stops = day.stops.map(toRouteStop);
+  let routeLikeTimelineIndex = 0;
   const routeText = stops.map((stop) => stop.label).join(" → ") || "일정 초안 확인 중";
   const carrymeStops = buildCarrymeStops(stops);
   const carrymeRouteText =
@@ -273,7 +279,18 @@ function buildDraftDay(
       stops: carrymeStops,
       description: "짐은 CarryME가 이동하고 여행자는 일정으로 바로 이동",
     }),
-    timeline: day.timeline.map(toTimelineEvent),
+    timeline: day.timeline.map((event) => {
+      const isRouteLike = isRouteLikeText(event.title);
+      const fallbackStop = isRouteLike
+        ? selectTimelineStop(stops, event, routeLikeTimelineIndex)
+        : undefined;
+
+      if (isRouteLike) {
+        routeLikeTimelineIndex += 1;
+      }
+
+      return toTimelineEvent(event, fallbackStop);
+    }),
   };
 }
 
@@ -359,17 +376,115 @@ function toRouteStop(stop: PlanmeDraftStop): RouteStop {
 }
 
 /**
- * Normalizes timeline categories while preserving ChatGPT-authored labels.
+ * Normalizes timeline categories while keeping one event title from becoming a full route list.
  */
-function toTimelineEvent(event: PlanmeDraftTimelineEvent): TimelineEvent {
+function toTimelineEvent(
+  event: PlanmeDraftTimelineEvent,
+  fallbackStop?: RouteStop,
+): TimelineEvent {
   return {
     time: event.time,
-    title: event.title,
+    title: normalizeTimelineTitle(event, fallbackStop),
     description: event.description,
     category: event.category ?? "event",
     highlight: event.highlight,
     savingLabel: event.savingLabel,
   };
+}
+
+/**
+ * Keeps the widget title compact when a model sends a whole route as the title.
+ */
+function normalizeDraftDisplayTitle(title: string, region: string, duration: string) {
+  const normalizedTitle = title.trim();
+
+  if (!isRouteLikeText(normalizedTitle)) {
+    return normalizedTitle;
+  }
+
+  return buildCompactDraftTitle(region, duration);
+}
+
+/**
+ * Builds a compact fallback title from stable trip metadata instead of long POI lists.
+ */
+function buildCompactDraftTitle(region: string, duration: string) {
+  const durationLabel = duration === "초안" ? "" : `${duration} `;
+
+  return `${region} ${durationLabel}일정 초안`.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Detects model-generated route strings that are too dense for title-sized UI.
+ */
+function isRouteLikeText(value: string) {
+  const separatorCount = (value.match(/[·→]/g) ?? []).length;
+
+  return value.trim().length > DRAFT_TITLE_MAX_LENGTH && separatorCount >= ROUTE_TITLE_SEPARATOR_THRESHOLD;
+}
+
+/**
+ * Selects the most relevant single stop when an event title contains the whole route.
+ */
+function selectTimelineStop(
+  stops: RouteStop[],
+  event: PlanmeDraftTimelineEvent,
+  routeLikeTimelineIndex: number,
+) {
+  if (stops.length === 0) {
+    return undefined;
+  }
+
+  if (event.title.includes("수령")) {
+    return (
+      stops.find((stop) => stop.caption === "짐 도착" || stop.caption === "도착") ??
+      stops[stops.length - 1]
+    );
+  }
+
+  return stops[Math.min(routeLikeTimelineIndex, stops.length - 1)];
+}
+
+/**
+ * Replaces whole-route timeline titles with a single stop plus action label.
+ */
+function normalizeTimelineTitle(event: PlanmeDraftTimelineEvent, fallbackStop?: RouteStop) {
+  if (!fallbackStop || !isRouteLikeText(event.title)) {
+    return event.title;
+  }
+
+  return `${fallbackStop.label} ${inferTimelineActionLabel(event)}`.trim();
+}
+
+/**
+ * Infers the short action suffix users expect to scan in the timeline.
+ */
+function inferTimelineActionLabel(event: PlanmeDraftTimelineEvent) {
+  if (event.title.includes("수령")) {
+    return "짐 수령";
+  }
+
+  if (event.title.includes("이동 시작")) {
+    return "이동 시작";
+  }
+
+  if (event.title.includes("출발")) {
+    return "출발";
+  }
+
+  if (event.title.includes("방문")) {
+    return "방문";
+  }
+
+  if (event.category === "hotel") {
+    return "도착";
+  }
+
+  if (event.category === "transit") {
+    return "이동";
+  }
+
+  return "방문";
 }
 
 /**
