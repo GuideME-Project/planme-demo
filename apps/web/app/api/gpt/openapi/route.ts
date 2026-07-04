@@ -23,7 +23,9 @@ export function GET(request: Request) {
       "/api/gpt/itineraries/recommend": {
         post: {
           operationId: "recommendPlanmeItinerary",
-          summary: "Recommend a PlanME itinerary and return a handoff URL",
+          summary: "Legacy deterministic PlanME handoff URL",
+          description:
+            "Use only for deterministic demo handoff links. Do not use when ChatGPT has already drafted a real itinerary in conversation, because the generated page cannot preserve ChatGPT-authored POIs.",
           requestBody: {
             required: true,
             content: {

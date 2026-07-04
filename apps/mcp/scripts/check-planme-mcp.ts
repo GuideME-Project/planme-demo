@@ -184,6 +184,26 @@ async function main(): Promise<void> {
     );
     assert.doesNotMatch(seoulToYeosuStructuredContent?.title ?? "", /여수 서울 출발/);
 
+    const namhaeFallback = await client.callTool({
+      name: "get_planme_itinerary",
+      arguments: {
+        itineraryId: "generated-남해-아이-동반-가족여행-2d-pkv5dr",
+      },
+    });
+    const namhaeFallbackContent =
+      namhaeFallback.structuredContent as RecommendationContent | undefined;
+
+    assert.equal(namhaeFallback.isError, undefined);
+    assert.equal(
+      namhaeFallbackContent?.title,
+      "PlanME 남해 아이 동반 가족여행 1박 2일 추천 일정",
+    );
+    assert.ok(
+      namhaeFallbackContent?.timeline?.every((timelineItem) =>
+        !timelineItem.title?.includes("부산역"),
+      ),
+    );
+
     const yeosuFamilyPreview = await client.callTool({
       name: "preview_planme_itinerary",
       arguments: {

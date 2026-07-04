@@ -471,9 +471,9 @@ export function createPlanmeMcpServer(): McpServer {
     server,
     "recommend_planme_itinerary",
     {
-      title: "Recommend PlanME itinerary (legacy demo)",
+      title: "Deprecated legacy PlanME demo",
       description:
-        "Legacy deterministic demo generator. For ChatGPT-authored itinerary drafts, use preview_planme_itinerary instead so the PlanME widget matches the conversation draft.",
+        "Deprecated deterministic demo generator. Do not use for natural-language travel planning, family trips, preference-based itineraries, or ChatGPT-authored drafts. Draft the itinerary in conversation first, then call preview_planme_itinerary so the PlanME widget matches the actual draft.",
       inputSchema: {
         destination: z.string().optional(),
         durationDays: z.number().int().min(1).max(14).optional(),
