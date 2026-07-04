@@ -27,6 +27,7 @@ export const PLANME_WIDGET_URI = "ui://planme/itinerary-widget-v2.html";
 const PLANME_LEGACY_WIDGET_URI = "ui://planme/itinerary-widget.html";
 const PLANME_WEB_ORIGIN = "https://planme-demo.vercel.app";
 const PLANME_MCP_ORIGIN = "https://planme-demo-mcp.vercel.app";
+const PLANME_PREVIEW_PAGE_URL = `${PLANME_WEB_ORIGIN}/#planme-preview`;
 
 const planmeWidgetCsp = {
   connectDomains: [PLANME_MCP_ORIGIN, PLANME_WEB_ORIGIN],
@@ -210,6 +211,7 @@ function toDraftPreviewSummary(result: PlanmeDraftPreviewResult): DraftPreviewSu
 
   return {
     ...toItinerarySummary(response),
+    pageUrl: PLANME_PREVIEW_PAGE_URL,
     previewId: result.previewId,
     status: result.status,
     validationIssues: result.validationIssues,
