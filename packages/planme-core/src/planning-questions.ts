@@ -26,7 +26,7 @@ export type PlanmePlanningAssessment = {
     hotelName: string | null;
     preferences: string[];
   };
-  nextAction: "ask_user" | "call_recommend_planme_itinerary";
+  nextAction: "ask_user" | "draft_planme_itinerary";
 };
 
 export type PlanmePlanningRequest = RecommendItineraryRequest & {
@@ -58,13 +58,13 @@ export function assessPlanmePlanningInput(
         : [];
   const status = missingSlots.length > 0 ? "needs_input" : "ready";
 
-  // The MCP server uses this action hint to decide whether ChatGPT should ask or generate.
+  // The MCP server uses this action hint to decide whether ChatGPT should ask or draft.
   return {
     status,
     missingSlots,
     questions,
     normalizedInput,
-    nextAction: status === "ready" ? "call_recommend_planme_itinerary" : "ask_user",
+    nextAction: status === "ready" ? "draft_planme_itinerary" : "ask_user",
   };
 }
 

@@ -7,6 +7,7 @@ import {
   type RouteStop,
   type TimelineEvent,
 } from "./mock-data.js";
+import { getPlanmeDraftPreviewItineraryById } from "./draft-itineraries.js";
 
 export type GeneratedItineraryRequest = {
   destination?: string;
@@ -248,6 +249,12 @@ function createGeneratedBenefits({
  */
 export function getPlanmeItineraryById(id: string): PlanmeItinerary | null {
   const itineraryId = decodeItineraryId(id);
+  const draftPreviewItinerary = getPlanmeDraftPreviewItineraryById(itineraryId);
+
+  if (draftPreviewItinerary) {
+    return draftPreviewItinerary;
+  }
+
   const generatedItinerary = generatedItineraryStore.get(itineraryId);
 
   if (generatedItinerary) {

@@ -6,9 +6,16 @@ import {
 } from "@modelcontextprotocol/ext-apps/server";
 import {
   assessPlanmePlanningInput,
+  commitPlanmeDraftPreview,
+  createPlanmeDraftPreview,
   createRecommendedItineraryResponse,
   getGptActionItineraryResponse,
+  toGptActionItineraryResponse,
+  updatePlanmeDraftPreview,
   type GptActionItineraryResponse,
+  type PlanmeDraftCommitRequest,
+  type PlanmeDraftPreviewRequest,
+  type PlanmeDraftPreviewResult,
   type PlanmeItinerary,
   type PlanmePlanningRequest,
   type RecommendItineraryRequest,
@@ -53,6 +60,42 @@ const timelineEventSchema = z.object({
   savingLabel: z.string().optional(),
 });
 
+const draftStopSchema = z.object({
+  name: z.string().min(1),
+  role: z
+    .enum(["origin", "visit", "luggageDestination", "finalDestination"])
+    .optional(),
+  caption: z.string().optional(),
+  coordinate: z
+    .object({
+      lat: z.number(),
+      lng: z.number(),
+    })
+    .optional(),
+});
+
+const draftTimelineEventSchema = z.object({
+  time: z.string(),
+  title: z.string(),
+  description: z.string(),
+  category: z
+    .enum(["arrival", "carryme", "transit", "meal", "hotel", "event"])
+    .optional(),
+  highlight: z.boolean().optional(),
+  savingLabel: z.string().optional(),
+});
+
+const draftDaySchema = z.object({
+  day: z.number().int().min(1).max(14).optional(),
+  label: z.string().optional(),
+  stops: z.array(draftStopSchema).min(1),
+  timeline: z.array(draftTimelineEventSchema).min(1),
+  standardDurationMinutes: z.number().int().min(0).optional(),
+  carrymeDurationMinutes: z.number().int().min(0).optional(),
+  standardRouteText: z.string().optional(),
+  carrymeRouteText: z.string().optional(),
+});
+
 const planningSlotSchema = z.enum([
   "destination",
   "origin",
@@ -79,6 +122,20 @@ const itinerarySummarySchema = {
   timeline: z.array(timelineEventSchema),
 };
 
+const draftValidationIssueSchema = z.object({
+  code: z.string(),
+  message: z.string(),
+  severity: z.enum(["error", "warning"]),
+});
+
+const draftPreviewSummarySchema = {
+  ...itinerarySummarySchema,
+  previewId: z.string(),
+  status: z.enum(["preview_ready", "needs_revision", "committed"]),
+  validationIssues: z.array(draftValidationIssueSchema),
+  version: z.number().int().min(1),
+};
+
 const planningAssessmentSchema = {
   status: z.enum(["needs_input", "ready"]),
   missingSlots: z.array(planningSlotSchema),
@@ -91,7 +148,7 @@ const planningAssessmentSchema = {
     hotelName: z.string().nullable(),
     preferences: z.array(z.string()),
   }),
-  nextAction: z.enum(["ask_user", "call_recommend_planme_itinerary"]),
+  nextAction: z.enum(["ask_user", "draft_planme_itinerary"]),
 };
 
 type ItinerarySummary = {
@@ -112,6 +169,17 @@ type ItinerarySummary = {
   }>;
 };
 
+type DraftPreviewSummary = ItinerarySummary & {
+  previewId: string;
+  status: "preview_ready" | "needs_revision" | "committed";
+  validationIssues: Array<{
+    code: string;
+    message: string;
+    severity: "error" | "warning";
+  }>;
+  version: number;
+};
+
 /**
  * Converts PlanME core itinerary data into the model-visible MCP output shape.
  */
@@ -128,6 +196,24 @@ function toItinerarySummary(response: GptActionItineraryResponse): ItinerarySumm
     standardTotalMinutes: response.standardTotalMinutes,
     carrymeTotalMinutes: response.carrymeTotalMinutes,
     timeline: firstDay.timeline,
+  };
+}
+
+/**
+ * Converts a normalized draft preview into model-visible MCP output.
+ */
+function toDraftPreviewSummary(result: PlanmeDraftPreviewResult): DraftPreviewSummary {
+  const response = toGptActionItineraryResponse(
+    result.itinerary,
+    "https://planme-demo.vercel.app/mcp",
+  );
+
+  return {
+    ...toItinerarySummary(response),
+    previewId: result.previewId,
+    status: result.status,
+    validationIssues: result.validationIssues,
+    version: result.version,
   };
 }
 
@@ -224,7 +310,7 @@ export function createPlanmeMcpServer(): McpServer {
             type: "text" as const,
             text:
               assessment.status === "ready"
-                ? "PlanME 일정 생성에 필요한 기본 조건이 준비됐습니다. recommend_planme_itinerary를 호출하세요."
+                ? "PlanME 일정 초안에 필요한 기본 조건이 준비됐습니다. 대화에서 일정 초안을 작성한 뒤 preview_planme_itinerary를 호출하세요."
                 : `PlanME 일정 생성 전에 ${assessment.questions
                     .map((question) => question.text)
                     .join(" ")}`,
@@ -236,11 +322,156 @@ export function createPlanmeMcpServer(): McpServer {
 
   registerAppTool(
     server,
+    "preview_planme_itinerary",
+    {
+      title: "Preview PlanME itinerary draft",
+      description:
+        "Render a PlanME widget from the itinerary draft ChatGPT just authored in the conversation. Use this as soon as a draft itinerary is available; do not wait for the user to explicitly ask to open PlanME.",
+      inputSchema: {
+        title: z.string().min(1),
+        region: z.string().optional(),
+        duration: z.string().optional(),
+        summary: z.string().optional(),
+        assumptions: z.array(z.string()).optional(),
+        savedMinutes: z.number().int().min(0).optional(),
+        days: z.array(draftDaySchema).min(1),
+      },
+      outputSchema: draftPreviewSummarySchema,
+      _meta: {
+        ui: {
+          resourceUri: PLANME_WIDGET_URI,
+        },
+        "openai/outputTemplate": PLANME_WIDGET_URI,
+        "openai/toolInvocation/invoking": "PlanME 일정 초안을 위젯으로 구성하는 중입니다.",
+        "openai/toolInvocation/invoked": "PlanME 일정 초안 위젯이 준비됐습니다.",
+      },
+    },
+    async (input: PlanmeDraftPreviewRequest) => {
+      const result = createPlanmeDraftPreview(input);
+      const structuredContent = toDraftPreviewSummary(result);
+
+      // The full normalized itinerary is passed through _meta so the widget and text stay aligned.
+      return {
+        structuredContent,
+        content: [
+          {
+            type: "text" as const,
+            text: `${result.itinerary.title} 초안을 PlanME 위젯으로 표시했습니다.`,
+          },
+        ],
+        _meta: toWidgetMeta(result.itinerary, structuredContent.pageUrl),
+      };
+    },
+  );
+
+  registerAppTool(
+    server,
+    "update_planme_itinerary_preview",
+    {
+      title: "Update PlanME itinerary preview",
+      description:
+        "Replace the current PlanME preview with a revised itinerary draft after the user changes the plan in conversation.",
+      inputSchema: {
+        previewId: z.string().min(1).optional(),
+        baseVersion: z.number().int().min(1).optional(),
+        title: z.string().min(1),
+        region: z.string().optional(),
+        duration: z.string().optional(),
+        summary: z.string().optional(),
+        assumptions: z.array(z.string()).optional(),
+        savedMinutes: z.number().int().min(0).optional(),
+        days: z.array(draftDaySchema).min(1),
+      },
+      outputSchema: draftPreviewSummarySchema,
+      _meta: {
+        ui: {
+          resourceUri: PLANME_WIDGET_URI,
+        },
+        "openai/outputTemplate": PLANME_WIDGET_URI,
+        "openai/toolInvocation/invoking": "PlanME 일정 초안을 갱신하는 중입니다.",
+        "openai/toolInvocation/invoked": "PlanME 일정 초안이 갱신됐습니다.",
+      },
+    },
+    async (input: PlanmeDraftPreviewRequest) => {
+      const result = updatePlanmeDraftPreview(input);
+      const structuredContent = toDraftPreviewSummary(result);
+
+      // A revised draft should re-render the same widget with the latest normalized itinerary.
+      return {
+        structuredContent,
+        content: [
+          {
+            type: "text" as const,
+            text: `${result.itinerary.title} 초안을 PlanME 위젯에 다시 반영했습니다.`,
+          },
+        ],
+        _meta: toWidgetMeta(result.itinerary, structuredContent.pageUrl),
+      };
+    },
+  );
+
+  registerAppTool(
+    server,
+    "commit_planme_itinerary",
+    {
+      title: "Commit PlanME itinerary",
+      description:
+        "Commit a previously rendered PlanME preview after the user explicitly confirms the draft. This is a state-changing action and requires userConfirmed=true.",
+      inputSchema: {
+        previewId: z.string().min(1),
+        version: z.number().int().min(1),
+        userConfirmed: z.boolean(),
+        idempotencyKey: z.string().min(1),
+        visibility: z.enum(["private", "public"]),
+      },
+      outputSchema: draftPreviewSummarySchema,
+      _meta: {
+        ui: {
+          resourceUri: PLANME_WIDGET_URI,
+        },
+        "openai/outputTemplate": PLANME_WIDGET_URI,
+        "openai/toolInvocation/invoking": "PlanME 일정을 확정 저장하는 중입니다.",
+        "openai/toolInvocation/invoked": "PlanME 일정이 확정됐습니다.",
+      },
+    },
+    async (input: PlanmeDraftCommitRequest) => {
+      const result = commitPlanmeDraftPreview(input);
+
+      if (!result) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text" as const,
+              text: "PlanME 일정 확정에 실패했습니다. previewId, version, userConfirmed 값을 다시 확인하세요.",
+            },
+          ],
+        };
+      }
+
+      const structuredContent = toDraftPreviewSummary(result);
+
+      // Returning the same widget keeps the committed state visually aligned with the preview.
+      return {
+        structuredContent,
+        content: [
+          {
+            type: "text" as const,
+            text: `${result.itinerary.title} 일정이 PlanME에 확정됐습니다.`,
+          },
+        ],
+        _meta: toWidgetMeta(result.itinerary, structuredContent.pageUrl),
+      };
+    },
+  );
+
+  registerAppTool(
+    server,
     "recommend_planme_itinerary",
     {
-      title: "Recommend PlanME itinerary",
+      title: "Recommend PlanME itinerary (legacy demo)",
       description:
-        "Recommend a PlanME itinerary from travel inputs and render a timeline widget. If origin, destination, or trip length is unclear, call start_planme_planning first and ask its questions.",
+        "Legacy deterministic demo generator. For ChatGPT-authored itinerary drafts, use preview_planme_itinerary instead so the PlanME widget matches the conversation draft.",
       inputSchema: {
         destination: z.string().optional(),
         durationDays: z.number().int().min(1).max(14).optional(),

@@ -18,11 +18,22 @@ type RecommendationContent = {
 type PlanningContent = {
   status?: "needs_input" | "ready";
   missingSlots?: string[];
-  nextAction?: "ask_user" | "call_recommend_planme_itinerary";
+  nextAction?: "ask_user" | "draft_planme_itinerary";
   questions?: Array<{
     slot?: string;
     text?: string;
   }>;
+};
+
+type DraftPreviewContent = RecommendationContent & {
+  previewId?: string;
+  status?: "preview_ready" | "needs_revision" | "committed";
+  validationIssues?: Array<{
+    code?: string;
+    message?: string;
+    severity?: string;
+  }>;
+  version?: number;
 };
 
 type PlanmeWidgetResourceMeta = {
@@ -80,6 +91,9 @@ async function main(): Promise<void> {
     assert.ok(toolNames.includes("recommend_planme_itinerary"));
     assert.ok(toolNames.includes("get_planme_itinerary"));
     assert.ok(toolNames.includes("start_planme_planning"));
+    assert.ok(toolNames.includes("preview_planme_itinerary"));
+    assert.ok(toolNames.includes("update_planme_itinerary_preview"));
+    assert.ok(toolNames.includes("commit_planme_itinerary"));
 
     const planningDraft = await client.callTool({
       name: "start_planme_planning",
@@ -111,7 +125,7 @@ async function main(): Promise<void> {
 
     assert.equal(readyPlanning.isError, undefined);
     assert.equal(readyPlanningContent?.status, "ready");
-    assert.equal(readyPlanningContent?.nextAction, "call_recommend_planme_itinerary");
+    assert.equal(readyPlanningContent?.nextAction, "draft_planme_itinerary");
     assert.deepEqual(readyPlanningContent?.missingSlots, []);
 
     const recommendation = await client.callTool({
@@ -169,6 +183,77 @@ async function main(): Promise<void> {
       "PlanME 서울 → 여수 밤바다 1박 2일 추천 일정",
     );
     assert.doesNotMatch(seoulToYeosuStructuredContent?.title ?? "", /여수 서울 출발/);
+
+    const yeosuFamilyPreview = await client.callTool({
+      name: "preview_planme_itinerary",
+      arguments: {
+        title: "여수 가족 여행 1박 2일 초안",
+        region: "여수",
+        duration: "1박 2일",
+        summary: "가족이 무리 없이 바다와 실내 관광을 함께 보는 초안입니다.",
+        assumptions: ["숙소는 아직 미정", "아이 동반 가족 여행"],
+        savedMinutes: 45,
+        days: [
+          {
+            day: 1,
+            label: "Day 1",
+            stops: [
+              { name: "서울역", role: "origin", caption: "출발" },
+              { name: "아쿠아플라넷 여수", role: "visit", caption: "실내 관광" },
+              { name: "오동도", role: "visit", caption: "산책" },
+              { name: "숙소", role: "luggageDestination", caption: "짐 도착" },
+            ],
+            timeline: [
+              {
+                time: "09:00",
+                title: "서울역 출발",
+                description: "가족 여행 일정을 시작합니다.",
+                category: "arrival",
+              },
+              {
+                time: "13:30",
+                title: "아쿠아플라넷 여수 방문",
+                description: "실내 중심으로 아이가 보기 쉬운 코스입니다.",
+                category: "event",
+              },
+              {
+                time: "16:00",
+                title: "오동도 산책",
+                description: "짧은 산책으로 바다 전망을 봅니다.",
+                category: "event",
+                savingLabel: "약 45분 절약",
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const yeosuFamilyPreviewContent =
+      yeosuFamilyPreview.structuredContent as DraftPreviewContent | undefined;
+
+    assert.equal(yeosuFamilyPreview.isError, undefined);
+    assert.equal(yeosuFamilyPreviewContent?.status, "preview_ready");
+    assert.match(yeosuFamilyPreviewContent?.previewId ?? "", /^preview-/);
+    assert.equal(yeosuFamilyPreviewContent?.title, "여수 가족 여행 1박 2일 초안");
+    assert.equal(yeosuFamilyPreviewContent?.timeline?.[1]?.title, "아쿠아플라넷 여수 방문");
+    assert.equal(yeosuFamilyPreviewContent?.validationIssues?.length, 0);
+
+    const committedPreview = await client.callTool({
+      name: "commit_planme_itinerary",
+      arguments: {
+        previewId: yeosuFamilyPreviewContent?.previewId,
+        version: yeosuFamilyPreviewContent?.version,
+        userConfirmed: true,
+        idempotencyKey: "contract-yeosu-family-preview",
+        visibility: "public",
+      },
+    });
+    const committedPreviewContent =
+      committedPreview.structuredContent as DraftPreviewContent | undefined;
+
+    assert.equal(committedPreview.isError, undefined);
+    assert.equal(committedPreviewContent?.status, "committed");
+    assert.equal(committedPreviewContent?.title, "여수 가족 여행 1박 2일 초안");
 
     const resource = await client.readResource({
       uri: "ui://planme/itinerary-widget-v2.html",
