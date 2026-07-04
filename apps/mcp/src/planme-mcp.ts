@@ -12,6 +12,7 @@ import {
   formatPlanmeAiGenerationError,
   getGptActionItineraryResponse,
   PlanmeAiConfigurationError,
+  toDraftGptActionItineraryResponse,
   toGptActionItineraryResponse,
   updatePlanmeDraftPreview,
   type GptActionItineraryResponse,
@@ -29,7 +30,6 @@ export const PLANME_WIDGET_URI = "ui://planme/itinerary-widget-v2.html";
 const PLANME_LEGACY_WIDGET_URI = "ui://planme/itinerary-widget.html";
 const PLANME_WEB_ORIGIN = "https://planme-demo.vercel.app";
 const PLANME_MCP_ORIGIN = "https://planme-demo-mcp.vercel.app";
-const PLANME_PREVIEW_PAGE_URL = `${PLANME_WEB_ORIGIN}/#planme-preview`;
 
 const planmeWidgetCsp = {
   connectDomains: [PLANME_MCP_ORIGIN, PLANME_WEB_ORIGIN],
@@ -233,14 +233,10 @@ function toItinerarySummary(response: GptActionItineraryResponse): ItinerarySumm
  * Converts a normalized draft preview into model-visible MCP output.
  */
 function toDraftPreviewSummary(result: PlanmeDraftPreviewResult): DraftPreviewSummary {
-  const response = toGptActionItineraryResponse(
-    result.itinerary,
-    "https://planme-demo.vercel.app/mcp",
-  );
+  const response = toDraftGptActionItineraryResponse(result, `${PLANME_WEB_ORIGIN}/mcp`);
 
   return {
     ...toItinerarySummary(response),
-    pageUrl: PLANME_PREVIEW_PAGE_URL,
     previewId: result.previewId,
     status: result.status,
     validationIssues: result.validationIssues,
