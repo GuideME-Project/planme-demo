@@ -129,6 +129,14 @@ const draftValidationIssueSchema = z.object({
   severity: z.enum(["error", "warning"]),
 });
 
+const recommendationSummarySchema = {
+  ...itinerarySummarySchema,
+  previewId: z.string().optional(),
+  status: z.enum(["preview_ready", "needs_revision", "committed"]).optional(),
+  validationIssues: z.array(draftValidationIssueSchema).optional(),
+  version: z.number().int().min(1).optional(),
+};
+
 const draftPreviewSummarySchema = {
   ...itinerarySummarySchema,
   previewId: z.string(),
@@ -168,6 +176,10 @@ type ItinerarySummary = {
     highlight?: boolean;
     savingLabel?: string;
   }>;
+  previewId?: string;
+  status?: PlanmeDraftPreviewResult["status"];
+  validationIssues?: PlanmeDraftPreviewResult["validationIssues"];
+  version?: number;
 };
 
 type DraftPreviewSummary = ItinerarySummary & {
@@ -186,6 +198,15 @@ type DraftPreviewSummary = ItinerarySummary & {
  */
 function toItinerarySummary(response: GptActionItineraryResponse): ItinerarySummary {
   const firstDay = response.itinerary.days[0];
+  const draftFields =
+    response.previewId && response.status && response.validationIssues && response.version
+      ? {
+          previewId: response.previewId,
+          status: response.status,
+          validationIssues: response.validationIssues,
+          version: response.version,
+        }
+      : {};
 
   // Keep model-visible data compact; full itinerary details are passed through _meta for the widget.
   return {
@@ -197,6 +218,7 @@ function toItinerarySummary(response: GptActionItineraryResponse): ItinerarySumm
     standardTotalMinutes: response.standardTotalMinutes,
     carrymeTotalMinutes: response.carrymeTotalMinutes,
     timeline: firstDay.timeline,
+    ...draftFields,
   };
 }
 
@@ -471,10 +493,17 @@ export function createPlanmeMcpServer(): McpServer {
     server,
     "recommend_planme_itinerary",
     {
-      title: "Deprecated legacy PlanME demo",
+      title: "Recommend or render PlanME itinerary",
       description:
-        "Deprecated deterministic demo generator. Do not use for natural-language travel planning, family trips, preference-based itineraries, or ChatGPT-authored drafts. Draft the itinerary in conversation first, then call preview_planme_itinerary so the PlanME widget matches the actual draft.",
+        "Render a PlanME widget. When ChatGPT has already drafted concrete stops or timeline events in conversation, include days with real POI names so the widget matches the draft. If days is omitted, this falls back to a deterministic technical demo.",
       inputSchema: {
+        title: z.string().optional(),
+        region: z.string().optional(),
+        duration: z.string().optional(),
+        summary: z.string().optional(),
+        assumptions: z.array(z.string()).optional(),
+        savedMinutes: z.number().int().min(0).optional(),
+        days: z.array(draftDaySchema).optional(),
         destination: z.string().optional(),
         durationDays: z.number().int().min(1).max(14).optional(),
         arrivalAirport: z.string().optional(),
@@ -486,7 +515,7 @@ export function createPlanmeMcpServer(): McpServer {
         preferences: z.array(z.string()).optional(),
         theme: z.enum(["light", "dark"]).optional(),
       },
-      outputSchema: itinerarySummarySchema,
+      outputSchema: recommendationSummarySchema,
       _meta: {
         ui: {
           resourceUri: PLANME_WIDGET_URI,

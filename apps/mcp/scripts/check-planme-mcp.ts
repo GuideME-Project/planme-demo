@@ -204,6 +204,71 @@ async function main(): Promise<void> {
       ),
     );
 
+    const namhaeDraftRecommendation = await client.callTool({
+      name: "recommend_planme_itinerary",
+      arguments: {
+        destination: "남해",
+        durationDays: 2,
+        title: "남해 아이 동반 가족여행 1박 2일 초안",
+        region: "남해",
+        duration: "1박 2일",
+        summary: "아이 동반 가족이 남해 대표 방문지를 무리 없이 보는 초안입니다.",
+        assumptions: ["동탄 출발", "아이 동반", "해안 산책 위주"],
+        savedMinutes: 50,
+        days: [
+          {
+            day: 1,
+            label: "Day 1",
+            stops: [
+              { name: "동탄", role: "origin", caption: "출발" },
+              { name: "남해 독일마을", role: "visit", caption: "관광" },
+              { name: "물건리 방조어부림", role: "visit", caption: "해안 산책" },
+              { name: "남해 숙소", role: "luggageDestination", caption: "짐 도착" },
+            ],
+            timeline: [
+              {
+                time: "09:00",
+                title: "동탄 출발",
+                description: "가족 여행 일정을 시작합니다.",
+                category: "arrival",
+              },
+              {
+                time: "13:30",
+                title: "남해 독일마을 산책",
+                description: "아이와 함께 마을과 바다 전망을 가볍게 봅니다.",
+                category: "event",
+              },
+              {
+                time: "15:30",
+                title: "물건리 방조어부림 해안 산책",
+                description: "무리 없는 해안 산책 코스로 이동합니다.",
+                category: "event",
+                savingLabel: "약 50분 절약",
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const namhaeDraftRecommendationContent =
+      namhaeDraftRecommendation.structuredContent as DraftPreviewContent | undefined;
+    const namhaeDraftWidgetMeta = JSON.stringify(namhaeDraftRecommendation._meta ?? {});
+
+    assert.equal(namhaeDraftRecommendation.isError, undefined);
+    assert.equal(namhaeDraftRecommendationContent?.status, "preview_ready");
+    assert.doesNotMatch(namhaeDraftRecommendationContent?.pageUrl ?? "", /\/itinerary\/preview-/);
+    assert.equal(
+      namhaeDraftRecommendationContent?.title,
+      "남해 아이 동반 가족여행 1박 2일 초안",
+    );
+    assert.equal(
+      namhaeDraftRecommendationContent?.timeline?.[1]?.title,
+      "남해 독일마을 산책",
+    );
+    assert.match(namhaeDraftWidgetMeta, /남해 독일마을/);
+    assert.match(namhaeDraftWidgetMeta, /물건리 방조어부림/);
+    assert.doesNotMatch(namhaeDraftWidgetMeta, /남해 아이 동반 가족여행 방문/);
+
     const yeosuFamilyPreview = await client.callTool({
       name: "preview_planme_itinerary",
       arguments: {

@@ -23,9 +23,9 @@ export function GET(request: Request) {
       "/api/gpt/itineraries/recommend": {
         post: {
           operationId: "recommendPlanmeItinerary",
-          summary: "Legacy deterministic PlanME handoff URL",
+          summary: "Render a PlanME itinerary widget or fallback demo handoff URL",
           description:
-            "Use only for deterministic demo handoff links. Do not use when ChatGPT has already drafted a real itinerary in conversation, because the generated page cannot preserve ChatGPT-authored POIs.",
+            "When ChatGPT has drafted concrete stops or timeline events in conversation, include days with real POI names so the PlanME widget matches the draft. If days is omitted, the endpoint falls back to a deterministic technical demo handoff.",
           requestBody: {
             required: true,
             content: {
@@ -33,6 +33,38 @@ export function GET(request: Request) {
                 schema: {
                   type: "object",
                   properties: {
+                    title: {
+                      type: "string",
+                      description: "ChatGPT-authored itinerary title shown in the widget",
+                    },
+                    region: {
+                      type: "string",
+                      description: "Primary travel region used for PlanME labels",
+                    },
+                    duration: {
+                      type: "string",
+                      description: "User-facing trip length label, for example 1박 2일",
+                    },
+                    summary: {
+                      type: "string",
+                      description: "Short explanation of the ChatGPT-authored itinerary draft",
+                    },
+                    assumptions: {
+                      type: "array",
+                      items: { type: "string" },
+                      description: "Planning assumptions used to draft the itinerary",
+                    },
+                    savedMinutes: {
+                      type: "integer",
+                      minimum: 0,
+                      description: "Estimated minutes saved by using CarryME",
+                    },
+                    days: {
+                      type: "array",
+                      items: { $ref: "#/components/schemas/PlanmeDraftDay" },
+                      description:
+                        "Concrete ChatGPT-authored itinerary days. Include this whenever the conversation contains real stops or POIs.",
+                    },
                     destination: { type: "string", description: "Travel destination" },
                     durationDays: { type: "integer", minimum: 1, maximum: 14 },
                     arrivalAirport: { type: "string", description: "Arrival airport code" },
@@ -176,6 +208,91 @@ export function GET(request: Request) {
               items: { type: "string" },
             },
             itinerary: { type: "object", additionalProperties: true },
+            previewId: {
+              type: "string",
+              description: "Present when the response was rendered from ChatGPT-authored days",
+            },
+            status: {
+              type: "string",
+              enum: ["preview_ready", "needs_revision", "committed"],
+              description: "Draft preview status when days were supplied",
+            },
+            validationIssues: {
+              type: "array",
+              items: { $ref: "#/components/schemas/PlanmeDraftValidationIssue" },
+            },
+            version: {
+              type: "integer",
+              minimum: 1,
+              description: "Draft preview version when days were supplied",
+            },
+          },
+        },
+        PlanmeDraftDay: {
+          type: "object",
+          required: ["stops", "timeline"],
+          properties: {
+            day: { type: "integer", minimum: 1, maximum: 14 },
+            label: { type: "string" },
+            stops: {
+              type: "array",
+              minItems: 1,
+              items: { $ref: "#/components/schemas/PlanmeDraftStop" },
+            },
+            timeline: {
+              type: "array",
+              minItems: 1,
+              items: { $ref: "#/components/schemas/PlanmeDraftTimelineEvent" },
+            },
+            standardDurationMinutes: { type: "integer", minimum: 0 },
+            carrymeDurationMinutes: { type: "integer", minimum: 0 },
+            standardRouteText: { type: "string" },
+            carrymeRouteText: { type: "string" },
+          },
+        },
+        PlanmeDraftStop: {
+          type: "object",
+          required: ["name"],
+          properties: {
+            name: { type: "string" },
+            role: {
+              type: "string",
+              enum: ["origin", "visit", "luggageDestination", "finalDestination"],
+            },
+            caption: { type: "string" },
+            coordinate: { $ref: "#/components/schemas/MapCoordinate" },
+          },
+        },
+        PlanmeDraftTimelineEvent: {
+          type: "object",
+          required: ["time", "title", "description"],
+          properties: {
+            time: { type: "string" },
+            title: { type: "string" },
+            description: { type: "string" },
+            category: {
+              type: "string",
+              enum: ["arrival", "carryme", "transit", "meal", "hotel", "event"],
+            },
+            highlight: { type: "boolean" },
+            savingLabel: { type: "string" },
+          },
+        },
+        MapCoordinate: {
+          type: "object",
+          required: ["lat", "lng"],
+          properties: {
+            lat: { type: "number" },
+            lng: { type: "number" },
+          },
+        },
+        PlanmeDraftValidationIssue: {
+          type: "object",
+          required: ["code", "message", "severity"],
+          properties: {
+            code: { type: "string" },
+            message: { type: "string" },
+            severity: { type: "string", enum: ["error", "warning"] },
           },
         },
       },
