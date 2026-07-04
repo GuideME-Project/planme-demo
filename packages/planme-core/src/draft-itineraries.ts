@@ -49,6 +49,7 @@ export type PlanmeDraftPreviewRequest = {
   region?: string;
   duration?: string;
   summary?: string;
+  origin?: string;
   assumptions?: string[];
   savedMinutes?: number;
   days: PlanmeDraftDay[];
@@ -87,6 +88,7 @@ const committedDraftKeys = new Map<string, string>();
 // Route-like title detection keeps AI-generated multi-POI strings out of compact widget headings.
 const ROUTE_TITLE_SEPARATOR_THRESHOLD = 2;
 const DRAFT_TITLE_MAX_LENGTH = 44;
+const DEFAULT_AIRPORT_ORIGIN_PATTERN = /^(ICN|인천\s*(국제)?공항)$/i;
 
 /**
  * Converts a ChatGPT-authored PlanME draft into a widget-ready itinerary preview.
@@ -213,8 +215,13 @@ function buildDraftItinerary(
   const region = input.region?.trim() || inferRegionFromTitle(input.title);
   const duration = input.duration?.trim() || "초안";
   const title = normalizeDraftDisplayTitle(input.title, region, duration);
+  const explicitOrigin = inferExplicitDraftOrigin(input.origin, input.assumptions ?? []);
   const days = input.days.length > 0
-    ? input.days.slice(0, 2).map((day, index) => buildDraftDay(day, index, input.savedMinutes ?? 0))
+    ? input.days
+        .slice(0, 2)
+        .map((day, index) =>
+          buildDraftDay(day, index, input.savedMinutes ?? 0, index === 0 ? explicitOrigin : null),
+        )
     : [buildEmptyDraftDay(input.savedMinutes ?? 0)];
   const firstDay = days[0];
   const savedMinutes = Math.max(0, input.savedMinutes ?? firstDay.savingMinutes);
@@ -246,8 +253,9 @@ function buildDraftDay(
   day: PlanmeDraftDay,
   index: number,
   savedMinutes: number,
+  explicitOrigin: string | null = null,
 ): ItineraryDay {
-  const stops = day.stops.map(toRouteStop);
+  const stops = sanitizeDraftOriginStops(day.stops.map(toRouteStop), explicitOrigin);
   let routeLikeTimelineIndex = 0;
   const routeText = stops.map((stop) => stop.label).join(" → ") || "일정 초안 확인 중";
   const carrymeStops = buildCarrymeStops(stops);
@@ -279,7 +287,8 @@ function buildDraftDay(
       stops: carrymeStops,
       description: "짐은 CarryME가 이동하고 여행자는 일정으로 바로 이동",
     }),
-    timeline: day.timeline.map((event) => {
+    timeline: day.timeline.map((rawEvent) => {
+      const event = sanitizeDraftOriginTimelineEvent(rawEvent, explicitOrigin);
       const isRouteLike = isRouteLikeText(event.title);
       const fallbackStop = isRouteLike
         ? selectTimelineStop(stops, event, routeLikeTimelineIndex)
@@ -390,6 +399,118 @@ function toTimelineEvent(
     highlight: event.highlight,
     savingLabel: event.savingLabel,
   };
+}
+
+/**
+ * Infers a user-confirmed origin from explicit fields before trusting draft stops.
+ */
+function inferExplicitDraftOrigin(origin: string | undefined, assumptions: string[]) {
+  const normalizedOrigin = normalizeDraftOriginText(origin);
+
+  if (normalizedOrigin && !isDefaultAirportOrigin(normalizedOrigin)) {
+    return normalizedOrigin;
+  }
+
+  for (const assumption of assumptions) {
+    const assumptionOrigin = extractDraftOriginAssumption(assumption);
+
+    if (assumptionOrigin && !isDefaultAirportOrigin(assumptionOrigin)) {
+      return assumptionOrigin;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Keeps a default airport hallucination from overriding a stated domestic origin.
+ */
+function sanitizeDraftOriginStops(stops: RouteStop[], explicitOrigin: string | null) {
+  if (!explicitOrigin) {
+    return stops;
+  }
+
+  return stops.map((stop) => {
+    if (!isDefaultAirportOrigin(stop.label)) {
+      return stop;
+    }
+
+    // The model sometimes injects ICN as a generic origin; preserve the user's stated origin instead.
+    return {
+      ...stop,
+      label: explicitOrigin,
+      caption: "출발",
+      icon: "station" as const,
+    };
+  });
+}
+
+/**
+ * Rewrites draft timeline copy when a model mixes a stated origin with an invented airport.
+ */
+function sanitizeDraftOriginTimelineEvent(
+  event: PlanmeDraftTimelineEvent,
+  explicitOrigin: string | null,
+): PlanmeDraftTimelineEvent {
+  const hasDefaultAirportCopy =
+    containsDefaultAirportOrigin(event.title) || containsDefaultAirportOrigin(event.description);
+
+  if (!explicitOrigin || !hasDefaultAirportCopy) {
+    return event;
+  }
+
+  const isAirportArrivalEvent =
+    containsDefaultAirportOrigin(event.title) && /도착|입국/.test(event.title);
+
+  return {
+    ...event,
+    title: isAirportArrivalEvent
+      ? `${explicitOrigin} 출발`
+      : replaceDefaultAirportOrigin(event.title, explicitOrigin),
+    description: isAirportArrivalEvent && event.description.includes("입국")
+      ? "출발지에서 여행 일정 시작"
+      : replaceDefaultAirportOrigin(event.description, explicitOrigin),
+  };
+}
+
+/**
+ * Normalizes free-text origin values without accepting empty strings.
+ */
+function normalizeDraftOriginText(value: string | undefined) {
+  const normalized = value?.trim().replace(/\s+/g, " ");
+
+  return normalized || null;
+}
+
+/**
+ * Extracts assumptions like "동탄 출발" or "서울에서 출발" into an origin label.
+ */
+function extractDraftOriginAssumption(value: string) {
+  const normalized = value.trim().replace(/\s+/g, " ");
+  const match = /^(?:출발지[:：]\s*)?(.+?)(?:에서)?\s*출발(?:\s*기준)?$/.exec(normalized);
+
+  return normalizeDraftOriginText(match?.[1]);
+}
+
+/**
+ * Detects the legacy demo airport default that must not leak into domestic drafts.
+ */
+function isDefaultAirportOrigin(value: string) {
+  return DEFAULT_AIRPORT_ORIGIN_PATTERN.test(value.trim().replace(/\s+/g, " "));
+}
+
+/**
+ * Checks whether copy contains a default airport token.
+ */
+function containsDefaultAirportOrigin(value: string) {
+  return /ICN|인천\s*(국제)?공항/i.test(value);
+}
+
+/**
+ * Replaces default airport mentions while preserving the rest of the model-authored copy.
+ */
+function replaceDefaultAirportOrigin(value: string, explicitOrigin: string) {
+  return value.replace(/ICN|인천\s*(국제)?공항/gi, explicitOrigin);
 }
 
 /**
