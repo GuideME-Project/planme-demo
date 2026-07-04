@@ -269,6 +269,77 @@ async function main(): Promise<void> {
     assert.match(namhaeDraftWidgetMeta, /물건리 방조어부림/);
     assert.doesNotMatch(namhaeDraftWidgetMeta, /남해 아이 동반 가족여행 방문/);
 
+    const namhaeLongRouteTitle =
+      "남해 독일마을 · 원예예술촌 · 물건방조어부림 · 남해보물섬전망대 · 설리스카이워크 · 상주은모래비치 1박 2일";
+    const namhaeLongDraftRecommendation = await client.callTool({
+      name: "recommend_planme_itinerary",
+      arguments: {
+        destination: "남해",
+        durationDays: 2,
+        title: namhaeLongRouteTitle,
+        region: "남해",
+        duration: "1박 2일",
+        summary: "아이 동반 가족이 남해 대표 방문지를 무리 없이 보는 초안입니다.",
+        assumptions: ["동탄 출발", "아이 동반"],
+        savedMinutes: 70,
+        days: [
+          {
+            day: 1,
+            label: "Day 1",
+            stops: [
+              { name: "남해 독일마을", role: "origin", caption: "출발" },
+              { name: "원예예술촌", role: "visit", caption: "산책" },
+              { name: "물건방조어부림", role: "visit", caption: "해안 산책" },
+              { name: "남해보물섬전망대", role: "visit", caption: "전망" },
+              { name: "설리스카이워크", role: "visit", caption: "체험" },
+              { name: "상주은모래비치", role: "finalDestination", caption: "도착" },
+            ],
+            timeline: [
+              {
+                time: "09:30",
+                title: `${namhaeLongRouteTitle} 출발`,
+                description: "숙소 또는 출발지에서 출발합니다.",
+                category: "arrival",
+              },
+              {
+                time: "10:00",
+                title: "캐리미 짐 탁송 완료",
+                description: "짐은 CarryME가 이동합니다.",
+                category: "carryme",
+              },
+              {
+                time: "10:20",
+                title: `${namhaeLongRouteTitle} 이동 시작`,
+                description: "가벼운 일정 이동을 시작합니다.",
+                category: "transit",
+              },
+              {
+                time: "15:00",
+                title: `${namhaeLongRouteTitle} 방문`,
+                description: "주요 방문지를 둘러봅니다.",
+                category: "event",
+              },
+              {
+                time: "21:30",
+                title: `${namhaeLongRouteTitle} 수령 지점 짐 수령`,
+                description: "일정을 마치고 짐을 수령합니다.",
+                category: "hotel",
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const namhaeLongDraftContent =
+      namhaeLongDraftRecommendation.structuredContent as DraftPreviewContent | undefined;
+
+    assert.equal(namhaeLongDraftRecommendation.isError, undefined);
+    assert.equal(namhaeLongDraftContent?.title, "남해 1박 2일 일정 초안");
+    assert.doesNotMatch(namhaeLongDraftContent?.title ?? "", /·/);
+    assert.equal(namhaeLongDraftContent?.timeline?.[0]?.title, "남해 독일마을 출발");
+    assert.doesNotMatch(namhaeLongDraftContent?.timeline?.[2]?.title ?? "", /·/);
+    assert.doesNotMatch(namhaeLongDraftContent?.timeline?.[3]?.title ?? "", /·/);
+
     const yeosuFamilyPreview = await client.callTool({
       name: "preview_planme_itinerary",
       arguments: {
