@@ -59,12 +59,12 @@ if (existsSync(openApiFile)) {
 if (existsSync(routeMapFile)) {
   const routeMapSource = readFileSync(routeMapFile, "utf8");
 
-  if (!routeMapSource.includes("function hasRenderableNaverRouteData")) {
-    failures.push("RouteMap must explicitly detect whether Naver has route data to render");
+  if (!routeMapSource.includes("const canUseNaver = Boolean(naverMapsClientId && !naverFailed);")) {
+    failures.push("RouteMap must keep Naver Maps enabled whenever the Naver key is present");
   }
 
-  if (!routeMapSource.includes("hasRenderableNaverRouteData(standardRoute, carrymeRoute)")) {
-    failures.push("RouteMap must fall back to the SVG map when draft routes have no coordinates");
+  if (routeMapSource.includes("hasRenderableNaverRouteData(standardRoute, carrymeRoute)")) {
+    failures.push("RouteMap must not disable Naver Maps just because a draft has no coordinates");
   }
 }
 
