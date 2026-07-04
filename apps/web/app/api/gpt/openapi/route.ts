@@ -23,9 +23,9 @@ export function GET(request: Request) {
       "/api/gpt/itineraries/recommend": {
         post: {
           operationId: "recommendPlanmeItinerary",
-          summary: "Render a PlanME itinerary widget or fallback demo handoff URL",
+          summary: "Render an AI-authored PlanME itinerary widget or handoff URL",
           description:
-            "When ChatGPT has drafted concrete stops or timeline events in conversation, include days with real POI names so the PlanME widget matches the draft. If days is omitted, the endpoint falls back to a deterministic technical demo handoff.",
+            "When ChatGPT has drafted concrete stops or timeline events in conversation, include days with real POI names so the PlanME widget matches the draft. If days is omitted, PlanME asks OpenAI to draft the itinerary server-side.",
           requestBody: {
             required: true,
             content: {

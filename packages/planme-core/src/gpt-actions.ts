@@ -9,6 +9,10 @@ import {
   type PlanmeDraftPreviewResult,
 } from "./draft-itineraries.js";
 import type { PlanmeItinerary } from "./mock-data.js";
+import {
+  generatePlanmeDraftWithOpenAi,
+  type AiItineraryGenerator,
+} from "./openai-itinerary-generator.js";
 
 export type RecommendItineraryRequest = GeneratedItineraryRequest & {
   title?: string;
@@ -37,6 +41,10 @@ export type GptActionItineraryResponse = {
   status?: PlanmeDraftPreviewResult["status"];
   validationIssues?: PlanmeDraftPreviewResult["validationIssues"];
   version?: number;
+};
+
+export type AiRecommendedItineraryOptions = {
+  aiItineraryGenerator?: AiItineraryGenerator;
 };
 
 /**
@@ -182,6 +190,35 @@ export function createRecommendedItineraryResponse(
       theme: input.theme ?? "light",
     },
   };
+}
+
+/**
+ * Creates a PlanME response from an AI-authored draft instead of local POI templates.
+ */
+export async function createAiRecommendedItineraryResponse(
+  requestUrl: string,
+  input: RecommendItineraryRequest,
+  options: AiRecommendedItineraryOptions = {},
+) {
+  if (hasDraftDays(input)) {
+    return createRecommendedItineraryResponse(requestUrl, input);
+  }
+
+  const aiItineraryGenerator = options.aiItineraryGenerator ?? generatePlanmeDraftWithOpenAi;
+  const draft = await aiItineraryGenerator(input);
+
+  // OpenAI owns itinerary drafting; PlanME only validates and renders the returned draft.
+  return createRecommendedItineraryResponse(requestUrl, {
+    ...input,
+    title: draft.title,
+    region: draft.region,
+    duration: draft.duration,
+    summary: draft.summary,
+    origin: draft.origin ?? input.origin,
+    assumptions: draft.assumptions ?? input.assumptions,
+    savedMinutes: draft.savedMinutes ?? input.savedMinutes,
+    days: draft.days,
+  });
 }
 
 /**

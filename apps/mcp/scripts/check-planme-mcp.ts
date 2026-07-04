@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { generatePlanmeDraftWithOpenAi } from "@planme/core";
 import { createPlanmeHttpServer } from "../src/server.js";
 
 type RecommendationContent = {
@@ -52,6 +53,87 @@ type PlanmeWidgetResourceMeta = {
 };
 
 /**
+ * Verifies the OpenAI generator boundary without calling the real OpenAI API.
+ */
+async function assertOpenAiGeneratorContract(): Promise<void> {
+  let capturedBody = "";
+  const generatedDraft = await generatePlanmeDraftWithOpenAi(
+    {
+      destination: "남해 가족여행",
+      durationDays: 2,
+      origin: "동탄",
+      preferences: ["아이 동반"],
+      travelerCount: 4,
+      luggageCount: 2,
+    },
+    {
+      apiKey: "test-api-key",
+      model: "test-model",
+      fetchImpl: async (_url, init) => {
+        capturedBody = String(init?.body ?? "");
+
+        return new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              title: "남해 아이 동반 가족여행 1박 2일 초안",
+              region: "남해",
+              duration: "1박 2일",
+              summary: "아이 동반 가족이 남해를 무리 없이 보는 일정입니다.",
+              origin: "동탄",
+              assumptions: ["동탄 출발", "아이 동반"],
+              savedMinutes: 60,
+              days: [
+                {
+                  day: 1,
+                  label: "Day 1",
+                  standardDurationMinutes: 420,
+                  carrymeDurationMinutes: 360,
+                  standardRouteText: "동탄 → 남해 숙소 → 남해 독일마을",
+                  carrymeRouteText: "동탄 → 남해 독일마을 → 남해 숙소",
+                  stops: [
+                    { name: "동탄", role: "origin", caption: "출발" },
+                    { name: "남해 독일마을", role: "visit", caption: "관광" },
+                    { name: "남해 숙소", role: "luggageDestination", caption: "짐 도착" },
+                  ],
+                  timeline: [
+                    {
+                      time: "09:00",
+                      title: "동탄 출발",
+                      description: "가족 여행을 시작합니다.",
+                      category: "arrival",
+                      highlight: false,
+                      savingLabel: "",
+                    },
+                    {
+                      time: "14:00",
+                      title: "남해 독일마을 방문",
+                      description: "아이와 함께 가볍게 둘러봅니다.",
+                      category: "event",
+                      highlight: true,
+                      savingLabel: "약 60분 절약",
+                    },
+                  ],
+                },
+              ],
+            }),
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      },
+    },
+  );
+
+  assert.equal(generatedDraft.title, "남해 아이 동반 가족여행 1박 2일 초안");
+  assert.equal(generatedDraft.days[0]?.timeline[0]?.title, "동탄 출발");
+  assert.match(capturedBody, /json_schema/);
+  assert.match(capturedBody, /PLANME_OPENAI_MODEL|test-model/);
+  assert.doesNotMatch(capturedBody, /test-api-key/);
+}
+
+/**
  * Starts the PlanME MCP server on an ephemeral local port for contract checks.
  */
 async function startServer() {
@@ -75,6 +157,8 @@ async function startServer() {
  * Verifies that PlanME MCP tools and resources satisfy the first GPT App PoC contract.
  */
 async function main(): Promise<void> {
+  await assertOpenAiGeneratorContract();
+
   const { server, url } = await startServer();
   const transport = new StreamableHTTPClientTransport(url);
   const client = new Client({
@@ -128,61 +212,22 @@ async function main(): Promise<void> {
     assert.equal(readyPlanningContent?.nextAction, "draft_planme_itinerary");
     assert.deepEqual(readyPlanningContent?.missingSlots, []);
 
-    const recommendation = await client.callTool({
+    const missingAiGeneratorRecommendation = await client.callTool({
       name: "recommend_planme_itinerary",
       arguments: {
-        destination: "부산",
+        destination: "남해 아이 동반 가족여행",
         durationDays: 2,
-        travelerCount: 1,
-        luggageCount: 1,
+        travelerCount: 4,
+        luggageCount: 2,
       },
     });
+    const missingAiGeneratorPayload = JSON.stringify(missingAiGeneratorRecommendation);
 
-    assert.equal(recommendation.isError, undefined);
-    const structuredContent = recommendation.structuredContent as RecommendationContent | undefined;
-
-    assert.match(structuredContent?.itineraryId ?? "", /^generated-부산-/);
-    assert.equal(structuredContent?.savedMinutes, 70);
-
-    const yeosuRecommendation = await client.callTool({
-      name: "recommend_planme_itinerary",
-      arguments: {
-        destination: "여수",
-        durationDays: 2,
-        hotelName: "여수 베네치아 호텔",
-        preferences: ["낚시여행"],
-        travelerCount: 1,
-        luggageCount: 1,
-      },
-    });
-    const yeosuStructuredContent =
-      yeosuRecommendation.structuredContent as RecommendationContent | undefined;
-
-    assert.equal(yeosuRecommendation.isError, undefined);
-    assert.equal(yeosuStructuredContent?.title, "PlanME 여수 낚시여행 1박 2일 추천 일정");
-    assert.ok(yeosuStructuredContent?.pageUrl?.includes("/itinerary/generated-"));
-    assert.equal(yeosuStructuredContent?.timeline?.[0]?.title, "여수 베네치아 호텔 출발");
-
-    const seoulToYeosuRecommendation = await client.callTool({
-      name: "recommend_planme_itinerary",
-      arguments: {
-        destination: "여수",
-        durationDays: 2,
-        hotelName: "여수 베네치아 호텔",
-        preferences: ["서울 출발"],
-        travelerCount: 1,
-        luggageCount: 1,
-      },
-    });
-    const seoulToYeosuStructuredContent =
-      seoulToYeosuRecommendation.structuredContent as RecommendationContent | undefined;
-
-    assert.equal(seoulToYeosuRecommendation.isError, undefined);
-    assert.equal(
-      seoulToYeosuStructuredContent?.title,
-      "PlanME 서울 → 여수 밤바다 1박 2일 추천 일정",
-    );
-    assert.doesNotMatch(seoulToYeosuStructuredContent?.title ?? "", /여수 서울 출발/);
+    assert.equal(missingAiGeneratorRecommendation.isError, true);
+    assert.match(missingAiGeneratorPayload, /OPENAI_API_KEY/);
+    assert.doesNotMatch(missingAiGeneratorPayload, /인천공항/);
+    assert.doesNotMatch(missingAiGeneratorPayload, /여수 베네치아 호텔/);
+    assert.doesNotMatch(missingAiGeneratorPayload, /부산 공연장/);
 
     const namhaeFallback = await client.callTool({
       name: "get_planme_itinerary",
@@ -462,52 +507,6 @@ async function main(): Promise<void> {
     assert.equal(namhaeLongDraftContent?.timeline?.[0]?.title, "남해 독일마을 출발");
     assert.doesNotMatch(namhaeLongDraftContent?.timeline?.[2]?.title ?? "", /·/);
     assert.doesNotMatch(namhaeLongDraftContent?.timeline?.[3]?.title ?? "", /·/);
-
-    const namhaeArrowRouteRecommendation = await client.callTool({
-      name: "recommend_planme_itinerary",
-      arguments: {
-        destination:
-          "남해 독일마을 → 원예예술촌 → 물건리 방조어부림 → 남해보물섬전망대 → 설리스카이워크 → 상주은모래비치",
-        durationDays: 2,
-        preferences: ["아이와 좋은 가족여행"],
-        travelerCount: 4,
-        luggageCount: 2,
-      },
-    });
-    const namhaeArrowRouteContent =
-      namhaeArrowRouteRecommendation.structuredContent as RecommendationContent | undefined;
-
-    assert.equal(namhaeArrowRouteRecommendation.isError, undefined);
-    assert.equal(namhaeArrowRouteContent?.title, "PlanME 남해 독일마을 1박 2일 추천 일정");
-    assert.doesNotMatch(namhaeArrowRouteContent?.title ?? "", /→/);
-    assert.equal(namhaeArrowRouteContent?.timeline?.[2]?.title, "남해 독일마을 이동 시작");
-    assert.doesNotMatch(namhaeArrowRouteContent?.timeline?.[2]?.title ?? "", /→/);
-
-    const namhaeCommaRouteWithOrigin = await client.callTool({
-      name: "recommend_planme_itinerary",
-      arguments: {
-        destination: "남해 가족여행: 동탄, 남해 독일마을, 원예예술촌, 상주은모래비치 인근 숙소",
-        durationDays: 2,
-        preferences: ["아이 동반"],
-        travelerCount: 4,
-        luggageCount: 2,
-      },
-    });
-    const namhaeCommaRouteContent =
-      namhaeCommaRouteWithOrigin.structuredContent as RecommendationContent | undefined;
-    const namhaeCommaRouteMeta = JSON.stringify(namhaeCommaRouteWithOrigin._meta ?? {});
-
-    assert.equal(namhaeCommaRouteWithOrigin.isError, undefined);
-    assert.equal(
-      namhaeCommaRouteContent?.title,
-      "PlanME 동탄 → 남해 독일마을 1박 2일 추천 일정",
-    );
-    assert.equal(namhaeCommaRouteContent?.timeline?.[0]?.title, "동탄 출발");
-    assert.equal(namhaeCommaRouteContent?.timeline?.[2]?.title, "남해 독일마을 이동 시작");
-    assert.match(namhaeCommaRouteMeta, /동탄/);
-    assert.match(namhaeCommaRouteMeta, /남해 독일마을/);
-    assert.doesNotMatch(namhaeCommaRouteMeta, /인천공항/);
-    assert.doesNotMatch(namhaeCommaRouteMeta, /Namhae German Village/);
 
     const yeosuFamilyPreview = await client.callTool({
       name: "preview_planme_itinerary",
