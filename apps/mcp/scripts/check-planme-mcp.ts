@@ -269,6 +269,62 @@ async function main(): Promise<void> {
     assert.match(namhaeDraftWidgetMeta, /물건리 방조어부림/);
     assert.doesNotMatch(namhaeDraftWidgetMeta, /남해 아이 동반 가족여행 방문/);
 
+    const namhaeDraftWithWrongAirport = await client.callTool({
+      name: "recommend_planme_itinerary",
+      arguments: {
+        destination: "남해",
+        durationDays: 2,
+        origin: "동탄",
+        title: "남해 아이 동반 가족여행 1박 2일 초안",
+        region: "남해",
+        duration: "1박 2일",
+        summary: "아이 동반 가족이 남해 대표 방문지를 무리 없이 보는 초안입니다.",
+        assumptions: ["동탄 출발", "아이 동반"],
+        savedMinutes: 70,
+        days: [
+          {
+            day: 1,
+            label: "Day 1",
+            stops: [
+              { name: "인천공항", role: "origin", caption: "입국" },
+              { name: "남해 독일마을", role: "visit", caption: "관광" },
+              { name: "상주은모래비치 인근 가족 숙소", role: "luggageDestination", caption: "짐 도착" },
+            ],
+            timeline: [
+              {
+                time: "11:30",
+                title: "인천공항 도착",
+                description: "입국 후 여행 일정 시작",
+                category: "arrival",
+              },
+              {
+                time: "12:00",
+                title: "캐리미 짐 탁송 완료",
+                description: "인천공항에서 상주은모래비치 인근 가족 숙소 배송 접수 완료",
+                category: "carryme",
+              },
+              {
+                time: "12:20",
+                title: "남해 독일마을 이동 시작",
+                description: "짐 없이 바로 목적지로 이동",
+                category: "transit",
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const namhaeDraftWithWrongAirportContent =
+      namhaeDraftWithWrongAirport.structuredContent as DraftPreviewContent | undefined;
+    const namhaeDraftWithWrongAirportMeta = JSON.stringify(
+      namhaeDraftWithWrongAirport._meta ?? {},
+    );
+
+    assert.equal(namhaeDraftWithWrongAirport.isError, undefined);
+    assert.equal(namhaeDraftWithWrongAirportContent?.timeline?.[0]?.title, "동탄 출발");
+    assert.match(namhaeDraftWithWrongAirportMeta, /동탄/);
+    assert.doesNotMatch(namhaeDraftWithWrongAirportMeta, /인천공항/);
+
     const namhaeLongRouteTitle =
       "남해 독일마을 · 원예예술촌 · 물건방조어부림 · 남해보물섬전망대 · 설리스카이워크 · 상주은모래비치 1박 2일";
     const namhaeLongDraftRecommendation = await client.callTool({

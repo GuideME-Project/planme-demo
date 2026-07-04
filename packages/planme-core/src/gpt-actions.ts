@@ -204,6 +204,7 @@ function toDraftPreviewRequest(
     region: input.region?.trim() || input.destination?.trim(),
     duration: input.duration?.trim() || formatDurationDays(input.durationDays),
     summary: input.summary,
+    origin: input.origin,
     assumptions: input.assumptions ?? input.preferences,
     savedMinutes: input.savedMinutes,
     days: input.days,
