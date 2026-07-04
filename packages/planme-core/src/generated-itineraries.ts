@@ -28,10 +28,10 @@ type DestinationTemplate = {
   mainEventName: string;
   dayTwoAttractionName: string;
   stationName: string;
-  eventCoordinate: MapCoordinate;
-  hotelCoordinate: MapCoordinate;
-  stationCoordinate: MapCoordinate;
-  attractionCoordinate: MapCoordinate;
+  eventCoordinate?: MapCoordinate;
+  hotelCoordinate?: MapCoordinate;
+  stationCoordinate?: MapCoordinate;
+  attractionCoordinate?: MapCoordinate;
   travelMinutes: number;
 };
 
@@ -474,7 +474,7 @@ function createLocalGeneratedDayOne({
   hotelStop: RouteStop;
   savingMinutes: number;
   standardMinutes: number;
-  stationCoordinate: MapCoordinate;
+  stationCoordinate?: MapCoordinate;
   stationName: string;
 }): ItineraryDay {
   const stationStop = createRouteStop(stationName, "수하물 보관", stationCoordinate, "station");
@@ -782,7 +782,7 @@ function createOriginGeneratedDayOneTimeline({
 function createRouteStop(
   label: string,
   caption: string,
-  coordinate: MapCoordinate,
+  coordinate: MapCoordinate | undefined,
   icon: RouteStop["icon"],
 ): RouteStop {
   return {
@@ -815,11 +815,18 @@ function findDestinationTemplate(destination: string): DestinationTemplate {
 
   const fallbackTemplate = destinationTemplates[0];
 
+  // Unknown destinations must not inherit 부산역 or 부산 coordinates from the demo template.
   return {
     ...fallbackTemplate,
+    attractionCoordinate: undefined,
+    dayTwoAttractionName: `${destination} 둘째 날 일정`,
     defaultHotelName: `${destination} 호텔`,
     destinationLabel: destination,
+    eventCoordinate: undefined,
+    hotelCoordinate: undefined,
     mainEventName: `${destination} 대표 일정`,
+    stationCoordinate: undefined,
+    stationName: `${destination} 수령 지점`,
   };
 }
 
