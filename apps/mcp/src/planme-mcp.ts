@@ -9,6 +9,7 @@ import {
   createAiRecommendedItineraryResponse,
   commitPlanmeDraftPreview,
   createPlanmeDraftPreview,
+  formatPlanmeAiGenerationError,
   getGptActionItineraryResponse,
   PlanmeAiConfigurationError,
   toGptActionItineraryResponse,
@@ -569,12 +570,18 @@ export function createPlanmeMcpServer(): McpServer {
           };
         }
 
+        const safeMessage =
+          error instanceof Error ? formatPlanmeAiGenerationError(error) : "unknown error";
+
+        // The API key is never logged; this message is needed to debug provider/schema failures.
+        console.error("PlanME AI itinerary generation failed", safeMessage);
+
         return {
           isError: true,
           content: [
             {
               type: "text" as const,
-              text: "PlanME AI 일정 생성에 실패했습니다. 잠시 후 다시 시도하세요.",
+              text: `PlanME AI 일정 생성에 실패했습니다: ${safeMessage}`,
             },
           ],
         };

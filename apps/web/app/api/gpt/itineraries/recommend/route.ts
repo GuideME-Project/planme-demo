@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   createAiRecommendedItineraryResponse,
+  formatPlanmeAiGenerationError,
   PlanmeAiConfigurationError,
   type RecommendItineraryRequest,
 } from "@planme/core";
@@ -23,6 +24,15 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({ error: "PlanME AI 일정 생성에 실패했습니다." }, { status: 502 });
+    const safeMessage =
+      error instanceof Error ? formatPlanmeAiGenerationError(error) : "unknown error";
+
+    // The API key is never logged; this message is needed to debug provider/schema failures.
+    console.error("PlanME AI itinerary generation failed", safeMessage);
+
+    return NextResponse.json(
+      { error: `PlanME AI 일정 생성에 실패했습니다: ${safeMessage}` },
+      { status: 502 },
+    );
   }
 }
