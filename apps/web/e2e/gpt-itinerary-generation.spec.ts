@@ -50,7 +50,7 @@ test("keeps a local Yeosu fishing itinerary out of the Busan airport fallback", 
 
   const pageUrl = new URL(data.pageUrl);
 
-  await page.goto(pageUrl.pathname);
+  await page.goto(`${pageUrl.pathname}${pageUrl.search}`);
 
   await expect(page.getByRole("heading", { name: data.title })).toBeVisible();
   await expect(page.getByText("인천공항").first()).not.toBeVisible();
@@ -93,7 +93,7 @@ test("keeps a Seoul departure hint out of the Yeosu attraction name", async ({
 
   const pageUrl = new URL(data.pageUrl);
 
-  await page.goto(pageUrl.pathname);
+  await page.goto(`${pageUrl.pathname}${pageUrl.search}`);
 
   await expect(page.getByRole("heading", { name: data.title })).toBeVisible();
   await expect(page.getByText("여수 서울 출발")).toHaveCount(0);
@@ -131,7 +131,7 @@ test("creates a destination-specific itinerary from GPT Action input and opens t
 
   const pageUrl = new URL(data.pageUrl);
 
-  await page.goto(pageUrl.pathname);
+  await page.goto(`${pageUrl.pathname}${pageUrl.search}`);
 
   await expect(page.getByRole("heading", { name: data.title })).toBeVisible();
   await expect(page.getByText("여수 베네치아 호텔").first()).toBeVisible();

@@ -13,6 +13,10 @@ import {
   generatePlanmeDraftWithOpenAi,
   type AiItineraryGenerator,
 } from "./openai-itinerary-generator.js";
+import {
+  encodePlanmePreviewPayload,
+  PLANME_PREVIEW_DATA_PARAM,
+} from "./preview-payload.js";
 
 export type RecommendItineraryRequest = GeneratedItineraryRequest & {
   title?: string;
@@ -58,13 +62,19 @@ export function buildItineraryPageUrl(requestUrl: string, itineraryId: string): 
 }
 
 /**
- * Builds the stable PlanME draft preview URL used when itinerary data lives in the widget payload.
+ * Builds the stable PlanME draft preview URL used for stateless ChatGPT link handoff.
  */
-export function buildPlanmePreviewPageUrl(requestUrl: string): string {
+export function buildPlanmePreviewPageUrl(
+  requestUrl: string,
+  itinerary: PlanmeItinerary,
+): string {
   const url = new URL(requestUrl);
 
-  // Draft previews are passed through widget metadata, so the page route must not depend on an in-memory id.
-  return new URL("/#planme-preview", url.origin).toString();
+  // Draft previews are not persisted yet, so the web page receives the itinerary through the URL.
+  const previewUrl = new URL("/itinerary/preview", url.origin);
+  previewUrl.searchParams.set(PLANME_PREVIEW_DATA_PARAM, encodePlanmePreviewPayload(itinerary));
+
+  return previewUrl.toString();
 }
 
 /**
@@ -123,9 +133,9 @@ export function toDraftGptActionItineraryResponse(
   requestUrl: string,
 ): GptActionItineraryResponse {
   const response = toGptActionItineraryResponse(result.itinerary, requestUrl);
-  const pageUrl = buildPlanmePreviewPageUrl(requestUrl);
+  const pageUrl = buildPlanmePreviewPageUrl(requestUrl, result.itinerary);
 
-  // Draft preview pages use the embedded widget payload rather than a generated detail route.
+  // Draft preview pages use an encoded payload rather than a generated detail route.
   return {
     ...response,
     pageUrl,
