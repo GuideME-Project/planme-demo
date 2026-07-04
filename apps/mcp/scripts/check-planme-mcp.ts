@@ -15,6 +15,16 @@ type RecommendationContent = {
   }>;
 };
 
+type PlanningContent = {
+  status?: "needs_input" | "ready";
+  missingSlots?: string[];
+  nextAction?: "ask_user" | "call_recommend_planme_itinerary";
+  questions?: Array<{
+    slot?: string;
+    text?: string;
+  }>;
+};
+
 type PlanmeWidgetResourceMeta = {
   ui?: {
     csp?: {
@@ -69,6 +79,40 @@ async function main(): Promise<void> {
 
     assert.ok(toolNames.includes("recommend_planme_itinerary"));
     assert.ok(toolNames.includes("get_planme_itinerary"));
+    assert.ok(toolNames.includes("start_planme_planning"));
+
+    const planningDraft = await client.callTool({
+      name: "start_planme_planning",
+      arguments: {
+        destination: "여수",
+      },
+    });
+    const planningDraftContent = planningDraft.structuredContent as PlanningContent | undefined;
+
+    assert.equal(planningDraft.isError, undefined);
+    assert.equal(planningDraftContent?.status, "needs_input");
+    assert.equal(planningDraftContent?.nextAction, "ask_user");
+    assert.ok(planningDraftContent?.missingSlots?.includes("origin"));
+    assert.ok(planningDraftContent?.missingSlots?.includes("durationDays"));
+    assert.ok(planningDraftContent?.questions?.some((question) => question.slot === "origin"));
+    assert.ok(
+      planningDraftContent?.questions?.some((question) => question.slot === "durationDays"),
+    );
+
+    const readyPlanning = await client.callTool({
+      name: "start_planme_planning",
+      arguments: {
+        destination: "여수",
+        durationDays: 2,
+        origin: "서울",
+      },
+    });
+    const readyPlanningContent = readyPlanning.structuredContent as PlanningContent | undefined;
+
+    assert.equal(readyPlanning.isError, undefined);
+    assert.equal(readyPlanningContent?.status, "ready");
+    assert.equal(readyPlanningContent?.nextAction, "call_recommend_planme_itinerary");
+    assert.deepEqual(readyPlanningContent?.missingSlots, []);
 
     const recommendation = await client.callTool({
       name: "recommend_planme_itinerary",
