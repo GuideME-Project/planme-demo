@@ -12,5 +12,8 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     }
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.4"
   }
 }
