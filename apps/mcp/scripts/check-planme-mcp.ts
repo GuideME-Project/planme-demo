@@ -234,6 +234,7 @@ async function main(): Promise<void> {
     assert.equal(yeosuFamilyPreview.isError, undefined);
     assert.equal(yeosuFamilyPreviewContent?.status, "preview_ready");
     assert.match(yeosuFamilyPreviewContent?.previewId ?? "", /^preview-/);
+    assert.doesNotMatch(yeosuFamilyPreviewContent?.pageUrl ?? "", /\/itinerary\/preview-/);
     assert.equal(yeosuFamilyPreviewContent?.title, "여수 가족 여행 1박 2일 초안");
     assert.equal(yeosuFamilyPreviewContent?.timeline?.[1]?.title, "아쿠아플라넷 여수 방문");
     assert.equal(yeosuFamilyPreviewContent?.validationIssues?.length, 0);
