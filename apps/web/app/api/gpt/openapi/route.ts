@@ -66,7 +66,11 @@ export function GET(request: Request) {
                       description:
                         "Concrete ChatGPT-authored itinerary days. Include this whenever the conversation contains real stops or POIs.",
                     },
-                    destination: { type: "string", description: "Travel destination" },
+                    destination: {
+                      type: "string",
+                      description:
+                        "Travel region or city only, such as Namhae or Yeosu. Put concrete POI routes in days.stops instead.",
+                    },
                     durationDays: { type: "integer", minimum: 1, maximum: 14 },
                     arrivalAirport: { type: "string", description: "Arrival airport code" },
                     arrivalTime: { type: "string", description: "Arrival time in HH:mm format" },
@@ -81,7 +85,8 @@ export function GET(request: Request) {
                     preferences: {
                       type: "array",
                       items: { type: "string" },
-                      description: "User travel preferences",
+                      description:
+                        "User travel preferences such as family trip or sea view. Do not put a full POI route here.",
                     },
                     theme: { type: "string", enum: ["light", "dark"] },
                   },

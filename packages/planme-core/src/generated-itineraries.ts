@@ -54,12 +54,16 @@ type NormalizedGeneratedItineraryRequest = {
   arrivalTime: string;
   hotelName: string;
   origin: string | null;
+  mainEventNameOverride?: string;
   travelerCount: number;
   luggageCount: number;
   preferences: string[];
 };
 
 const generatedItineraryStore = new Map<string, PlanmeItinerary>();
+
+// Route-like destination detection catches ChatGPT tool calls that omit concrete days but put POI lists in destination.
+const ROUTE_DESTINATION_SEPARATOR_THRESHOLD = 2;
 
 const airportTemplates: Record<string, AirportTemplate> = {
   CJU: { label: "제주공항", coordinate: { lat: 33.5071, lng: 126.4928 } },
@@ -151,7 +155,9 @@ export function createGeneratedItinerary(input: GeneratedItineraryRequest): Plan
     !airportTemplate && normalizedInput.origin
       ? findOriginTemplate(normalizedInput.origin)
       : null;
-  const primaryPreference = getPrimaryPreference(normalizedInput.preferences, destinationTemplate);
+  const primaryPreference = normalizedInput.mainEventNameOverride
+    ? toDestinationPreference(normalizedInput.mainEventNameOverride, destinationTemplate)
+    : getPrimaryPreference(normalizedInput.preferences, destinationTemplate);
   const itineraryId = createGeneratedItineraryId(normalizedInput, primaryPreference);
   const durationLabel = formatDurationLabel(normalizedInput.durationDays);
   const mainEventName = createMainEventName(primaryPreference, destinationTemplate);
@@ -270,7 +276,9 @@ export function getPlanmeItineraryById(id: string): PlanmeItinerary | null {
 function normalizeGeneratedItineraryRequest(
   input: GeneratedItineraryRequest,
 ): NormalizedGeneratedItineraryRequest {
-  const destination = normalizeText(input.destination, "부산");
+  const rawDestination = normalizeText(input.destination, "부산");
+  const routeDestination = normalizeRouteLikeDestination(rawDestination);
+  const destination = routeDestination?.destination ?? rawDestination;
   const destinationTemplate = findDestinationTemplate(destination);
   const durationDays = clampInteger(input.durationDays ?? 2, 1, 14);
   const preferenceHints = normalizePreferences(input.preferences, destinationTemplate);
@@ -283,6 +291,7 @@ function normalizeGeneratedItineraryRequest(
     durationDays,
     hotelName: normalizeText(input.hotelName, destinationTemplate.defaultHotelName),
     luggageCount: clampInteger(input.luggageCount ?? 1, 0, 20),
+    mainEventNameOverride: routeDestination?.mainEventName,
     origin,
     preferences: preferenceHints.preferences,
     travelerCount: clampInteger(input.travelerCount ?? 1, 1, 20),
@@ -884,7 +893,58 @@ function createMainEventName(primaryPreference: string, destinationTemplate: Des
  * Selects the strongest preference to use in the generated title.
  */
 function getPrimaryPreference(preferences: string[], destinationTemplate: DestinationTemplate) {
-  return preferences[0] ?? destinationTemplate.mainEventName.replace(destinationTemplate.destinationLabel, "").trim();
+  return preferences[0] ?? toDestinationPreference(destinationTemplate.mainEventName, destinationTemplate);
+}
+
+/**
+ * Extracts a stable destination and main POI when ChatGPT sends a full POI route as destination.
+ */
+function normalizeRouteLikeDestination(destination: string) {
+  const segments = destination
+    .split(/\s*(?:→|->|·)\s*/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  if (segments.length < ROUTE_DESTINATION_SEPARATOR_THRESHOLD + 1) {
+    return null;
+  }
+
+  const mainEventName = segments[0] ?? destination;
+
+  // Unknown-region generated pages should stay regional instead of turning the whole POI chain into the region.
+  return {
+    destination: inferDestinationLabelFromRouteSegments(segments),
+    mainEventName,
+  };
+}
+
+/**
+ * Infers a destination label from route segments without relying on a hard-coded POI catalog.
+ */
+function inferDestinationLabelFromRouteSegments(segments: string[]) {
+  const matchedTemplate = destinationTemplates.find((template) =>
+    segments.some(
+      (segment) =>
+        segment.includes(template.key) || segment.includes(template.destinationLabel),
+    ),
+  );
+
+  if (matchedTemplate) {
+    return matchedTemplate.destinationLabel;
+  }
+
+  return segments[0]?.split(/\s+/)[0] ?? "PlanME";
+}
+
+/**
+ * Converts a full POI label into the preference part used by generated titles.
+ */
+function toDestinationPreference(value: string, destinationTemplate: DestinationTemplate) {
+  return (
+    value
+      .replace(new RegExp(`^${destinationTemplate.destinationLabel}\\s*`), "")
+      .trim() || value
+  );
 }
 
 /**

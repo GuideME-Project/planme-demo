@@ -518,7 +518,10 @@ export function createPlanmeMcpServer(): McpServer {
         assumptions: z.array(z.string()).optional(),
         savedMinutes: z.number().int().min(0).optional(),
         days: z.array(draftDaySchema).optional(),
-        destination: z.string().optional(),
+        destination: z
+          .string()
+          .optional()
+          .describe("Region or city only, such as 남해 or 여수. Put concrete POI routes in days.stops instead."),
         durationDays: z.number().int().min(1).max(14).optional(),
         arrivalAirport: z.string().optional(),
         arrivalTime: z.string().optional(),
@@ -526,7 +529,10 @@ export function createPlanmeMcpServer(): McpServer {
         origin: z.string().optional(),
         travelerCount: z.number().int().min(1).max(20).optional(),
         luggageCount: z.number().int().min(0).max(20).optional(),
-        preferences: z.array(z.string()).optional(),
+        preferences: z
+          .array(z.string())
+          .optional()
+          .describe("User preferences like 아이 동반 or 바다 전망. Do not put a full POI route here."),
         theme: z.enum(["light", "dark"]).optional(),
       },
       outputSchema: recommendationSummarySchema,

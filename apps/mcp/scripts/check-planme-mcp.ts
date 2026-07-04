@@ -340,6 +340,26 @@ async function main(): Promise<void> {
     assert.doesNotMatch(namhaeLongDraftContent?.timeline?.[2]?.title ?? "", /·/);
     assert.doesNotMatch(namhaeLongDraftContent?.timeline?.[3]?.title ?? "", /·/);
 
+    const namhaeArrowRouteRecommendation = await client.callTool({
+      name: "recommend_planme_itinerary",
+      arguments: {
+        destination:
+          "남해 독일마을 → 원예예술촌 → 물건리 방조어부림 → 남해보물섬전망대 → 설리스카이워크 → 상주은모래비치",
+        durationDays: 2,
+        preferences: ["아이와 좋은 가족여행"],
+        travelerCount: 4,
+        luggageCount: 2,
+      },
+    });
+    const namhaeArrowRouteContent =
+      namhaeArrowRouteRecommendation.structuredContent as RecommendationContent | undefined;
+
+    assert.equal(namhaeArrowRouteRecommendation.isError, undefined);
+    assert.equal(namhaeArrowRouteContent?.title, "PlanME 남해 독일마을 1박 2일 추천 일정");
+    assert.doesNotMatch(namhaeArrowRouteContent?.title ?? "", /→/);
+    assert.equal(namhaeArrowRouteContent?.timeline?.[2]?.title, "남해 독일마을 이동 시작");
+    assert.doesNotMatch(namhaeArrowRouteContent?.timeline?.[2]?.title ?? "", /→/);
+
     const yeosuFamilyPreview = await client.callTool({
       name: "preview_planme_itinerary",
       arguments: {
