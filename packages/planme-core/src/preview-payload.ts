@@ -1,21 +1,18 @@
+import { Buffer } from "node:buffer";
+import { deflateRawSync, inflateRawSync } from "node:zlib";
 import type { PlanmeItinerary } from "./mock-data.js";
 
 export const PLANME_PREVIEW_DATA_PARAM = "data";
+const compressedPayloadPrefix = "z.";
 
 /**
  * Encodes a draft PlanME itinerary into a URL-safe payload for stateless web handoff.
  */
 export function encodePlanmePreviewPayload(itinerary: PlanmeItinerary): string {
   const json = JSON.stringify(itinerary);
-  const bytes = new TextEncoder().encode(json);
-  let binary = "";
 
-  // URL payloads are visible to users, so this is transport encoding, not secret storage.
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/u, "");
+  // The payload is still visible in the URL; compression only keeps ChatGPT links manageable.
+  return `${compressedPayloadPrefix}${deflateRawSync(Buffer.from(json, "utf8")).toString("base64url")}`;
 }
 
 /**
@@ -23,26 +20,38 @@ export function encodePlanmePreviewPayload(itinerary: PlanmeItinerary): string {
  */
 export function decodePlanmePreviewPayload(payload: string): PlanmeItinerary | null {
   try {
-    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
-    const paddedBase64 = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
-    const binary = atob(paddedBase64);
-    const bytes = new Uint8Array(binary.length);
-
-    // Decode as UTF-8 so Korean itinerary names survive round-tripping through the URL.
-    for (let index = 0; index < binary.length; index += 1) {
-      bytes[index] = binary.charCodeAt(index);
-    }
-
-    const parsed = JSON.parse(new TextDecoder().decode(bytes)) as Partial<PlanmeItinerary> | null;
-
-    if (!isPlanmeItineraryLike(parsed)) {
-      return null;
-    }
-
-    return parsed;
+    return parsePlanmePreviewJson(decodePayloadToJson(payload));
   } catch {
     return null;
   }
+}
+
+/**
+ * Decodes either the compact compressed payload or the legacy raw base64url payload.
+ */
+function decodePayloadToJson(payload: string): string {
+  if (payload.startsWith(compressedPayloadPrefix)) {
+    const compressedPayload = payload.slice(compressedPayloadPrefix.length);
+
+    // New preview links use raw deflate to avoid long URL failures in chat clients.
+    return inflateRawSync(Buffer.from(compressedPayload, "base64url")).toString("utf8");
+  }
+
+  // Keep previously generated long links working while new links use the compressed format.
+  return Buffer.from(payload, "base64url").toString("utf8");
+}
+
+/**
+ * Parses preview JSON only when the minimum render shape is present.
+ */
+function parsePlanmePreviewJson(json: string): PlanmeItinerary | null {
+  const parsed = JSON.parse(json) as Partial<PlanmeItinerary> | null;
+
+  if (!isPlanmeItineraryLike(parsed)) {
+    return null;
+  }
+
+  return parsed;
 }
 
 /**

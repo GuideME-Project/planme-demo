@@ -601,6 +601,111 @@ async function main(): Promise<void> {
     assert.match(yeosuFamilyPreviewWidgetMeta, /\/itinerary\/preview\?data=/);
     assert.doesNotMatch(yeosuFamilyPreviewWidgetMeta, /#planme-preview/);
 
+    const longNoCoordinatePreview = await client.callTool({
+      name: "preview_planme_itinerary",
+      arguments: {
+        title: "서울 출발 양양, 부산 가족 여행 3일",
+        region: "서울, 양양, 부산, 동탄",
+        duration: "3일",
+        summary:
+          "서울에서 출발하여 양양에서 해변과 휴식을 즐기고, 부산으로 이동해 가족이 함께할 수 있는 장소를 방문한 뒤 동탄 집으로 돌아가는 3일 여행 일정입니다.",
+        assumptions: ["아이 동반", "가족 여행", "짐 이동 최소화"],
+        savedMinutes: 0,
+        days: [
+          {
+            day: 1,
+            label: "서울 → 양양",
+            stops: [
+              { name: "서울", role: "origin", caption: "서울 출발" },
+              { name: "하조대 해수욕장", role: "visit", caption: "양양 대표 해변" },
+              { name: "양양 숙소", role: "finalDestination", caption: "양양 지역 숙소" },
+            ],
+            timeline: [
+              {
+                time: "09:00",
+                title: "서울 출발",
+                description: "서울에서 양양으로 출발합니다.",
+                category: "transit",
+                highlight: true,
+              },
+              {
+                time: "11:30",
+                title: "하조대 해수욕장 도착",
+                description: "양양의 대표 해변에서 가족과 휴식 및 산책을 즐깁니다.",
+                category: "event",
+                highlight: true,
+              },
+              {
+                time: "17:00",
+                title: "양양 숙소 체크인",
+                description: "양양 숙소에 체크인 후 휴식합니다.",
+                category: "hotel",
+              },
+            ],
+          },
+          {
+            day: 2,
+            label: "양양 → 부산",
+            stops: [
+              { name: "양양 숙소", role: "origin", caption: "숙소 출발" },
+              {
+                name: "부산 해운대 해수욕장",
+                role: "visit",
+                caption: "가족과 함께 부산의 대표 해변 방문",
+              },
+              {
+                name: "부산 영화의 전당",
+                role: "visit",
+                caption: "가족과 문화 체험 가능 장소 방문",
+              },
+              { name: "부산 숙소", role: "finalDestination", caption: "부산 지역 숙소" },
+            ],
+            timeline: [
+              {
+                time: "08:30",
+                title: "양양 숙소 출발",
+                description: "양양 숙소에서 부산으로 출발합니다.",
+                category: "transit",
+                highlight: true,
+              },
+              {
+                time: "13:30",
+                title: "해운대 해수욕장 도착",
+                description: "부산의 대표 해변에서 가족과 산책 및 휴식합니다.",
+                category: "event",
+                highlight: true,
+              },
+              {
+                time: "15:30",
+                title: "영화의 전당 방문",
+                description: "부산 영화의 전당에서 가족과 문화 체험을 합니다.",
+                category: "event",
+              },
+              {
+                time: "18:00",
+                title: "부산 숙소 체크인",
+                description: "부산 숙소에 체크인 후 휴식합니다.",
+                category: "hotel",
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const longNoCoordinatePreviewContent =
+      longNoCoordinatePreview.structuredContent as DraftPreviewContent | undefined;
+    const decodedLongPreviewItinerary = decodePreviewUrlItinerary(
+      longNoCoordinatePreviewContent?.pageUrl ?? "",
+    );
+
+    assert.equal(longNoCoordinatePreview.isError, undefined);
+    assert.equal(longNoCoordinatePreviewContent?.status, "preview_ready");
+    assert.ok(
+      (longNoCoordinatePreviewContent?.pageUrl.length ?? Number.POSITIVE_INFINITY) < 2500,
+      "Expected preview page URL to stay short enough for ChatGPT link handoff",
+    );
+    assert.equal(decodedLongPreviewItinerary?.title, "서울 출발 양양, 부산 가족 여행 3일");
+
     const committedPreview = await client.callTool({
       name: "commit_planme_itinerary",
       arguments: {

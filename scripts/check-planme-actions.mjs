@@ -28,6 +28,7 @@ for (const file of requiredFiles) {
 }
 
 const openApiFile = join(webRoot, "app/api/gpt/openapi/route.ts");
+const routeMapFile = join(webRoot, "components/itinerary/RouteMap.tsx");
 
 if (existsSync(openApiFile)) {
   const openApiSource = readFileSync(openApiFile, "utf8");
@@ -52,6 +53,18 @@ if (existsSync(openApiFile)) {
 
   if (!openApiSource.includes(".png")) {
     failures.push("OpenAPI schema must document .png preview image URLs for optional preview metadata");
+  }
+}
+
+if (existsSync(routeMapFile)) {
+  const routeMapSource = readFileSync(routeMapFile, "utf8");
+
+  if (!routeMapSource.includes("function hasRenderableNaverRouteData")) {
+    failures.push("RouteMap must explicitly detect whether Naver has route data to render");
+  }
+
+  if (!routeMapSource.includes("hasRenderableNaverRouteData(standardRoute, carrymeRoute)")) {
+    failures.push("RouteMap must fall back to the SVG map when draft routes have no coordinates");
   }
 }
 

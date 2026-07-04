@@ -188,6 +188,20 @@ function getFirstRouteCoordinate(route: RoutePlan) {
 }
 
 /**
+ * Checks whether Naver has real coordinate data to render instead of the SVG fallback.
+ */
+function hasRenderableNaverRouteData(...routes: RoutePlan[]) {
+  return routes.some((route) => {
+    const hasSegmentPath = route.geoSegments?.some((segment) => segment.length > 2) ?? false;
+    const hasRoutePath = (route.geoPath?.length ?? 0) > 2;
+    const hasStopMarker = route.stops.some((stop) => Boolean(stop.coordinate));
+
+    // ChatGPT-authored drafts can have only logical stops; those should use the SVG route map.
+    return hasSegmentPath || hasRoutePath || hasStopMarker;
+  });
+}
+
+/**
  * Loads the Naver Maps JavaScript SDK once for the PlanME route map.
  */
 function loadNaverMaps(clientId: string): Promise<NaverMapsNamespace> {
@@ -333,6 +347,9 @@ function NaverRouteMap({
             return;
           }
 
+          if (route.geoPath?.length) {
+            addRouteSegment(route.geoPath, color, routeStyle);
+          }
         };
 
         if (showStandard) {
@@ -620,7 +637,11 @@ export function RouteMap({
   const standardColor = theme.palette.primary.main;
   const carrymeColor = theme.palette.secondary.main;
   const rollerGuidance = createRollerGuidanceContent(savingLabel);
-  const canUseNaver = Boolean(naverMapsClientId && !naverFailed);
+  const canUseNaver = Boolean(
+    naverMapsClientId &&
+      !naverFailed &&
+      hasRenderableNaverRouteData(standardRoute, carrymeRoute),
+  );
   const mapBackground = isDark
     ? "linear-gradient(135deg, #111827 0%, #17212d 48%, #0e2530 100%)"
     : "linear-gradient(135deg, #dceeff 0%, #f6fbff 48%, #e9f8ec 100%)";
