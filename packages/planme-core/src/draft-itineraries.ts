@@ -89,6 +89,12 @@ const committedDraftKeys = new Map<string, string>();
 const ROUTE_TITLE_SEPARATOR_THRESHOLD = 2;
 const DRAFT_TITLE_MAX_LENGTH = 44;
 const DEFAULT_AIRPORT_ORIGIN_PATTERN = /^(ICN|인천\s*(국제)?공항)$/i;
+const UNKNOWN_ORIGIN_LABEL = "출발지 확인 필요";
+const DRAFT_PLACE_ALIAS_REPLACEMENTS: Array<{ pattern: RegExp; replacement: string }> = [
+  { pattern: /Namhae\s+German\s+Village/gi, replacement: "남해 독일마을" },
+  { pattern: /House\s+N\s+Garden/gi, replacement: "원예예술촌" },
+  { pattern: /Sangju\s+Silver\s+Sand\s+Beach/gi, replacement: "상주은모래비치" },
+];
 
 /**
  * Converts a ChatGPT-authored PlanME draft into a widget-ready itinerary preview.
@@ -166,6 +172,7 @@ export function getPlanmeDraftPreviewItineraryById(id: string): PlanmeItinerary 
  */
 function validateDraftPreviewInput(input: PlanmeDraftPreviewRequest) {
   const validationIssues: PlanmeDraftValidationIssue[] = [];
+  const explicitOrigin = inferExplicitDraftOrigin(input.origin, input.assumptions ?? []);
 
   if (!input.title.trim()) {
     validationIssues.push({
@@ -201,6 +208,14 @@ function validateDraftPreviewInput(input: PlanmeDraftPreviewRequest) {
     }
   });
 
+  if (!explicitOrigin && draftContainsDefaultAirportOrigin(input)) {
+    validationIssues.push({
+      code: "missing_explicit_origin",
+      message: "출발지가 누락된 상태에서 기본 공항값이 감지됐습니다. 실제 출발지를 다시 확인해야 합니다.",
+      severity: "error",
+    });
+  }
+
   return validationIssues;
 }
 
@@ -216,11 +231,18 @@ function buildDraftItinerary(
   const duration = input.duration?.trim() || "초안";
   const title = normalizeDraftDisplayTitle(input.title, region, duration);
   const explicitOrigin = inferExplicitDraftOrigin(input.origin, input.assumptions ?? []);
+  const originReplacement =
+    explicitOrigin ?? (draftContainsDefaultAirportOrigin(input) ? UNKNOWN_ORIGIN_LABEL : null);
   const days = input.days.length > 0
     ? input.days
         .slice(0, 2)
         .map((day, index) =>
-          buildDraftDay(day, index, input.savedMinutes ?? 0, index === 0 ? explicitOrigin : null),
+          buildDraftDay(
+            day,
+            index,
+            input.savedMinutes ?? 0,
+            index === 0 ? originReplacement : null,
+          ),
         )
     : [buildEmptyDraftDay(input.savedMinutes ?? 0)];
   const firstDay = days[0];
@@ -377,7 +399,7 @@ function toRouteStop(stop: PlanmeDraftStop): RouteStop {
   const role = stop.role ?? "visit";
 
   return {
-    label: stop.name.trim(),
+    label: normalizeDraftPlaceAliases(stop.name.trim()),
     caption: stop.caption?.trim() || getCaptionForRole(role),
     coordinate: stop.coordinate,
     icon: getIconForRole(role),
@@ -423,6 +445,20 @@ function inferExplicitDraftOrigin(origin: string | undefined, assumptions: strin
 }
 
 /**
+ * Detects model-authored drafts that leaked the legacy demo airport without a real origin.
+ */
+function draftContainsDefaultAirportOrigin(input: PlanmeDraftPreviewRequest) {
+  return input.days.some((day) =>
+    day.stops.some((stop) => containsDefaultAirportOrigin(stop.name)) ||
+    day.timeline.some(
+      (event) =>
+        containsDefaultAirportOrigin(event.title) ||
+        containsDefaultAirportOrigin(event.description),
+    ),
+  );
+}
+
+/**
  * Keeps a default airport hallucination from overriding a stated domestic origin.
  */
 function sanitizeDraftOriginStops(stops: RouteStop[], explicitOrigin: string | null) {
@@ -465,11 +501,16 @@ function sanitizeDraftOriginTimelineEvent(
   return {
     ...event,
     title: isAirportArrivalEvent
-      ? `${explicitOrigin} 출발`
+      ? explicitOrigin === UNKNOWN_ORIGIN_LABEL
+        ? UNKNOWN_ORIGIN_LABEL
+        : `${explicitOrigin} 출발`
       : replaceDefaultAirportOrigin(event.title, explicitOrigin),
-    description: isAirportArrivalEvent && event.description.includes("입국")
-      ? "출발지에서 여행 일정 시작"
-      : replaceDefaultAirportOrigin(event.description, explicitOrigin),
+    description:
+      explicitOrigin === UNKNOWN_ORIGIN_LABEL
+        ? "실제 출발지를 다시 확인해야 합니다."
+        : isAirportArrivalEvent && event.description.includes("입국")
+          ? "출발지에서 여행 일정 시작"
+          : replaceDefaultAirportOrigin(event.description, explicitOrigin),
   };
 }
 
@@ -514,10 +555,26 @@ function replaceDefaultAirportOrigin(value: string, explicitOrigin: string) {
 }
 
 /**
+ * Normalizes common English POI aliases that ChatGPT may send despite Korean itinerary copy.
+ */
+function normalizeDraftPlaceAliases(value: string) {
+  let normalized = value;
+
+  for (const replacement of DRAFT_PLACE_ALIAS_REPLACEMENTS) {
+    normalized = normalized.replace(replacement.pattern, replacement.replacement);
+  }
+
+  // ChatGPT often describes a lodging stop in English even when the target POI is Korean.
+  normalized = normalized.replace(/Lodging\s+near\s+(.+)/gi, "$1 인근 숙소");
+
+  return normalized.replace(/\s*,\s*/g, ", ").trim();
+}
+
+/**
  * Keeps the widget title compact when a model sends a whole route as the title.
  */
 function normalizeDraftDisplayTitle(title: string, region: string, duration: string) {
-  const normalizedTitle = title.trim();
+  const normalizedTitle = normalizeDraftPlaceAliases(title.trim());
 
   if (!isRouteLikeText(normalizedTitle)) {
     return normalizedTitle;
@@ -539,9 +596,12 @@ function buildCompactDraftTitle(region: string, duration: string) {
  * Detects model-generated route strings that are too dense for title-sized UI.
  */
 function isRouteLikeText(value: string) {
-  const separatorCount = (value.match(/[·→]/g) ?? []).length;
+  const separatorCount = (value.match(/[·→,]/g) ?? []).length;
 
-  return value.trim().length > DRAFT_TITLE_MAX_LENGTH && separatorCount >= ROUTE_TITLE_SEPARATOR_THRESHOLD;
+  return (
+    separatorCount >= ROUTE_TITLE_SEPARATOR_THRESHOLD &&
+    value.trim().length > Math.min(DRAFT_TITLE_MAX_LENGTH, 20)
+  );
 }
 
 /**
@@ -563,7 +623,11 @@ function selectTimelineStop(
     );
   }
 
-  return stops[Math.min(routeLikeTimelineIndex, stops.length - 1)];
+  const visibleStops = event.title.includes("출발")
+    ? stops
+    : stops.filter((stop) => stop.label !== UNKNOWN_ORIGIN_LABEL);
+
+  return visibleStops[Math.min(routeLikeTimelineIndex, visibleStops.length - 1)] ?? stops[0];
 }
 
 /**
@@ -571,10 +635,17 @@ function selectTimelineStop(
  */
 function normalizeTimelineTitle(event: PlanmeDraftTimelineEvent, fallbackStop?: RouteStop) {
   if (!fallbackStop || !isRouteLikeText(event.title)) {
-    return event.title;
+    return normalizeDraftPlaceAliases(event.title);
   }
 
-  return `${fallbackStop.label} ${inferTimelineActionLabel(event)}`.trim();
+  return `${getPrimaryRouteLabel(fallbackStop.label)} ${inferTimelineActionLabel(event)}`.trim();
+}
+
+/**
+ * Picks the first visible stop from a route-like label for compact timeline rows.
+ */
+function getPrimaryRouteLabel(label: string) {
+  return label.split(/[·→,]/)[0]?.trim() || label;
 }
 
 /**
