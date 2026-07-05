@@ -5,6 +5,7 @@ import {
   PlanmeAiConfigurationError,
   type RecommendItineraryRequest,
 } from "@planme/core";
+import { createWebNaverGeocoder, hasWebNaverGeocoderRuntimeConfig } from "../../naver-geocoding";
 
 /**
  * Creates an AI-authored PlanME itinerary for Custom GPT Actions.
@@ -13,7 +14,15 @@ export async function POST(request: Request) {
   const body = (await request.json()) as RecommendItineraryRequest;
 
   try {
-    return NextResponse.json(await createAiRecommendedItineraryResponse(request.url, body));
+    return NextResponse.json(
+      await createAiRecommendedItineraryResponse(
+        request.url,
+        body,
+        hasWebNaverGeocoderRuntimeConfig()
+          ? { apiDraftCoordinateResolver: createWebNaverGeocoder() }
+          : {},
+      ),
+    );
   } catch (error) {
     if (error instanceof PlanmeAiConfigurationError) {
       return NextResponse.json(

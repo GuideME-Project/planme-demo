@@ -19,6 +19,7 @@ export type PlanmeDraftStop = {
   name: string;
   role?: PlanmeDraftStopRole;
   caption?: string;
+  addressQuery?: string;
   coordinate?: MapCoordinate;
 };
 
@@ -78,6 +79,10 @@ export type PlanmeDraftPreviewResult = {
   visibility?: "private" | "public";
 };
 
+export type PlanmeDraftPreviewOptions = {
+  extraValidationIssues?: PlanmeDraftValidationIssue[];
+};
+
 type DraftPreviewRecord = PlanmeDraftPreviewResult & {
   committedAt?: string;
 };
@@ -101,9 +106,13 @@ const DRAFT_PLACE_ALIAS_REPLACEMENTS: Array<{ pattern: RegExp; replacement: stri
  */
 export function createPlanmeDraftPreview(
   input: PlanmeDraftPreviewRequest,
+  options: PlanmeDraftPreviewOptions = {},
 ): PlanmeDraftPreviewResult {
   const previewId = input.previewId?.trim() || createDraftPreviewId(input);
-  const validationIssues = validateDraftPreviewInput(input);
+  const validationIssues = [
+    ...validateDraftPreviewInput(input),
+    ...(options.extraValidationIssues ?? []),
+  ];
   const existingRecord = draftPreviewStore.get(previewId);
   const version = existingRecord ? existingRecord.version + 1 : 1;
   const itinerary = buildDraftItinerary(input, previewId, validationIssues);
@@ -129,8 +138,9 @@ export function createPlanmeDraftPreview(
  */
 export function updatePlanmeDraftPreview(
   input: PlanmeDraftPreviewRequest,
+  options: PlanmeDraftPreviewOptions = {},
 ): PlanmeDraftPreviewResult {
-  return createPlanmeDraftPreview(input);
+  return createPlanmeDraftPreview(input, options);
 }
 
 /**

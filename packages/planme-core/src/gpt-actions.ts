@@ -7,7 +7,12 @@ import {
   createPlanmeDraftPreview,
   type PlanmeDraftPreviewRequest,
   type PlanmeDraftPreviewResult,
+  type PlanmeDraftValidationIssue,
 } from "./draft-itineraries.js";
+import {
+  resolvePlanmeDraftCoordinates,
+  type PlanmeDraftGeocoder,
+} from "./draft-coordinate-resolution.js";
 import type { PlanmeItinerary } from "./mock-data.js";
 import {
   generatePlanmeDraftWithOpenAi,
@@ -49,6 +54,11 @@ export type GptActionItineraryResponse = {
 
 export type AiRecommendedItineraryOptions = {
   aiItineraryGenerator?: AiItineraryGenerator;
+  apiDraftCoordinateResolver?: PlanmeDraftGeocoder;
+};
+
+type RecommendedItineraryResponseOptions = {
+  extraValidationIssues?: PlanmeDraftValidationIssue[];
 };
 
 /**
@@ -156,9 +166,12 @@ export function toDraftGptActionItineraryResponse(
 export function createRecommendedItineraryResponse(
   requestUrl: string,
   input: RecommendItineraryRequest,
+  options: RecommendedItineraryResponseOptions = {},
 ) {
   if (hasDraftDays(input)) {
-    const result = createPlanmeDraftPreview(toDraftPreviewRequest(input));
+    const result = createPlanmeDraftPreview(toDraftPreviewRequest(input), {
+      extraValidationIssues: options.extraValidationIssues,
+    });
 
     // Recommendations with concrete ChatGPT stops should preserve those stops in the widget.
     return {
@@ -210,25 +223,31 @@ export async function createAiRecommendedItineraryResponse(
   input: RecommendItineraryRequest,
   options: AiRecommendedItineraryOptions = {},
 ) {
-  if (hasDraftDays(input)) {
-    return createRecommendedItineraryResponse(requestUrl, input);
-  }
-
   const aiItineraryGenerator = options.aiItineraryGenerator ?? generatePlanmeDraftWithOpenAi;
-  const draft = await aiItineraryGenerator(input);
+  const rawDraft = hasDraftDays(input) ? toDraftPreviewRequest(input) : await aiItineraryGenerator(input);
+  const resolution = options.apiDraftCoordinateResolver
+    ? await resolvePlanmeDraftCoordinates(rawDraft, options.apiDraftCoordinateResolver)
+    : { draft: rawDraft, validationIssues: [] };
+  const draft = resolution.draft;
 
   // OpenAI owns itinerary drafting; PlanME only validates and renders the returned draft.
-  return createRecommendedItineraryResponse(requestUrl, {
-    ...input,
-    title: draft.title,
-    region: draft.region,
-    duration: draft.duration,
-    summary: draft.summary,
-    origin: draft.origin ?? input.origin,
-    assumptions: draft.assumptions ?? input.assumptions,
-    savedMinutes: draft.savedMinutes ?? input.savedMinutes,
-    days: draft.days,
-  });
+  return createRecommendedItineraryResponse(
+    requestUrl,
+    {
+      ...input,
+      title: draft.title,
+      region: draft.region,
+      duration: draft.duration,
+      summary: draft.summary,
+      origin: draft.origin ?? input.origin,
+      assumptions: draft.assumptions ?? input.assumptions,
+      savedMinutes: draft.savedMinutes ?? input.savedMinutes,
+      days: draft.days,
+    },
+    {
+      extraValidationIssues: resolution.validationIssues,
+    },
+  );
 }
 
 /**

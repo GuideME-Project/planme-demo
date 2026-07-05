@@ -12,10 +12,12 @@ import {
   formatPlanmeAiGenerationError,
   getGptActionItineraryResponse,
   PlanmeAiConfigurationError,
+  resolvePlanmeDraftCoordinates,
   toDraftGptActionItineraryResponse,
   toGptActionItineraryResponse,
   updatePlanmeDraftPreview,
   type GptActionItineraryResponse,
+  type PlanmeDraftGeocoder,
   type PlanmeDraftCommitRequest,
   type PlanmeDraftPreviewRequest,
   type PlanmeDraftPreviewResult,
@@ -24,6 +26,7 @@ import {
   type RecommendItineraryRequest,
 } from "@planme/core";
 import { z } from "zod";
+import { createNaverGeocoder, hasNaverGeocoderRuntimeConfig } from "./naver-geocoding.js";
 import { createPlanmeWidgetHtml } from "./planme-widget.js";
 
 export const PLANME_WIDGET_URI = "ui://planme/itinerary-widget-v2.html";
@@ -72,6 +75,10 @@ const draftStopSchema = z.object({
     .enum(["origin", "visit", "luggageDestination", "finalDestination"])
     .optional(),
   caption: z.string().optional(),
+  addressQuery: z
+    .string()
+    .optional()
+    .describe("Korean address-like query for Naver geocoding. Do not put coordinates here."),
   coordinate: z
     .object({
       lat: z.number(),
@@ -245,6 +252,24 @@ function toDraftPreviewSummary(result: PlanmeDraftPreviewResult): DraftPreviewSu
 }
 
 /**
+ * Resolves AI-authored address queries before creating a renderable MCP draft preview.
+ */
+export async function createResolvedPlanmeDraftPreviewForMcp(
+  input: PlanmeDraftPreviewRequest,
+  geocoder?: PlanmeDraftGeocoder,
+) {
+  if (!geocoder && !hasNaverGeocoderRuntimeConfig()) {
+    return createPlanmeDraftPreview(input);
+  }
+
+  const resolution = await resolvePlanmeDraftCoordinates(input, geocoder ?? createNaverGeocoder());
+
+  return createPlanmeDraftPreview(resolution.draft, {
+    extraValidationIssues: resolution.validationIssues,
+  });
+}
+
+/**
  * Builds the non-model-visible metadata used by the PlanME widget.
  */
 function toWidgetMeta(itinerary: PlanmeItinerary, pageUrl: string) {
@@ -378,7 +403,7 @@ export function createPlanmeMcpServer(): McpServer {
       },
     },
     async (input: PlanmeDraftPreviewRequest) => {
-      const result = createPlanmeDraftPreview(input);
+      const result = await createResolvedPlanmeDraftPreviewForMcp(input);
       const structuredContent = toDraftPreviewSummary(result);
 
       // The full normalized itinerary is passed through _meta so the widget and text stay aligned.
@@ -428,7 +453,14 @@ export function createPlanmeMcpServer(): McpServer {
       },
     },
     async (input: PlanmeDraftPreviewRequest) => {
-      const result = updatePlanmeDraftPreview(input);
+      const resolution = hasNaverGeocoderRuntimeConfig()
+        ? await resolvePlanmeDraftCoordinates(input, createNaverGeocoder())
+        : null;
+      const result = resolution
+        ? updatePlanmeDraftPreview(resolution.draft, {
+            extraValidationIssues: resolution.validationIssues,
+          })
+        : updatePlanmeDraftPreview(input);
       const structuredContent = toDraftPreviewSummary(result);
 
       // A revised draft should re-render the same widget with the latest normalized itinerary.
@@ -552,6 +584,9 @@ export function createPlanmeMcpServer(): McpServer {
         response = await createAiRecommendedItineraryResponse(
           "https://planme-demo.vercel.app/mcp",
           input,
+          hasNaverGeocoderRuntimeConfig()
+            ? { apiDraftCoordinateResolver: createNaverGeocoder() }
+            : {},
         );
       } catch (error) {
         if (error instanceof PlanmeAiConfigurationError) {

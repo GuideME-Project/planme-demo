@@ -119,6 +119,9 @@ function createItineraryGenerationPrompt(input: RecommendItineraryRequest) {
     "사용자가 출발지를 말했으면 첫 타임라인은 '<출발지> 출발'로 작성하세요.",
     "숙소가 명시되지 않았으면 '<지역> 숙소'처럼 일반 숙소명으로 쓰고, 특정 호텔명을 지어내지 마세요.",
     "아이 동반, 가족 여행, 실내/야외 균형 같은 선호를 반영해 무리 없는 방문지 2-4개를 고르세요.",
+    "각 stops 항목에는 실제 장소명(name)과 네이버 지오코딩에 넣을 한국어 주소형 검색어(addressQuery)를 함께 작성하세요.",
+    "addressQuery에는 위도/경도를 쓰지 말고, 가능한 도로명/지번/행정구역을 포함한 한국어 검색어를 쓰세요.",
+    "정확한 주소를 모르면 '<광역/시군구> <장소명>' 형태로 작성하고 좌표는 절대 추측하지 마세요.",
     "",
     `목적지: ${input.destination ?? input.region ?? "미정"}`,
     `출발지: ${input.origin ?? "미정"}`,
@@ -176,7 +179,7 @@ function createPlanmeDraftJsonSchema() {
               items: {
                 type: "object",
                 additionalProperties: false,
-                required: ["name", "role", "caption"],
+                required: ["name", "role", "caption", "addressQuery"],
                 properties: {
                   name: { type: "string" },
                   role: {
@@ -184,6 +187,7 @@ function createPlanmeDraftJsonSchema() {
                     enum: ["origin", "visit", "luggageDestination", "finalDestination"],
                   },
                   caption: { type: "string" },
+                  addressQuery: { type: "string" },
                 },
               },
             },
@@ -258,6 +262,7 @@ function normalizeGeneratedDraft(draft: PlanmeDraftPreviewRequest): PlanmeDraftP
         ...stop,
         name: stop.name.trim(),
         caption: stop.caption?.trim(),
+        addressQuery: stop.addressQuery?.trim() || undefined,
       })),
       timeline: day.timeline.map((event) => ({
         ...event,
