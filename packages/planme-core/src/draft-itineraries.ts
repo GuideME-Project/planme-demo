@@ -233,6 +233,7 @@ function buildDraftItinerary(
   const explicitOrigin = inferExplicitDraftOrigin(input.origin, input.assumptions ?? []);
   const originReplacement =
     explicitOrigin ?? (draftContainsDefaultAirportOrigin(input) ? UNKNOWN_ORIGIN_LABEL : null);
+  const luggageFallbackLabel = createRegionLuggageFallbackLabel(region);
   const days = input.days.length > 0
     ? input.days
         .slice(0, 2)
@@ -242,6 +243,7 @@ function buildDraftItinerary(
             index,
             input.savedMinutes ?? 0,
             index === 0 ? originReplacement : null,
+            luggageFallbackLabel,
           ),
         )
     : [buildEmptyDraftDay(input.savedMinutes ?? 0)];
@@ -276,8 +278,12 @@ function buildDraftDay(
   index: number,
   savedMinutes: number,
   explicitOrigin: string | null = null,
+  luggageFallbackLabel = "숙소",
 ): ItineraryDay {
-  const stops = sanitizeDraftOriginStops(day.stops.map(toRouteStop), explicitOrigin);
+  const stops = sanitizeStationLuggageStops(
+    sanitizeDraftOriginStops(day.stops.map(toRouteStop), explicitOrigin),
+    luggageFallbackLabel,
+  );
   let routeLikeTimelineIndex = 0;
   const routeText = stops.map((stop) => stop.label).join(" → ") || "일정 초안 확인 중";
   const carrymeStops = buildCarrymeStops(stops);
@@ -310,7 +316,9 @@ function buildDraftDay(
       description: "짐은 CarryME가 이동하고 여행자는 일정으로 바로 이동",
     }),
     timeline: day.timeline.map((rawEvent) => {
-      const event = sanitizeDraftOriginTimelineEvent(rawEvent, explicitOrigin);
+      const event = sanitizeStationLuggageTimelineEvent(
+        sanitizeDraftOriginTimelineEvent(rawEvent, explicitOrigin),
+      );
       const isRouteLike = isRouteLikeText(event.title);
       const fallbackStop = isRouteLike
         ? selectTimelineStop(stops, event, routeLikeTimelineIndex)
@@ -445,6 +453,16 @@ function inferExplicitDraftOrigin(origin: string | undefined, assumptions: strin
 }
 
 /**
+ * Creates the safest visible luggage destination when a draft tries to use a transit hub.
+ */
+function createRegionLuggageFallbackLabel(region: string) {
+  const normalizedRegion = region.trim();
+
+  // A generic lodging label avoids inventing a specific hotel while keeping CarryME delivery plausible.
+  return normalizedRegion ? `${normalizedRegion} 숙소` : "숙소";
+}
+
+/**
  * Detects model-authored drafts that leaked the legacy demo airport without a real origin.
  */
 function draftContainsDefaultAirportOrigin(input: PlanmeDraftPreviewRequest) {
@@ -479,6 +497,112 @@ function sanitizeDraftOriginStops(stops: RouteStop[], explicitOrigin: string | n
       icon: "station" as const,
     };
   });
+}
+
+/**
+ * Replaces plain station or terminal luggage handoffs with a generic lodging destination.
+ */
+function sanitizeStationLuggageStops(stops: RouteStop[], luggageFallbackLabel: string) {
+  return stops.map((stop) => {
+    if (!isInvalidTransitLuggageStop(stop)) {
+      return stop;
+    }
+
+    // CarryME should deliver luggage to lodging or an explicitly named service point, not a transit hub.
+    return {
+      ...stop,
+      label: luggageFallbackLabel,
+      caption: "짐 도착",
+      icon: "hotel" as const,
+    };
+  });
+}
+
+/**
+ * Removes baggage handoff copy when a model attaches it to a station, terminal, or airport.
+ */
+function sanitizeStationLuggageTimelineEvent(
+  event: PlanmeDraftTimelineEvent,
+): PlanmeDraftTimelineEvent {
+  const stationLabel =
+    extractTransitHubLabel(event.title) ?? extractTransitHubLabel(event.description);
+  if (
+    stationLabel === null ||
+    (!containsBaggageAction(event.title) && !containsBaggageAction(event.description))
+  ) {
+    return event;
+  }
+
+  const safeStationLabel = stationLabel;
+
+  // Keep the travel milestone visible while removing the unsupported station luggage claim.
+  return {
+    ...event,
+    title: sanitizeStationLuggageTitle(event.title, safeStationLabel),
+    description: `${safeStationLabel}으로 이동해 다음 일정 또는 귀가를 준비합니다.`,
+    category: event.category === "hotel" ? "transit" : event.category,
+  };
+}
+
+/**
+ * Checks whether a rendered stop would imply luggage storage or pickup at a transit hub.
+ */
+function isInvalidTransitLuggageStop(stop: RouteStop) {
+  return isPlainTransitHubLabel(stop.label) && containsBaggageAction(stop.caption);
+}
+
+/**
+ * Detects labels that are only transportation hubs, excluding lodging near a station.
+ */
+function isPlainTransitHubLabel(value: string) {
+  const normalized = value.trim();
+
+  if (/(숙소|호텔|수령\s*지점|보관\s*지점|카운터|센터)/.test(normalized)) {
+    return false;
+  }
+
+  return /(역|터미널|공항)$/.test(normalized);
+}
+
+/**
+ * Finds the first transit hub mention inside model-authored free text.
+ */
+function extractTransitHubLabel(value: string) {
+  const match = /([가-힣A-Za-z0-9]+(?:역|터미널|공항))/.exec(value);
+
+  return match?.[1] ?? null;
+}
+
+/**
+ * Detects baggage handoff claims in titles, descriptions, and stop captions.
+ */
+function containsBaggageAction(value: string) {
+  return /(?:(?:짐|수하물)\s*[을를은는이가도만]?\s*(?:보관|수령|회수|챙|도착|배송|맡|찾)|(?:보관|수령|회수|챙|도착|배송|맡|찾)\s*(?:한|된|할|할)?\s*(?:짐|수하물))/.test(
+    value,
+  );
+}
+
+/**
+ * Keeps the transit milestone readable after stripping unsupported baggage actions.
+ */
+function sanitizeStationLuggageTitle(value: string, stationLabel: string) {
+  const sanitized = value
+    .replace(
+      /\s*(?:및|후|에서)?\s*(?:짐|수하물)\s*[을를은는이가도만]?\s*(?:보관|수령|회수|챙(?:김|기)?|배송|맡(?:김|기)?|찾(?:기)?).*/g,
+      "",
+    )
+    .replace(
+      /\s*(?:짐|수하물)\s*[을를은는이가도만]?\s*(?:보관|수령|회수|챙(?:김|기)?|배송|맡(?:김|기)?|찾(?:기)?)\s*(?:및|후)?\s*/g,
+      "",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (sanitized && !containsBaggageAction(sanitized)) {
+    return sanitized;
+  }
+
+  return `${stationLabel} 이동`;
 }
 
 /**

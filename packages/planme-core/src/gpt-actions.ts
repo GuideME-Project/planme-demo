@@ -13,6 +13,11 @@ import {
   generatePlanmeDraftWithOpenAi,
   type AiItineraryGenerator,
 } from "./openai-itinerary-generator.js";
+import {
+  searchAccommodationCandidates,
+  type AccommodationCandidate,
+  type AccommodationCandidateSearcher,
+} from "./accommodation-candidates.js";
 
 export type RecommendItineraryRequest = GeneratedItineraryRequest & {
   previewId?: string;
@@ -23,6 +28,7 @@ export type RecommendItineraryRequest = GeneratedItineraryRequest & {
   summary?: string;
   assumptions?: string[];
   savedMinutes?: number;
+  accommodationCandidates?: AccommodationCandidate[];
   days?: PlanmeDraftPreviewRequest["days"];
   theme?: "light" | "dark";
 };
@@ -47,6 +53,7 @@ export type GptActionItineraryResponse = {
 
 export type AiRecommendedItineraryOptions = {
   aiItineraryGenerator?: AiItineraryGenerator;
+  accommodationCandidateSearcher?: AccommodationCandidateSearcher;
 };
 
 /**
@@ -203,7 +210,18 @@ export async function createAiRecommendedItineraryResponse(
   }
 
   const aiItineraryGenerator = options.aiItineraryGenerator ?? generatePlanmeDraftWithOpenAi;
-  const draft = await aiItineraryGenerator(input);
+  const accommodationCandidates = await resolveAccommodationCandidates(
+    input,
+    options.accommodationCandidateSearcher ?? searchAccommodationCandidates,
+  );
+  const generatorInput =
+    accommodationCandidates.length > 0
+      ? { ...input, accommodationCandidates }
+      : input;
+  const draft = applyAccommodationCandidatesToDraft(
+    await aiItineraryGenerator(generatorInput),
+    accommodationCandidates,
+  );
 
   // OpenAI owns itinerary drafting; PlanME only validates and renders the returned draft.
   return createRecommendedItineraryResponse(requestUrl, {
@@ -217,6 +235,166 @@ export async function createAiRecommendedItineraryResponse(
     savedMinutes: draft.savedMinutes ?? input.savedMinutes,
     days: draft.days,
   });
+}
+
+/**
+ * Resolves real lodging candidates only when the user did not already name a hotel.
+ */
+async function resolveAccommodationCandidates(
+  input: RecommendItineraryRequest,
+  searcher: AccommodationCandidateSearcher,
+) {
+  if (input.accommodationCandidates?.length) {
+    return input.accommodationCandidates;
+  }
+
+  if (input.hotelName?.trim() || !(input.destination?.trim() || input.region?.trim())) {
+    return [];
+  }
+
+  return searcher(input);
+}
+
+/**
+ * Replaces generic lodging labels with a real candidate and keeps its map coordinate.
+ */
+function applyAccommodationCandidatesToDraft(
+  draft: PlanmeDraftPreviewRequest,
+  candidates: AccommodationCandidate[],
+): PlanmeDraftPreviewRequest {
+  const candidate = selectAccommodationCandidate(draft, candidates);
+
+  if (!candidate) {
+    return draft;
+  }
+
+  const region = draft.region?.trim() || "";
+
+  return {
+    ...draft,
+    assumptions: [
+      ...(draft.assumptions ?? []),
+      `숙소 후보로 ${candidate.name} 사용`,
+    ],
+    days: draft.days.map((day) => ({
+      ...day,
+      standardRouteText: replaceGenericAccommodationText(
+        day.standardRouteText ?? "",
+        region,
+        candidate.name,
+      ),
+      carrymeRouteText: replaceGenericAccommodationText(
+        day.carrymeRouteText ?? "",
+        region,
+        candidate.name,
+      ),
+      stops: day.stops.map((stop) => {
+        if (
+          isGenericAccommodationLabel(stop.name, region) ||
+          isSameAccommodationCandidate(stop.name, candidate)
+        ) {
+          return {
+            ...stop,
+            name: candidate.name,
+            coordinate: candidate.coordinate,
+          };
+        }
+
+        return stop;
+      }),
+      timeline: day.timeline.map((event) => ({
+        ...event,
+        title: replaceGenericAccommodationText(event.title, region, candidate.name),
+        description: replaceGenericAccommodationText(
+          event.description,
+          region,
+          candidate.name,
+        ),
+      })),
+    })),
+  };
+}
+
+/**
+ * Chooses the model-selected lodging candidate, falling back to the top search result.
+ */
+function selectAccommodationCandidate(
+  draft: PlanmeDraftPreviewRequest,
+  candidates: AccommodationCandidate[],
+) {
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const stopNames = draft.days.flatMap((day) => day.stops.map((stop) => stop.name));
+  const matchedCandidate = candidates.find((candidate) =>
+    stopNames.some((stopName) => isSameAccommodationCandidate(stopName, candidate)),
+  );
+
+  return matchedCandidate ?? candidates[0] ?? null;
+}
+
+/**
+ * Detects whether a stop already refers to a specific accommodation candidate.
+ */
+function isSameAccommodationCandidate(value: string, candidate: AccommodationCandidate) {
+  const normalizedValue = normalizeComparableText(value);
+
+  return (
+    normalizedValue === normalizeComparableText(candidate.name) ||
+    normalizedValue === normalizeComparableText(candidate.address)
+  );
+}
+
+/**
+ * Detects generic lodging labels that should be replaced after real candidates are available.
+ */
+function isGenericAccommodationLabel(value: string, region: string) {
+  const normalized = value.trim();
+
+  if (!normalized) {
+    return false;
+  }
+
+  const genericLabels = [
+    "숙소",
+    "숙소 확인 필요",
+    region ? `${region} 숙소` : "",
+    region ? `${region} 가족 숙소` : "",
+  ].filter(Boolean);
+
+  return genericLabels.includes(normalized) || /(인근|근처|가족)\s*숙소$/.test(normalized);
+}
+
+/**
+ * Rewrites visible generic lodging copy to the selected real accommodation.
+ */
+function replaceGenericAccommodationText(value: string, region: string, replacement: string) {
+  if (!value) {
+    return value;
+  }
+
+  const regionPrefix = region ? `${escapeRegExp(region)}\\s*` : "";
+
+  return value
+    .replace(new RegExp(`${regionPrefix}숙소`, "g"), replacement)
+    .replace(/숙소\s*확인\s*필요/g, replacement)
+    .replace(/(?:인근|근처|가족)\s*숙소/g, replacement)
+    .replace(/숙소/g, replacement);
+}
+
+/**
+ * Creates a stable comparison key for model-authored labels and Places candidates.
+ */
+function normalizeComparableText(value: string) {
+  return value.replace(/\s+/g, "").trim().toLowerCase();
+}
+
+/**
+ * Escapes user-facing region text before building a targeted replacement pattern.
+ */
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**

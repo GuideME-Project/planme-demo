@@ -57,7 +57,11 @@ const planmeWidgetMeta = {
 const timelineEventSchema = z.object({
   time: z.string(),
   title: z.string(),
-  description: z.string(),
+  description: z
+    .string()
+    .describe(
+      "Short event description. Do not say luggage is stored, retrieved, or picked up at a plain train/subway station, terminal, or airport.",
+    ),
   category: z.string(),
   highlight: z.boolean().optional(),
   savingLabel: z.string().optional(),
@@ -70,6 +74,9 @@ const draftStopSchema = z.object({
     .describe("Single stop or POI name only. Do not put a full route list in one stop."),
   role: z
     .enum(["origin", "visit", "luggageDestination", "finalDestination"])
+    .describe(
+      "Use luggageDestination only for lodging, hotel, or an explicitly named CarryME pickup point. Do not use a plain train/subway station, terminal, or airport as a luggage handoff point.",
+    )
     .optional(),
   caption: z.string().optional(),
   coordinate: z
@@ -388,7 +395,7 @@ export function createPlanmeMcpServer(): McpServer {
     {
       title: "Preview PlanME itinerary draft",
       description:
-        "Render a PlanME widget from the itinerary draft ChatGPT just authored in the conversation. Use this as soon as a draft itinerary is available; do not wait for the user to explicitly ask to open PlanME.",
+        "Render a PlanME widget from the itinerary draft ChatGPT just authored in the conversation. Use this as soon as a draft itinerary is available; do not wait for the user to explicitly ask to open PlanME. CarryME luggage handoff points must be lodging, hotels, or explicit pickup points, not plain train/subway stations, terminals, or airports.",
       inputSchema: {
         title: z
           .string()
@@ -437,7 +444,7 @@ export function createPlanmeMcpServer(): McpServer {
     {
       title: "Update PlanME itinerary preview",
       description:
-        "Replace the current PlanME preview with a revised itinerary draft after the user changes the plan in conversation.",
+        "Replace the current PlanME preview with a revised itinerary draft after the user changes the plan in conversation. CarryME luggage handoff points must be lodging, hotels, or explicit pickup points, not plain train/subway stations, terminals, or airports.",
       inputSchema: {
         previewId: z.string().min(1).optional(),
         baseVersion: z.number().int().min(1).optional(),
@@ -544,7 +551,7 @@ export function createPlanmeMcpServer(): McpServer {
     {
       title: "Recommend or render PlanME itinerary",
       description:
-        "Render a PlanME widget. When ChatGPT has already drafted concrete stops or timeline events in conversation, include days with real POI names so the widget matches the draft. If days is omitted, PlanME asks OpenAI to draft the itinerary server-side.",
+        "Render a PlanME widget. When ChatGPT has already drafted concrete stops or timeline events in conversation, include days with real POI names so the widget matches the draft. If days is omitted, PlanME asks OpenAI to draft the itinerary server-side. CarryME luggage handoff points must be lodging, hotels, or explicit pickup points, not plain train/subway stations, terminals, or airports.",
       inputSchema: {
         title: z
           .string()

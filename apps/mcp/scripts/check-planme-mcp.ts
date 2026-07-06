@@ -4,6 +4,8 @@ import type { AddressInfo } from "node:net";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
+  createAiRecommendedItineraryResponse,
+  createGeneratedItinerary,
   createPlanmeDraftPreview,
   generatePlanmeDraftWithOpenAi,
 } from "@planme/core";
@@ -65,6 +67,16 @@ async function assertOpenAiGeneratorContract(): Promise<void> {
       destination: "남해 가족여행",
       durationDays: 2,
       origin: "동탄",
+      accommodationCandidates: [
+        {
+          id: "place-namhae-pension",
+          name: "펜션 사랑가",
+          address: "경상남도 남해군 남면 남면로 123",
+          coordinate: { lat: 34.7601, lng: 127.9001 },
+          placeId: "places/namhae-pension",
+          types: ["lodging"],
+        },
+      ],
       preferences: ["아이 동반"],
       travelerCount: 4,
       luggageCount: 2,
@@ -132,8 +144,102 @@ async function assertOpenAiGeneratorContract(): Promise<void> {
   assert.equal(generatedDraft.title, "남해 아이 동반 가족여행 1박 2일 초안");
   assert.equal(generatedDraft.days[0]?.timeline[0]?.title, "동탄 출발");
   assert.match(capturedBody, /json_schema/);
+  assert.match(capturedBody, /역\/터미널\/공항은 기본 수하물 보관·수령지가 아닙니다/);
+  assert.match(capturedBody, /luggageDestination/);
+  assert.match(capturedBody, /펜션 사랑가/);
+  assert.match(capturedBody, /아래 숙소 후보 중 하나/);
   assert.match(capturedBody, /PLANME_OPENAI_MODEL|test-model/);
   assert.doesNotMatch(capturedBody, /test-api-key/);
+}
+
+/**
+ * Verifies that AI generation uses actual accommodation candidates instead of generic lodging names.
+ */
+async function assertAccommodationCandidateContract(): Promise<void> {
+  let searchCallCount = 0;
+  let generatorInput = "";
+  const response = await createAiRecommendedItineraryResponse(
+    "http://localhost:3000/api/gpt/itineraries/recommend",
+    {
+      destination: "남해",
+      durationDays: 2,
+      preferences: ["가족 여행", "아이 동반"],
+      travelerCount: 4,
+      luggageCount: 2,
+    },
+    {
+      accommodationCandidateSearcher: async (input) => {
+        searchCallCount += 1;
+        assert.equal(input.destination, "남해");
+
+        return [
+          {
+            id: "place-namhae-pension",
+            name: "펜션 사랑가",
+            address: "경상남도 남해군 남면 남면로 123",
+            coordinate: { lat: 34.7601, lng: 127.9001 },
+            placeId: "places/namhae-pension",
+            types: ["lodging"],
+          },
+        ];
+      },
+      aiItineraryGenerator: async (input) => {
+        generatorInput = JSON.stringify(input);
+
+        return {
+          title: "남해 2일 가족 여행 일정",
+          region: "남해",
+          duration: "2일",
+          summary: "아이 동반 가족이 남해를 무리 없이 보는 일정입니다.",
+          assumptions: ["숙소 후보를 사용"],
+          savedMinutes: 60,
+          days: [
+            {
+              day: 1,
+              label: "Day 1",
+              standardDurationMinutes: 420,
+              carrymeDurationMinutes: 360,
+              standardRouteText: "남해 숙소 → 상주은모래비치 → 독일마을 → 남해 숙소",
+              carrymeRouteText: "상주은모래비치 → 독일마을 → 남해 숙소",
+              stops: [
+                { name: "남해 숙소", role: "luggageDestination", caption: "짐 도착" },
+                { name: "상주은모래비치", role: "visit", caption: "해변 산책" },
+                { name: "독일마을", role: "visit", caption: "관광" },
+                { name: "남해 숙소", role: "finalDestination", caption: "휴식" },
+              ],
+              timeline: [
+                {
+                  time: "오전",
+                  title: "남해 숙소 도착",
+                  description: "숙소에 짐을 맡기고 여행을 시작합니다.",
+                  category: "arrival",
+                  highlight: false,
+                  savingLabel: "",
+                },
+                {
+                  time: "오후",
+                  title: "상주은모래비치 방문",
+                  description: "아이와 함께 바다를 봅니다.",
+                  category: "event",
+                  highlight: true,
+                  savingLabel: "약 60분 절약",
+                },
+              ],
+            },
+          ],
+        };
+      },
+    },
+  );
+  const firstStandardStop = response.itinerary.days[0]?.standard.stops[0];
+  const renderedPayload = JSON.stringify(response.itinerary);
+
+  assert.equal(searchCallCount, 1);
+  assert.match(generatorInput, /펜션 사랑가/);
+  assert.equal(firstStandardStop?.label, "펜션 사랑가");
+  assert.deepEqual(firstStandardStop?.coordinate, { lat: 34.7601, lng: 127.9001 });
+  assert.match(renderedPayload, /펜션 사랑가/);
+  assert.doesNotMatch(renderedPayload, /남해 숙소/);
 }
 
 /**
@@ -177,6 +283,87 @@ function assertDraftPreviewSlugContract(): void {
 }
 
 /**
+ * Verifies that plain train or subway stations are not rendered as CarryME luggage handoff points.
+ */
+function assertStationLuggageGuardrail(): void {
+  const problematicDraft = createPlanmeDraftPreview({
+    title: "부산 가족 여행 1박 2일 초안",
+    region: "부산",
+    duration: "1박 2일",
+    summary: "부산역 도착 후 감천문화마을을 보는 초안입니다.",
+    origin: "서울역",
+    assumptions: ["서울역 출발", "부산역은 교통 거점"],
+    savedMinutes: 60,
+    days: [
+      {
+        day: 1,
+        label: "Day 1",
+        standardDurationMinutes: 600,
+        carrymeDurationMinutes: 540,
+        standardRouteText: "서울역 → 부산역 → 감천문화마을 → 부산역 인근 숙소",
+        carrymeRouteText: "서울역 → 부산역 → 감천문화마을 → 부산역 인근 숙소",
+        stops: [
+          { name: "서울역", role: "origin", caption: "출발" },
+          { name: "부산역", role: "luggageDestination", caption: "짐 보관" },
+          { name: "감천문화마을", role: "visit", caption: "관광" },
+          { name: "부산역 인근 숙소", role: "finalDestination", caption: "체크인" },
+        ],
+        timeline: [
+          {
+            time: "07:00",
+            title: "서울역 출발",
+            description: "서울에서 부산으로 이동합니다.",
+            category: "arrival",
+          },
+          {
+            time: "11:00",
+            title: "부산역 도착",
+            description: "부산역 도착 후 짐 보관 및 관광 준비",
+            category: "transit",
+          },
+          {
+            time: "12:00",
+            title: "감천문화마을 방문",
+            description: "부산의 대표 문화마을을 둘러봅니다.",
+            category: "event",
+            savingLabel: "약 60분 절약",
+          },
+          {
+            time: "17:00",
+            title: "부산역 복귀 및 짐 회수",
+            description: "부산역에서 짐을 챙기고 숙소 체크인을 준비합니다.",
+            category: "hotel",
+          },
+          {
+            time: "18:00",
+            title: "부산역 이동",
+            description: "부산역에서 짐을 챙기고 기차 탑승을 준비합니다.",
+            category: "transit",
+          },
+        ],
+      },
+    ],
+  });
+  const renderedPayload = JSON.stringify(problematicDraft.itinerary);
+
+  assert.equal(problematicDraft.status, "preview_ready");
+  assert.match(renderedPayload, /부산 숙소/);
+  assert.doesNotMatch(renderedPayload, /부산역[^"]*(?:짐|수하물)[^"]*(?:보관|수령|회수|챙)/);
+  assert.doesNotMatch(renderedPayload, /(?:짐|수하물)[^"]*(?:보관|수령|회수|챙)[^"]*부산역/);
+
+  const generatedBusan = createGeneratedItinerary({
+    destination: "부산",
+    durationDays: 2,
+    origin: "서울역",
+    preferences: ["감천문화마을"],
+  });
+  const generatedPayload = JSON.stringify(generatedBusan);
+
+  assert.doesNotMatch(generatedPayload, /부산역[^"]*(?:짐|수하물)[^"]*(?:보관|수령|회수|챙)/);
+  assert.doesNotMatch(generatedPayload, /(?:짐|수하물)[^"]*(?:보관|수령|회수|챙)[^"]*부산역/);
+}
+
+/**
  * Starts the PlanME MCP server on an ephemeral local port for contract checks.
  */
 async function startServer() {
@@ -201,7 +388,9 @@ async function startServer() {
  */
 async function main(): Promise<void> {
   await assertOpenAiGeneratorContract();
+  await assertAccommodationCandidateContract();
   assertDraftPreviewSlugContract();
+  assertStationLuggageGuardrail();
 
   const { server, url } = await startServer();
   const transport = new StreamableHTTPClientTransport(url);

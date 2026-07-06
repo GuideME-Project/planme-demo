@@ -110,6 +110,11 @@ function readRuntimeEnv(name: string) {
 function createItineraryGenerationPrompt(input: RecommendItineraryRequest) {
   const durationDays = input.durationDays ?? 2;
   const preferences = input.preferences?.length ? input.preferences.join(", ") : "없음";
+  const accommodationCandidates = input.accommodationCandidates ?? [];
+  const accommodationInstruction =
+    accommodationCandidates.length > 0
+      ? "숙소가 명시되지 않았으면 아래 숙소 후보 중 하나만 숙소/짐 도착지로 사용하고, '<지역> 숙소' 같은 일반명을 쓰지 마세요."
+      : "숙소가 명시되지 않았으면 '숙소 확인 필요'처럼 미정 상태를 쓰고, 특정 호텔명을 지어내지 마세요.";
 
   return [
     "너는 한국 여행 일정 플래너입니다.",
@@ -117,7 +122,9 @@ function createItineraryGenerationPrompt(input: RecommendItineraryRequest) {
     "PlanME 서버는 장소를 보정하지 않으므로, 목적지의 실제 한국어 장소명을 직접 선택해야 합니다.",
     "공항이 명시되지 않았으면 인천공항, 김포공항, 김해공항 같은 기본 공항을 절대 만들지 마세요.",
     "사용자가 출발지를 말했으면 첫 타임라인은 '<출발지> 출발'로 작성하세요.",
-    "숙소가 명시되지 않았으면 '<지역> 숙소'처럼 일반 숙소명으로 쓰고, 특정 호텔명을 지어내지 마세요.",
+    accommodationInstruction,
+    "역/터미널/공항은 기본 수하물 보관·수령지가 아닙니다. luggageDestination은 숙소, 호텔, 또는 사용자가 명시한 CarryME 수령 지점에만 사용하세요.",
+    "부산역 짐 보관, 부산역 짐 수령처럼 교통 거점에서 짐을 맡기거나 찾는 표현을 만들지 마세요.",
     "아이 동반, 가족 여행, 실내/야외 균형 같은 선호를 반영해 무리 없는 방문지 2-4개를 고르세요.",
     "",
     `목적지: ${input.destination ?? input.region ?? "미정"}`,
@@ -127,6 +134,31 @@ function createItineraryGenerationPrompt(input: RecommendItineraryRequest) {
     `인원: ${input.travelerCount ?? 1}명`,
     `짐 개수: ${input.luggageCount ?? 1}개`,
     `선호: ${preferences}`,
+    createAccommodationCandidatePromptSection(accommodationCandidates),
+  ].join("\n");
+}
+
+/**
+ * Serializes lodging candidates for the model without exposing provider credentials.
+ */
+function createAccommodationCandidatePromptSection(
+  candidates: NonNullable<RecommendItineraryRequest["accommodationCandidates"]>,
+) {
+  if (candidates.length === 0) {
+    return "숙소 후보: 없음";
+  }
+
+  return [
+    "숙소 후보:",
+    "아래 숙소 후보 중 하나를 luggageDestination 또는 finalDestination으로 사용하세요.",
+    ...candidates.map((candidate, index) =>
+      [
+        `${index + 1}. ${candidate.name}`,
+        `주소: ${candidate.address}`,
+        `좌표: ${candidate.coordinate.lat}, ${candidate.coordinate.lng}`,
+        `placeId: ${candidate.placeId ?? candidate.id}`,
+      ].join(" | "),
+    ),
   ].join("\n");
 }
 
