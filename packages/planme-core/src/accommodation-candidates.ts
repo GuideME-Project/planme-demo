@@ -47,6 +47,7 @@ type SearchAccommodationCandidatesOptions = {
   apiKey?: string;
   fetchImpl?: typeof fetch;
   maxCandidates?: number;
+  referer?: string;
 };
 
 const GOOGLE_PLACES_TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText";
@@ -86,6 +87,7 @@ export async function searchAccommodationCandidates(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...createGoogleMapsRefererHeader(options.referer),
         "X-Goog-Api-Key": apiKey,
         "X-Goog-FieldMask":
           "places.id,places.displayName,places.formattedAddress,places.location,places.types,places.rating,places.userRatingCount",
@@ -187,6 +189,34 @@ function readGoogleMapsApiKey(apiKeyOverride?: string) {
   return GOOGLE_MAPS_API_KEY_ENV_NAMES
     .map((name) => readRuntimeEnv(name))
     .find(Boolean) ?? "";
+}
+
+/**
+ * Adds only the origin-level referrer needed by HTTP-referrer-restricted Google API keys.
+ */
+function createGoogleMapsRefererHeader(referer?: string): Record<string, string> {
+  const normalizedReferer = normalizeGoogleMapsReferer(referer);
+
+  return normalizedReferer ? { Referer: normalizedReferer } : {};
+}
+
+/**
+ * Normalizes request URLs to an origin referrer so route details are not sent to Google.
+ */
+function normalizeGoogleMapsReferer(referer?: string) {
+  const trimmedReferer = referer?.trim();
+
+  if (!trimmedReferer) {
+    return "";
+  }
+
+  try {
+    const url = new URL(trimmedReferer);
+
+    return `${url.origin}/`;
+  } catch {
+    return trimmedReferer.endsWith("/") ? trimmedReferer : `${trimmedReferer}/`;
+  }
 }
 
 /**

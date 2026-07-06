@@ -41,6 +41,13 @@ function getGoogleMapsApiKey() {
 }
 
 /**
+ * Uses the PlanME request origin as Google referrer for referrer-restricted browser keys.
+ */
+function createGoogleMapsRefererHeader(requestUrl: string) {
+  return { Referer: `${new URL(requestUrl).origin}/` };
+}
+
+/**
  * Resolves a selected Google Place ID into a display name and coordinate.
  */
 export async function POST(request: Request) {
@@ -75,6 +82,7 @@ export async function POST(request: Request) {
     {
       headers: {
         "Content-Type": "application/json",
+        ...createGoogleMapsRefererHeader(request.url),
         "X-Goog-Api-Key": apiKey,
         "X-Goog-FieldMask": "id,displayName,formattedAddress,location",
       },

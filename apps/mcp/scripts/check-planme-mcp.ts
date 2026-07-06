@@ -385,6 +385,7 @@ async function assertGoogleMapsKeyFallbackContract(): Promise<void> {
   const originalServerKey = process.env.PLANME_GOOGLE_MAPS_API_KEY;
   const originalPublicKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
   let capturedApiKey = "";
+  let capturedReferer = "";
 
   try {
     delete process.env.PLANME_GOOGLE_MAPS_API_KEY;
@@ -396,9 +397,11 @@ async function assertGoogleMapsKeyFallbackContract(): Promise<void> {
         preferences: ["가족 여행"],
       },
       {
+        referer: "https://planme-demo.vercel.app/",
         fetchImpl: async (_url, init) => {
           const headers = init?.headers as Record<string, string> | undefined;
           capturedApiKey = headers?.["X-Goog-Api-Key"] ?? "";
+          capturedReferer = headers?.Referer ?? "";
 
           return new Response(
             JSON.stringify({
@@ -422,6 +425,7 @@ async function assertGoogleMapsKeyFallbackContract(): Promise<void> {
     );
 
     assert.equal(capturedApiKey, "fallback-google-key");
+    assert.equal(capturedReferer, "https://planme-demo.vercel.app/");
     assert.equal(candidates[0]?.name, "남해 비치호텔");
   } finally {
     if (originalServerKey === undefined) {

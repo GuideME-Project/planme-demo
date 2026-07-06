@@ -50,6 +50,13 @@ function getGoogleMapsApiKey() {
 }
 
 /**
+ * Uses the PlanME request origin as Google referrer for referrer-restricted browser keys.
+ */
+function createGoogleMapsRefererHeader(requestUrl: string) {
+  return { Referer: `${new URL(requestUrl).origin}/` };
+}
+
+/**
  * Proxies Google Places Autocomplete(New) so the PlanME UI can search destinations.
  */
 export async function POST(request: Request) {
@@ -85,6 +92,7 @@ export async function POST(request: Request) {
       }),
       headers: {
         "Content-Type": "application/json",
+        ...createGoogleMapsRefererHeader(request.url),
         "X-Goog-Api-Key": apiKey,
         "X-Goog-FieldMask":
           "suggestions.placePrediction.placeId,suggestions.placePrediction.text.text,suggestions.placePrediction.structuredFormat.mainText.text,suggestions.placePrediction.structuredFormat.secondaryText.text",
