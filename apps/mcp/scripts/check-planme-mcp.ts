@@ -4,9 +4,8 @@ import type { AddressInfo } from "node:net";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
-  decodePlanmePreviewPayload,
+  createPlanmeDraftPreview,
   generatePlanmeDraftWithOpenAi,
-  PLANME_PREVIEW_DATA_PARAM,
 } from "@planme/core";
 import { createPlanmeHttpServer } from "../src/server.js";
 
@@ -55,18 +54,6 @@ type PlanmeWidgetResourceMeta = {
     resource_domains?: string[];
   };
 };
-
-/**
- * Reads the stateless preview payload from a generated PlanME preview URL.
- */
-function decodePreviewUrlItinerary(pageUrl: string) {
-  const url = new URL(pageUrl);
-  const payload = url.searchParams.get(PLANME_PREVIEW_DATA_PARAM);
-
-  assert.ok(payload);
-
-  return decodePlanmePreviewPayload(payload);
-}
 
 /**
  * Verifies the OpenAI generator boundary without calling the real OpenAI API.
@@ -150,6 +137,46 @@ async function assertOpenAiGeneratorContract(): Promise<void> {
 }
 
 /**
+ * Verifies generated detail URLs stay readable without repeating region tokens.
+ */
+function assertDraftPreviewSlugContract(): void {
+  const preview = createPlanmeDraftPreview({
+    title: "남해 2일 가족 여행",
+    region: "경상남도 남해",
+    duration: "2일",
+    summary: "아이 동반 가족이 남해를 무리 없이 보는 일정입니다.",
+    days: [
+      {
+        day: 1,
+        label: "Day 1",
+        stops: [
+          { name: "남해 숙소", role: "origin", caption: "출발" },
+          { name: "상주은모래비치", role: "visit", caption: "해변" },
+          { name: "독일마을", role: "visit", caption: "관광" },
+        ],
+        timeline: [
+          {
+            time: "09:00",
+            title: "남해 숙소 출발",
+            description: "가족 여행을 시작합니다.",
+            category: "arrival",
+          },
+          {
+            time: "11:00",
+            title: "상주은모래비치 산책",
+            description: "아이와 함께 바다를 봅니다.",
+            category: "event",
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.match(preview.previewId, /^generated-경상남도-남해-2일-가족-여행-2d-/);
+  assert.doesNotMatch(preview.previewId, /남해-남해/);
+}
+
+/**
  * Starts the PlanME MCP server on an ephemeral local port for contract checks.
  */
 async function startServer() {
@@ -174,6 +201,7 @@ async function startServer() {
  */
 async function main(): Promise<void> {
   await assertOpenAiGeneratorContract();
+  assertDraftPreviewSlugContract();
 
   const { server, url } = await startServer();
   const transport = new StreamableHTTPClientTransport(url);
@@ -319,15 +347,12 @@ async function main(): Promise<void> {
     assert.equal(namhaeDraftRecommendationContent?.status, "preview_ready");
     assert.match(
       namhaeDraftRecommendationContent?.pageUrl ?? "",
-      /\/itinerary\/preview\?data=/,
+      /\/itinerary\/generated-/,
     );
+    assert.doesNotMatch(namhaeDraftRecommendationContent?.pageUrl ?? "", /\/itinerary\/preview\?data=/);
     assert.doesNotMatch(namhaeDraftRecommendationContent?.pageUrl ?? "", /#planme-preview/);
-    const decodedNamhaeDraftItinerary = decodePreviewUrlItinerary(
-      namhaeDraftRecommendationContent?.pageUrl ?? "",
-    );
-
-    assert.equal(decodedNamhaeDraftItinerary?.title, "남해 아이 동반 가족여행 1박 2일 초안");
-    assert.equal(decodedNamhaeDraftItinerary?.days[0]?.timeline[1]?.title, "남해 독일마을 산책");
+    assert.equal(new URL(namhaeDraftRecommendationContent?.pageUrl ?? "").search, "");
+    assert.match(namhaeDraftRecommendationContent?.previewId ?? "", /^generated-/);
     assert.equal(
       namhaeDraftRecommendationContent?.title,
       "남해 아이 동반 가족여행 1박 2일 초안",
@@ -338,7 +363,8 @@ async function main(): Promise<void> {
     );
     assert.match(namhaeDraftWidgetMeta, /남해 독일마을/);
     assert.match(namhaeDraftWidgetMeta, /물건리 방조어부림/);
-    assert.match(namhaeDraftWidgetMeta, /\/itinerary\/preview\?data=/);
+    assert.match(namhaeDraftWidgetMeta, /\/itinerary\/generated-/);
+    assert.doesNotMatch(namhaeDraftWidgetMeta, /\/itinerary\/preview\?data=/);
     assert.doesNotMatch(namhaeDraftWidgetMeta, /#planme-preview/);
     assert.doesNotMatch(namhaeDraftWidgetMeta, /남해 아이 동반 가족여행 방문/);
 
@@ -586,20 +612,33 @@ async function main(): Promise<void> {
 
     assert.equal(yeosuFamilyPreview.isError, undefined);
     assert.equal(yeosuFamilyPreviewContent?.status, "preview_ready");
-    assert.match(yeosuFamilyPreviewContent?.previewId ?? "", /^preview-/);
-    assert.match(yeosuFamilyPreviewContent?.pageUrl ?? "", /\/itinerary\/preview\?data=/);
+    assert.match(yeosuFamilyPreviewContent?.previewId ?? "", /^generated-/);
+    assert.match(yeosuFamilyPreviewContent?.pageUrl ?? "", /\/itinerary\/generated-/);
+    assert.doesNotMatch(yeosuFamilyPreviewContent?.pageUrl ?? "", /\/itinerary\/preview\?data=/);
     assert.doesNotMatch(yeosuFamilyPreviewContent?.pageUrl ?? "", /#planme-preview/);
-    const decodedYeosuPreviewItinerary = decodePreviewUrlItinerary(
-      yeosuFamilyPreviewContent?.pageUrl ?? "",
-    );
-
-    assert.equal(decodedYeosuPreviewItinerary?.title, "여수 가족 여행 1박 2일 초안");
-    assert.equal(decodedYeosuPreviewItinerary?.days[0]?.timeline[1]?.title, "아쿠아플라넷 여수 방문");
+    assert.equal(new URL(yeosuFamilyPreviewContent?.pageUrl ?? "").search, "");
     assert.equal(yeosuFamilyPreviewContent?.title, "여수 가족 여행 1박 2일 초안");
     assert.equal(yeosuFamilyPreviewContent?.timeline?.[1]?.title, "아쿠아플라넷 여수 방문");
     assert.equal(yeosuFamilyPreviewContent?.validationIssues?.length, 0);
-    assert.match(yeosuFamilyPreviewWidgetMeta, /\/itinerary\/preview\?data=/);
+    assert.match(yeosuFamilyPreviewWidgetMeta, /\/itinerary\/generated-/);
+    assert.doesNotMatch(yeosuFamilyPreviewWidgetMeta, /\/itinerary\/preview\?data=/);
     assert.doesNotMatch(yeosuFamilyPreviewWidgetMeta, /#planme-preview/);
+
+    const yeosuFamilyPreviewReadback = await client.callTool({
+      name: "get_planme_itinerary",
+      arguments: {
+        itineraryId: yeosuFamilyPreviewContent?.previewId,
+      },
+    });
+    const yeosuFamilyPreviewReadbackContent =
+      yeosuFamilyPreviewReadback.structuredContent as DraftPreviewContent | undefined;
+
+    assert.equal(yeosuFamilyPreviewReadback.isError, undefined);
+    assert.equal(yeosuFamilyPreviewReadbackContent?.title, "여수 가족 여행 1박 2일 초안");
+    assert.equal(
+      yeosuFamilyPreviewReadbackContent?.timeline?.[1]?.title,
+      "아쿠아플라넷 여수 방문",
+    );
 
     const committedPreview = await client.callTool({
       name: "commit_planme_itinerary",

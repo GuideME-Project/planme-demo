@@ -9,6 +9,7 @@ const requiredFiles = [
   "app/api/gpt/itineraries/recommend/route.ts",
   "app/api/gpt/itineraries/[itineraryId]/route.ts",
   "app/api/gpt/itineraries/[itineraryId]/share/route.ts",
+  "app/api/gpt/itineraries/preview-store/route.ts",
   "app/api/gpt/openapi/route.ts",
   "app/og/itinerary/[itineraryId]/route.tsx",
 ];
@@ -52,6 +53,20 @@ if (existsSync(openApiFile)) {
 
   if (!openApiSource.includes(".png")) {
     failures.push("OpenAPI schema must document .png preview image URLs for optional preview metadata");
+  }
+}
+
+const gptActionsFile = join(root, "packages/planme-core/src/gpt-actions.ts");
+
+if (existsSync(gptActionsFile)) {
+  const gptActionsSource = readFileSync(gptActionsFile, "utf8");
+
+  if (gptActionsSource.includes("buildPlanmePreviewPageUrl")) {
+    failures.push("GPT Actions must not build compressed /itinerary/preview URLs");
+  }
+
+  if (gptActionsSource.includes("PLANME_PREVIEW_DATA_PARAM")) {
+    failures.push("GPT Actions must not expose preview data query parameters");
   }
 }
 

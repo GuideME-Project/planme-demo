@@ -5,6 +5,7 @@ import {
   PlanmeAiConfigurationError,
   type RecommendItineraryRequest,
 } from "@planme/core";
+import { savePreviewItinerary } from "@/lib/preview-itinerary-store";
 
 /**
  * Creates an AI-authored PlanME itinerary for Custom GPT Actions.
@@ -13,7 +14,12 @@ export async function POST(request: Request) {
   const body = (await request.json()) as RecommendItineraryRequest;
 
   try {
-    return NextResponse.json(await createAiRecommendedItineraryResponse(request.url, body));
+    const response = await createAiRecommendedItineraryResponse(request.url, body);
+
+    // Persist the rendered payload so short generated URLs can reopen the same AI draft.
+    await savePreviewItinerary(response.itinerary);
+
+    return NextResponse.json(response);
   } catch (error) {
     if (error instanceof PlanmeAiConfigurationError) {
       return NextResponse.json(

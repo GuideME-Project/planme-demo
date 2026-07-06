@@ -766,14 +766,88 @@ function inferRegionFromTitle(title: string) {
  * Creates a deterministic preview id from the user-visible draft fields.
  */
 function createDraftPreviewId(input: PlanmeDraftPreviewRequest) {
-  return `preview-${hashString(
+  const slug = slugifyDraftPreviewIdPart(createDraftPreviewSlugSource(input));
+  const durationDays = inferDraftDurationDays(input);
+  const hash = hashString(
     JSON.stringify({
       days: input.days,
       duration: input.duration,
       region: input.region,
       title: input.title,
     }),
-  )}`;
+  );
+
+  // Keep ChatGPT handoff links short while making them recognizable as itinerary detail URLs.
+  return `generated-${slug}-${durationDays}d-${hash}`;
+}
+
+/**
+ * Chooses a compact human-readable slug source without duplicating the primary region.
+ */
+function createDraftPreviewSlugSource(input: PlanmeDraftPreviewRequest) {
+  const region = input.region?.trim() || inferRegionFromTitle(input.title);
+  const normalizedTitle = normalizeDraftPlaceAliases(input.title).trim();
+  const compactTitle = removeLeadingRegionTokenFromDraftTitle(normalizedTitle, region);
+
+  if (!compactTitle || compactTitle === region) {
+    return region;
+  }
+
+  if (compactTitle.startsWith(region)) {
+    return compactTitle;
+  }
+
+  return `${region} ${compactTitle}`;
+}
+
+/**
+ * Removes only the first title token when it repeats the final region token.
+ */
+function removeLeadingRegionTokenFromDraftTitle(title: string, region: string) {
+  const regionTokens = region.trim().split(/\s+/).filter(Boolean);
+  const titleTokens = title.trim().split(/\s+/).filter(Boolean);
+  const lastRegionToken = regionTokens.at(-1);
+  const firstTitleToken = titleTokens[0];
+
+  // Region can be "경상남도 남해" while the AI title starts with "남해".
+  if (lastRegionToken && firstTitleToken === lastRegionToken) {
+    return titleTokens.slice(1).join(" ");
+  }
+
+  return title;
+}
+
+/**
+ * Creates a URL-safe slug while keeping Korean labels readable for shared links.
+ */
+function slugifyDraftPreviewIdPart(value: string) {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^가-힣a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  return slug.length > 0 ? slug : "planme";
+}
+
+/**
+ * Infers trip length from the explicit duration text before falling back to visible days.
+ */
+function inferDraftDurationDays(input: PlanmeDraftPreviewRequest) {
+  const nightDayMatch = /(\d+)\s*박\s*(\d+)\s*일/.exec(input.duration ?? "");
+  const dayMatch = /(\d+)\s*일/.exec(input.duration ?? "");
+
+  if (nightDayMatch) {
+    return Number(nightDayMatch[2]);
+  }
+
+  if (dayMatch) {
+    return Number(dayMatch[1]);
+  }
+
+  return Math.max(1, input.days.length || 1);
 }
 
 /**

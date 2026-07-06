@@ -262,6 +262,41 @@ function toWidgetMeta(itinerary: PlanmeItinerary, pageUrl: string) {
 }
 
 /**
+ * Persists an MCP-produced itinerary through the web app so short detail links can reopen it.
+ */
+async function persistItineraryForDetailPage(itinerary: PlanmeItinerary): Promise<void> {
+  if (process.env.VERCEL !== "1") {
+    return;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 2500);
+
+  try {
+    const response = await fetch(`${PLANME_WEB_ORIGIN}/api/gpt/itineraries/preview-store`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ itinerary }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      // Do not log the itinerary payload; status is enough to diagnose handoff failures.
+      console.error("PlanME preview store handoff failed", response.status);
+    }
+  } catch (error) {
+    const safeMessage = error instanceof Error ? error.message : "unknown error";
+
+    // The widget can still render from _meta; this only affects the external detail page.
+    console.error("PlanME preview store handoff error", safeMessage);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
  * Registers a PlanME widget HTML resource for a ChatGPT Apps SDK template URI.
  */
 function registerPlanmeWidgetResource(server: McpServer, name: string, resourceUri: string): void {
@@ -379,6 +414,7 @@ export function createPlanmeMcpServer(): McpServer {
     },
     async (input: PlanmeDraftPreviewRequest) => {
       const result = createPlanmeDraftPreview(input);
+      await persistItineraryForDetailPage(result.itinerary);
       const structuredContent = toDraftPreviewSummary(result);
 
       // The full normalized itinerary is passed through _meta so the widget and text stay aligned.
@@ -429,6 +465,7 @@ export function createPlanmeMcpServer(): McpServer {
     },
     async (input: PlanmeDraftPreviewRequest) => {
       const result = updatePlanmeDraftPreview(input);
+      await persistItineraryForDetailPage(result.itinerary);
       const structuredContent = toDraftPreviewSummary(result);
 
       // A revised draft should re-render the same widget with the latest normalized itinerary.
@@ -484,6 +521,7 @@ export function createPlanmeMcpServer(): McpServer {
         };
       }
 
+      await persistItineraryForDetailPage(result.itinerary);
       const structuredContent = toDraftPreviewSummary(result);
 
       // Returning the same widget keeps the committed state visually aligned with the preview.
@@ -583,6 +621,7 @@ export function createPlanmeMcpServer(): McpServer {
         };
       }
 
+      await persistItineraryForDetailPage(response.itinerary);
       const structuredContent = toItinerarySummary(response);
 
       // Return a concise text fallback for clients that do not render the widget.

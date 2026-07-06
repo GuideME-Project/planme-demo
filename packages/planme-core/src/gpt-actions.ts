@@ -13,12 +13,10 @@ import {
   generatePlanmeDraftWithOpenAi,
   type AiItineraryGenerator,
 } from "./openai-itinerary-generator.js";
-import {
-  encodePlanmePreviewPayload,
-  PLANME_PREVIEW_DATA_PARAM,
-} from "./preview-payload.js";
 
 export type RecommendItineraryRequest = GeneratedItineraryRequest & {
+  previewId?: string;
+  baseVersion?: number;
   title?: string;
   region?: string;
   duration?: string;
@@ -59,22 +57,6 @@ export function buildItineraryPageUrl(requestUrl: string, itineraryId: string): 
 
   // Custom GPT Actions require an HTTPS deployment, but localhost remains useful for verification.
   return new URL(`/itinerary/${itineraryId}`, url.origin).toString();
-}
-
-/**
- * Builds the stable PlanME draft preview URL used for stateless ChatGPT link handoff.
- */
-export function buildPlanmePreviewPageUrl(
-  requestUrl: string,
-  itinerary: PlanmeItinerary,
-): string {
-  const url = new URL(requestUrl);
-
-  // Draft previews are not persisted yet, so the web page receives the itinerary through the URL.
-  const previewUrl = new URL("/itinerary/preview", url.origin);
-  previewUrl.searchParams.set(PLANME_PREVIEW_DATA_PARAM, encodePlanmePreviewPayload(itinerary));
-
-  return previewUrl.toString();
 }
 
 /**
@@ -133,14 +115,20 @@ export function toDraftGptActionItineraryResponse(
   requestUrl: string,
 ): GptActionItineraryResponse {
   const response = toGptActionItineraryResponse(result.itinerary, requestUrl);
-  const pageUrl = buildPlanmePreviewPageUrl(requestUrl, result.itinerary);
+  const pageUrl = buildItineraryPageUrl(requestUrl, result.previewId);
 
-  // Draft preview pages use an encoded payload rather than a generated detail route.
+  // Draft previews use the same short detail URL shape as generated recommendations.
   return {
     ...response,
+    itineraryId: result.previewId,
+    ogImageUrl: buildItineraryOgImageUrl(requestUrl, result.previewId),
+    previewMarkdown: buildItineraryPreviewMarkdown(
+      buildItineraryOgImageUrl(requestUrl, result.previewId),
+    ),
     pageUrl,
     itinerary: {
       ...response.itinerary,
+      id: result.previewId,
       detailUrl: pageUrl,
     },
     previewId: result.previewId,
@@ -247,6 +235,8 @@ function toDraftPreviewRequest(
   input: RecommendItineraryRequest & { days: PlanmeDraftPreviewRequest["days"] },
 ): PlanmeDraftPreviewRequest {
   return {
+    previewId: input.previewId,
+    baseVersion: input.baseVersion,
     title: input.title?.trim() || createDraftTitle(input),
     region: input.region?.trim() || input.destination?.trim(),
     duration: input.duration?.trim() || formatDurationDays(input.durationDays),

@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
-import { getPlanmeItineraryById, type TimelineEvent } from "@planme/core";
+import { type TimelineEvent } from "@planme/core";
+import { findPlanmeItineraryForDetailPage } from "@/lib/preview-itinerary-store";
 
 export const size = {
   width: 768,
@@ -107,7 +108,7 @@ function TimelineIcon({ category }: { category: TimelineEvent["category"] }) {
 export async function GET(_request: Request, context: ItineraryOgRouteContext) {
   const { itineraryId: rawItineraryId } = await context.params;
   const itineraryId = normalizeItineraryIdParam(rawItineraryId);
-  const itinerary = getPlanmeItineraryById(itineraryId);
+  const itinerary = await findPlanmeItineraryForDetailPage(itineraryId);
 
   if (!itinerary) {
     // Unknown itinerary ids should fail loudly so broken GPT image links are visible in testing.
