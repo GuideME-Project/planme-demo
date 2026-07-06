@@ -25,7 +25,7 @@ export function GET(request: Request) {
           operationId: "recommendPlanmeItinerary",
           summary: "Render an AI-authored PlanME itinerary widget or handoff URL",
           description:
-            "When ChatGPT has drafted concrete stops or timeline events in conversation, include days with real POI names so the PlanME widget matches the draft. If days is omitted, PlanME asks OpenAI to draft the itinerary server-side.",
+            "When ChatGPT has drafted concrete stops or timeline events in conversation, include days with real POI names so the PlanME widget matches the draft. If days is omitted, PlanME asks OpenAI to draft the itinerary server-side. CarryME luggage handoff points must be lodging, hotels, or explicit pickup points, not plain train/subway stations, terminals, or airports.",
           requestBody: {
             required: true,
             content: {
@@ -64,7 +64,7 @@ export function GET(request: Request) {
                       type: "array",
                       items: { $ref: "#/components/schemas/PlanmeDraftDay" },
                       description:
-                        "Concrete ChatGPT-authored itinerary days. Include this whenever the conversation contains real stops or POIs.",
+                        "Concrete ChatGPT-authored itinerary days. Include this whenever the conversation contains real stops or POIs. Do not create station luggage storage or pickup events unless the user explicitly named a CarryME pickup point.",
                     },
                     destination: {
                       type: "string",
@@ -267,6 +267,8 @@ export function GET(request: Request) {
             role: {
               type: "string",
               enum: ["origin", "visit", "luggageDestination", "finalDestination"],
+              description:
+                "Use luggageDestination only for lodging, hotel, or an explicitly named CarryME pickup point. Do not use a plain train/subway station, terminal, or airport as a luggage handoff point.",
             },
             caption: { type: "string" },
             coordinate: { $ref: "#/components/schemas/MapCoordinate" },
@@ -282,7 +284,11 @@ export function GET(request: Request) {
               description:
                 "Short single-event title, such as 독일마을 산책. Do not repeat the full route.",
             },
-            description: { type: "string" },
+            description: {
+              type: "string",
+              description:
+                "Short event description. Do not say luggage is stored, retrieved, or picked up at a plain train/subway station, terminal, or airport.",
+            },
             category: {
               type: "string",
               enum: ["arrival", "carryme", "transit", "meal", "hotel", "event"],

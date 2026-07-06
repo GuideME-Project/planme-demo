@@ -561,7 +561,7 @@ function createLocalGeneratedDayOneTimeline({
     {
       time: "10:00",
       title: "캐리미 짐 탁송 완료",
-      description: `${hotelName}에서 ${stationName} 보관 지점으로 배송 접수 완료`,
+      description: `${hotelName}에서 숙소 또는 명시된 수령 지점으로 배송 접수 완료`,
       category: "carryme",
       highlight: true,
     },
@@ -580,8 +580,8 @@ function createLocalGeneratedDayOneTimeline({
     },
     {
       time: "21:30",
-      title: `${stationName} 짐 수령`,
-      description: "일정 후 안전하게 도착한 내 짐 확인",
+      title: `${stationName} 이동`,
+      description: "다음 이동 준비",
       category: "transit",
     },
   ];
@@ -600,9 +600,15 @@ function createGeneratedDayTwo({
   savingMinutes: number;
 }): ItineraryDay {
   const hotelStop = createRouteStop(hotelName, "체크아웃", destinationTemplate.hotelCoordinate, "hotel");
+  const luggageReturnStop = createRouteStop(
+    hotelName,
+    "짐 수령",
+    destinationTemplate.hotelCoordinate,
+    "hotel",
+  );
   const stationStop = createRouteStop(
     destinationTemplate.stationName,
-    "짐 수령",
+    "귀가",
     destinationTemplate.stationCoordinate,
     "station",
   );
@@ -623,16 +629,17 @@ function createGeneratedDayTwo({
       id: "standard",
       label: "Standard",
       badge: "Standard",
-      routeText: `${hotelStop.label} → ${stationStop.label} → ${attractionStop.label}`,
-      description: "체크아웃 후 짐 보관을 위해 역을 먼저 경유",
+      routeText: `${hotelStop.label} → ${attractionStop.label} → ${luggageReturnStop.label} → ${stationStop.label}`,
+      description: "체크아웃 후 관광을 마치고 숙소로 돌아가 짐을 챙긴 뒤 이동",
       durationLabel: formatMinutes(standardMinutes),
       durationMinutes: standardMinutes,
-      stops: [hotelStop, stationStop, attractionStop],
-      geoPath: createGeoPath([hotelStop, stationStop, attractionStop]),
+      stops: [hotelStop, attractionStop, luggageReturnStop, stationStop],
+      geoPath: createGeoPath([hotelStop, attractionStop, luggageReturnStop, stationStop]),
       mapPath: [
         { x: 34, y: 56 },
-        { x: 26, y: 72 },
         { x: 76, y: 44 },
+        { x: 34, y: 56 },
+        { x: 26, y: 72 },
       ],
     },
     carryme: {
@@ -640,7 +647,7 @@ function createGeneratedDayTwo({
       label: "CarryME",
       badge: "CarryME",
       routeText: `${hotelStop.label} → ${attractionStop.label} → ${stationStop.label}`,
-      description: "짐은 수령 지점으로 보내고 마지막 관광까지 가볍게 이동",
+      description: "짐은 CarryME가 이동하고 여행자는 마지막 관광 후 역으로 바로 이동",
       durationLabel: formatMinutes(carrymeMinutes),
       durationMinutes: carrymeMinutes,
       stops: [hotelStop, attractionStop, stationStop],
@@ -661,7 +668,7 @@ function createGeneratedDayTwo({
       {
         time: "10:00",
         title: "캐리미 짐 수거 완료",
-        description: "짐은 수령 지점으로 이동",
+        description: "짐은 CarryME가 숙소 또는 명시된 수령 지점으로 이동",
         category: "carryme",
         highlight: true,
       },
@@ -680,8 +687,8 @@ function createGeneratedDayTwo({
       },
       {
         time: "16:30",
-        title: `${destinationTemplate.stationName} 짐 수령`,
-        description: "귀국 또는 다음 도시 이동 전 짐 확인",
+        title: `${destinationTemplate.stationName} 이동`,
+        description: "귀국 또는 다음 도시 이동 준비",
         category: "transit",
       },
     ],
