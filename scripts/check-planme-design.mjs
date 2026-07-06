@@ -40,6 +40,7 @@ const requiredSourceFragments = [
 const requiredDashboardSourceFragments = [
   'type InternalDestinationRole = "origin" | "stop" | "luggageDestination" | "finalDestination";',
   "function createComparisonRouteRows",
+  "function formatDayToggleLabel",
   "luggageDestination",
   "finalDestination",
   "savingLabel={savingLabel}",
@@ -61,6 +62,7 @@ const forbiddenSourceFragments = [
   "function RouteStopCell",
   "RouteStopCell",
   "showArrow={index < route.stops.length - 1}",
+  "{day.label}",
 ];
 
 const forbiddenRouteMapSourceFragments = [

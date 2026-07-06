@@ -88,6 +88,8 @@ const committedDraftKeys = new Map<string, string>();
 // Route-like title detection keeps AI-generated multi-POI strings out of compact widget headings.
 const ROUTE_TITLE_SEPARATOR_THRESHOLD = 2;
 const DRAFT_TITLE_MAX_LENGTH = 44;
+// PlanME previews cap AI-authored days to keep widget payloads bounded while supporting multi-night trips.
+const MAX_DRAFT_DAYS = 14;
 const DEFAULT_AIRPORT_ORIGIN_PATTERN = /^(ICN|인천\s*(국제)?공항)$/i;
 const UNKNOWN_ORIGIN_LABEL = "출발지 확인 필요";
 const DRAFT_PLACE_ALIAS_REPLACEMENTS: Array<{ pattern: RegExp; replacement: string }> = [
@@ -236,7 +238,7 @@ function buildDraftItinerary(
   const luggageFallbackLabel = createRegionLuggageFallbackLabel(region);
   const days = input.days.length > 0
     ? input.days
-        .slice(0, 2)
+        .slice(0, MAX_DRAFT_DAYS)
         .map((day, index) =>
           buildDraftDay(
             day,
@@ -296,7 +298,7 @@ function buildDraftDay(
   );
 
   return {
-    day: index === 0 ? 1 : 2,
+    day: index + 1,
     label: day.label?.trim() || `Day ${index + 1}`,
     savingMinutes: Math.max(0, standardMinutes - carrymeMinutes),
     standard: buildRoutePlan({

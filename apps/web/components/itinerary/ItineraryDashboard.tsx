@@ -169,6 +169,15 @@ const destinationModeOptions: Array<{
   { icon: <DirectionsWalkRoundedIcon fontSize="small" />, label: "도보", value: "walk" },
 ];
 
+/**
+ * Keeps day tabs compact even when AI writes descriptive labels for each day.
+ */
+function formatDayToggleLabel(day: Pick<EditableDayPlan, "day">, index: number) {
+  const dayNumber = Number.isFinite(day.day) && day.day > 0 ? Math.trunc(day.day) : index + 1;
+
+  return `${dayNumber}일차`;
+}
+
 const odsayApiKey = process.env.NEXT_PUBLIC_ODSAY_API_KEY ?? "";
 // Long-distance transit responses below this straight-line distance are treated as local routes.
 const longDistanceTransitThresholdMeters = 50_000;
@@ -2181,13 +2190,13 @@ export function ItineraryDashboard({
                 onChange={handleDayChange}
                 value={selectedDay}
               >
-                {editableDays.map((day) => (
+                {editableDays.map((day, index) => (
                   <ToggleButton
                     key={day.uiId}
                     value={day.day}
                     sx={{ minWidth: 112, position: "relative", px: 2.8 }}
                   >
-                    {day.label}
+                    {formatDayToggleLabel(day, index)}
                   </ToggleButton>
                 ))}
               </ToggleButtonGroup>

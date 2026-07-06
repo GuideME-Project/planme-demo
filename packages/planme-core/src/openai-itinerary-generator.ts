@@ -26,6 +26,8 @@ type OpenAiResponsesApiResult = {
 
 const OPENAI_RESPONSES_API_URL = "https://api.openai.com/v1/responses";
 const DEFAULT_OPENAI_MODEL = "gpt-4.1-mini";
+// The widget supports longer drafts, but the schema still caps payload size for reliable MCP handoff.
+const MAX_GENERATED_ITINERARY_DAYS = 14;
 
 /**
  * Signals that PlanME AI generation cannot run because server configuration is missing.
@@ -122,6 +124,7 @@ function createItineraryGenerationPrompt(input: RecommendItineraryRequest) {
     "PlanME 서버는 장소를 보정하지 않으므로, 목적지의 실제 한국어 장소명을 직접 선택해야 합니다.",
     "공항이 명시되지 않았으면 인천공항, 김포공항, 김해공항 같은 기본 공항을 절대 만들지 마세요.",
     "사용자가 출발지를 말했으면 첫 타임라인은 '<출발지> 출발'로 작성하세요.",
+    "days 배열은 여행 기간 일수와 반드시 같아야 합니다. 예: 2박 3일 또는 여행 기간 3일이면 day 1, day 2, day 3 총 3개를 작성하세요.",
     accommodationInstruction,
     "역/터미널/공항은 기본 수하물 보관·수령지가 아닙니다. luggageDestination은 숙소, 호텔, 또는 사용자가 명시한 CarryME 수령 지점에만 사용하세요.",
     "부산역 짐 보관, 부산역 짐 수령처럼 교통 거점에서 짐을 맡기거나 찾는 표현을 만들지 마세요.",
@@ -184,7 +187,7 @@ function createPlanmeDraftJsonSchema() {
       days: {
         type: "array",
         minItems: 1,
-        maxItems: 2,
+        maxItems: MAX_GENERATED_ITINERARY_DAYS,
         items: {
           type: "object",
           additionalProperties: false,

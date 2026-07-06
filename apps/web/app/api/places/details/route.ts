@@ -23,11 +23,21 @@ type GoogleErrorResponse = {
   };
 };
 
+const GOOGLE_MAPS_API_KEY_ENV_NAMES = [
+  "PLANME_GOOGLE_MAPS_API_KEY",
+  "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY",
+] as const;
+const GOOGLE_MAPS_API_KEY_MISSING_MESSAGE =
+  "PLANME_GOOGLE_MAPS_API_KEY 또는 NEXT_PUBLIC_GOOGLE_MAPS_API_KEY가 설정되어 있지 않습니다.";
+
 /**
  * Returns the server-side Google Maps API key used for Places and Routes checks.
  */
 function getGoogleMapsApiKey() {
-  return process.env.PLANME_GOOGLE_MAPS_API_KEY ?? "";
+  // Some deployments still provide the browser-prefixed key name; server routes can safely reuse it.
+  return GOOGLE_MAPS_API_KEY_ENV_NAMES
+    .map((name) => process.env[name]?.trim() ?? "")
+    .find(Boolean) ?? "";
 }
 
 /**
@@ -40,7 +50,7 @@ export async function POST(request: Request) {
 
   if (!apiKey) {
     return NextResponse.json(
-      { message: "PLANME_GOOGLE_MAPS_API_KEY가 설정되어 있지 않습니다." },
+      { message: GOOGLE_MAPS_API_KEY_MISSING_MESSAGE },
       { status: 503 },
     );
   }
