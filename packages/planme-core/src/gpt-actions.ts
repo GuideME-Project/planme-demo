@@ -54,6 +54,7 @@ export type GptActionItineraryResponse = {
 export type AiRecommendedItineraryOptions = {
   aiItineraryGenerator?: AiItineraryGenerator;
   accommodationCandidateSearcher?: AccommodationCandidateSearcher;
+  googleMapsReferer?: string;
 };
 
 /**
@@ -210,9 +211,15 @@ export async function createAiRecommendedItineraryResponse(
   }
 
   const aiItineraryGenerator = options.aiItineraryGenerator ?? generatePlanmeDraftWithOpenAi;
+  const accommodationCandidateSearcher =
+    options.accommodationCandidateSearcher ??
+    ((searchInput) =>
+      searchAccommodationCandidates(searchInput, {
+        referer: options.googleMapsReferer,
+      }));
   const accommodationCandidates = await resolveAccommodationCandidates(
     input,
-    options.accommodationCandidateSearcher ?? searchAccommodationCandidates,
+    accommodationCandidateSearcher,
   );
   const generatorInput =
     accommodationCandidates.length > 0

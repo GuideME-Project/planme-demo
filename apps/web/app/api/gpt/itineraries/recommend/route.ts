@@ -14,7 +14,9 @@ export async function POST(request: Request) {
   const body = (await request.json()) as RecommendItineraryRequest;
 
   try {
-    const response = await createAiRecommendedItineraryResponse(request.url, body);
+    const response = await createAiRecommendedItineraryResponse(request.url, body, {
+      googleMapsReferer: createGoogleMapsReferer(request.url),
+    });
 
     // Persist the rendered payload so short generated URLs can reopen the same AI draft.
     await savePreviewItinerary(response.itinerary);
@@ -41,4 +43,11 @@ export async function POST(request: Request) {
       { status: 502 },
     );
   }
+}
+
+/**
+ * Uses the PlanME request origin as Google referrer without forwarding the full itinerary path.
+ */
+function createGoogleMapsReferer(requestUrl: string) {
+  return `${new URL(requestUrl).origin}/`;
 }

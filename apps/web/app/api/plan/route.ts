@@ -43,17 +43,23 @@ export async function POST(request: Request) {
   const body = (await request.json()) as PlanRequestBody;
 
   try {
-    const response = await createAiRecommendedItineraryResponse(request.url, {
-      arrivalAirport: body.arrivalAirport,
-      arrivalTime: body.arrivalTime,
-      destination: body.destination,
-      durationDays: body.days ?? (typeof body.nights === "number" ? body.nights + 1 : undefined),
-      hotelName: body.hotelName,
-      luggageCount: body.luggageCount,
-      origin: body.origin,
-      preferences: body.preferences,
-      travelerCount: body.travelerCount,
-    });
+    const response = await createAiRecommendedItineraryResponse(
+      request.url,
+      {
+        arrivalAirport: body.arrivalAirport,
+        arrivalTime: body.arrivalTime,
+        destination: body.destination,
+        durationDays: body.days ?? (typeof body.nights === "number" ? body.nights + 1 : undefined),
+        hotelName: body.hotelName,
+        luggageCount: body.luggageCount,
+        origin: body.origin,
+        preferences: body.preferences,
+        travelerCount: body.travelerCount,
+      },
+      {
+        googleMapsReferer: createGoogleMapsReferer(request.url),
+      },
+    );
 
     return NextResponse.json({
       message:
@@ -86,4 +92,11 @@ export async function POST(request: Request) {
       { status: 502 },
     );
   }
+}
+
+/**
+ * Uses the PlanME request origin as Google referrer without forwarding the full request path.
+ */
+function createGoogleMapsReferer(requestUrl: string) {
+  return `${new URL(requestUrl).origin}/`;
 }

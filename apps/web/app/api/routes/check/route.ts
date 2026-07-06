@@ -80,6 +80,13 @@ function getGoogleMapsApiKey() {
 }
 
 /**
+ * Uses the PlanME request origin as Google referrer for referrer-restricted browser keys.
+ */
+function createGoogleMapsRefererHeader(requestUrl: string) {
+  return { Referer: `${new URL(requestUrl).origin}/` };
+}
+
+/**
  * Converts a PlanME destination into a Google Routes waypoint.
  */
 function toWaypoint(stop: RouteCheckStop): RouteWaypoint {
@@ -123,11 +130,13 @@ async function requestComputeRoute({
   apiKey,
   destination,
   origin,
+  referer,
   travelMode,
 }: {
   apiKey: string;
   destination: RouteCheckStop;
   origin: RouteCheckStop;
+  referer: string;
   travelMode: GoogleTravelMode;
 }): Promise<ComputeRouteResult> {
   // Each segment is requested independently because transit does not support intermediate stops.
@@ -144,6 +153,7 @@ async function requestComputeRoute({
       }),
       headers: {
         "Content-Type": "application/json",
+        ...createGoogleMapsRefererHeader(referer),
         "X-Goog-Api-Key": apiKey,
         "X-Goog-FieldMask":
           "routes.duration,routes.distanceMeters,routes.localizedValues",
@@ -251,6 +261,7 @@ export async function POST(request: Request) {
       apiKey,
       destination,
       origin,
+      referer: request.url,
       travelMode: requestedTravelMode,
     });
 
