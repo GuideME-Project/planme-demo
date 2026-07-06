@@ -43,7 +43,7 @@ export type RoutePlan = {
 };
 
 export type ItineraryDay = {
-  day: 1 | 2;
+  day: number;
   label: string;
   standard: RoutePlan;
   carryme: RoutePlan;

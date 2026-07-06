@@ -8,6 +8,7 @@ import {
   createGeneratedItinerary,
   createPlanmeDraftPreview,
   generatePlanmeDraftWithOpenAi,
+  searchAccommodationCandidates,
 } from "@planme/core";
 import { createPlanmeHttpServer } from "../src/server.js";
 
@@ -243,6 +244,201 @@ async function assertAccommodationCandidateContract(): Promise<void> {
 }
 
 /**
+ * Verifies that multi-night AI drafts keep the requested number of itinerary days.
+ */
+async function assertThreeDayAiDraftContract(): Promise<void> {
+  const response = await createAiRecommendedItineraryResponse(
+    "http://localhost:3000/api/gpt/itineraries/recommend",
+    {
+      destination: "남해",
+      durationDays: 3,
+      preferences: ["낚시", "가족 여행"],
+      travelerCount: 4,
+      luggageCount: 2,
+    },
+    {
+      accommodationCandidateSearcher: async () => [
+        {
+          id: "place-namhae-beach-hotel",
+          name: "남해 비치호텔",
+          address: "경상남도 남해군 남면 남면로 999",
+          coordinate: { lat: 34.7301, lng: 127.9001 },
+          placeId: "places/namhae-beach-hotel",
+          types: ["lodging"],
+        },
+      ],
+      aiItineraryGenerator: async () => ({
+        title: "남해 낚시 가족여행 2박 3일 일정",
+        region: "남해",
+        duration: "2박 3일",
+        summary: "가족이 남해에서 낚시와 해안 산책을 함께 즐기는 3일 일정입니다.",
+        assumptions: ["2박 3일", "아이 동반 가족 여행"],
+        savedMinutes: 60,
+        days: [
+          {
+            day: 1,
+            label: "첫째 날: 남해 도착과 숙소 체크인",
+            standardDurationMinutes: 420,
+            carrymeDurationMinutes: 360,
+            standardRouteText: "서울 → 남해 비치호텔 → 남해 독일마을",
+            carrymeRouteText: "서울 → 남해 독일마을 → 남해 비치호텔",
+            stops: [
+              { name: "서울", role: "origin", caption: "출발" },
+              { name: "남해 독일마을", role: "visit", caption: "관광" },
+              { name: "남해 비치호텔", role: "luggageDestination", caption: "짐 도착" },
+            ],
+            timeline: [
+              {
+                time: "09:00",
+                title: "서울 출발",
+                description: "남해 가족여행을 시작합니다.",
+                category: "arrival",
+                highlight: false,
+                savingLabel: "",
+              },
+              {
+                time: "15:00",
+                title: "남해 독일마을 방문",
+                description: "가볍게 마을을 둘러봅니다.",
+                category: "event",
+                highlight: true,
+                savingLabel: "약 60분 절약",
+              },
+            ],
+          },
+          {
+            day: 2,
+            label: "둘째 날: 방파제 낚시와 해안 산책",
+            standardDurationMinutes: 360,
+            carrymeDurationMinutes: 320,
+            standardRouteText: "남해 비치호텔 → 물건방조어부림 → 남해 비치호텔",
+            carrymeRouteText: "남해 비치호텔 → 물건방조어부림 → 남해 비치호텔",
+            stops: [
+              { name: "남해 비치호텔", role: "origin", caption: "출발" },
+              { name: "물건방조어부림", role: "visit", caption: "해안 산책" },
+              { name: "남해 비치호텔", role: "finalDestination", caption: "휴식" },
+            ],
+            timeline: [
+              {
+                time: "10:00",
+                title: "물건방조어부림 산책",
+                description: "가족과 해안 산책을 합니다.",
+                category: "event",
+                highlight: true,
+                savingLabel: "약 40분 절약",
+              },
+              {
+                time: "17:00",
+                title: "남해 비치호텔 휴식",
+                description: "숙소로 돌아와 쉽니다.",
+                category: "hotel",
+                highlight: false,
+                savingLabel: "",
+              },
+            ],
+          },
+          {
+            day: 3,
+            label: "셋째 날: 바다 산책 후 귀가",
+            standardDurationMinutes: 300,
+            carrymeDurationMinutes: 260,
+            standardRouteText: "남해 비치호텔 → 상주은모래비치 → 서울",
+            carrymeRouteText: "남해 비치호텔 → 상주은모래비치 → 서울",
+            stops: [
+              { name: "남해 비치호텔", role: "origin", caption: "출발" },
+              { name: "상주은모래비치", role: "visit", caption: "산책" },
+              { name: "서울", role: "finalDestination", caption: "귀가" },
+            ],
+            timeline: [
+              {
+                time: "10:00",
+                title: "상주은모래비치 산책",
+                description: "귀가 전 바다를 봅니다.",
+                category: "event",
+                highlight: true,
+                savingLabel: "약 40분 절약",
+              },
+              {
+                time: "15:00",
+                title: "서울 도착",
+                description: "여행을 마칩니다.",
+                category: "arrival",
+                highlight: false,
+                savingLabel: "",
+              },
+            ],
+          },
+        ],
+      }),
+    },
+  );
+
+  assert.equal(response.itinerary.days.length, 3);
+  assert.equal(response.itinerary.days[2]?.day, 3);
+  assert.equal(response.itinerary.days[2]?.label, "셋째 날: 바다 산책 후 귀가");
+}
+
+/**
+ * Verifies server code can reuse the already-configured public Google Maps key name.
+ */
+async function assertGoogleMapsKeyFallbackContract(): Promise<void> {
+  const originalServerKey = process.env.PLANME_GOOGLE_MAPS_API_KEY;
+  const originalPublicKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  let capturedApiKey = "";
+
+  try {
+    delete process.env.PLANME_GOOGLE_MAPS_API_KEY;
+    process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY = "fallback-google-key";
+
+    const candidates = await searchAccommodationCandidates(
+      {
+        destination: "남해",
+        preferences: ["가족 여행"],
+      },
+      {
+        fetchImpl: async (_url, init) => {
+          const headers = init?.headers as Record<string, string> | undefined;
+          capturedApiKey = headers?.["X-Goog-Api-Key"] ?? "";
+
+          return new Response(
+            JSON.stringify({
+              places: [
+                {
+                  displayName: { text: "남해 비치호텔" },
+                  formattedAddress: "경상남도 남해군 남면 남면로 999",
+                  id: "places/namhae-beach-hotel",
+                  location: { latitude: 34.7301, longitude: 127.9001 },
+                  types: ["lodging"],
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        },
+      },
+    );
+
+    assert.equal(capturedApiKey, "fallback-google-key");
+    assert.equal(candidates[0]?.name, "남해 비치호텔");
+  } finally {
+    if (originalServerKey === undefined) {
+      delete process.env.PLANME_GOOGLE_MAPS_API_KEY;
+    } else {
+      process.env.PLANME_GOOGLE_MAPS_API_KEY = originalServerKey;
+    }
+
+    if (originalPublicKey === undefined) {
+      delete process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+    } else {
+      process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY = originalPublicKey;
+    }
+  }
+}
+
+/**
  * Verifies generated detail URLs stay readable without repeating region tokens.
  */
 function assertDraftPreviewSlugContract(): void {
@@ -389,6 +585,8 @@ async function startServer() {
 async function main(): Promise<void> {
   await assertOpenAiGeneratorContract();
   await assertAccommodationCandidateContract();
+  await assertThreeDayAiDraftContract();
+  await assertGoogleMapsKeyFallbackContract();
   assertDraftPreviewSlugContract();
   assertStationLuggageGuardrail();
 

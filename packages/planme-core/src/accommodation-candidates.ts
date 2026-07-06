@@ -52,6 +52,10 @@ type SearchAccommodationCandidatesOptions = {
 const GOOGLE_PLACES_TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText";
 const DEFAULT_MAX_CANDIDATES = 5;
 const LODGING_NAME_PATTERN = /(호텔|펜션|리조트|숙소|모텔|게스트\s*하우스|풀빌라|민박|스테이)/;
+const GOOGLE_MAPS_API_KEY_ENV_NAMES = [
+  "PLANME_GOOGLE_MAPS_API_KEY",
+  "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY",
+] as const;
 const LODGING_TYPES = new Set([
   "hotel",
   "lodging",
@@ -68,7 +72,7 @@ export async function searchAccommodationCandidates(
   input: AccommodationCandidateSearchInput,
   options: SearchAccommodationCandidatesOptions = {},
 ): Promise<AccommodationCandidate[]> {
-  const apiKey = options.apiKey?.trim() || readRuntimeEnv("PLANME_GOOGLE_MAPS_API_KEY");
+  const apiKey = readGoogleMapsApiKey(options.apiKey);
   const textQuery = createAccommodationTextQuery(input);
   const fetchImpl = options.fetchImpl ?? fetch;
   const maxCandidates = options.maxCandidates ?? DEFAULT_MAX_CANDIDATES;
@@ -167,6 +171,22 @@ function normalizeGooglePlaces(places: GooglePlace[]) {
  */
 function isLodgingCandidate(name: string, types: string[]) {
   return types.some((type) => LODGING_TYPES.has(type)) || LODGING_NAME_PATTERN.test(name);
+}
+
+/**
+ * Reads the Google Maps key from either the dedicated server name or the existing Vercel public name.
+ */
+function readGoogleMapsApiKey(apiKeyOverride?: string) {
+  const explicitApiKey = apiKeyOverride?.trim();
+
+  if (explicitApiKey) {
+    return explicitApiKey;
+  }
+
+  // Keep compatibility with deployments that already configured only NEXT_PUBLIC_GOOGLE_MAPS_API_KEY.
+  return GOOGLE_MAPS_API_KEY_ENV_NAMES
+    .map((name) => readRuntimeEnv(name))
+    .find(Boolean) ?? "";
 }
 
 /**
