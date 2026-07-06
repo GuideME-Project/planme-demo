@@ -20,6 +20,11 @@ const requiredOpenApiPaths = [
   "/api/gpt/itineraries/{itineraryId}/share",
 ];
 
+const forbiddenFiles = [
+  "apps/web/app/itinerary/preview/page.tsx",
+  "packages/planme-core/src/preview-payload.ts",
+];
+
 const failures = [];
 
 for (const file of requiredFiles) {
@@ -67,6 +72,22 @@ if (existsSync(gptActionsFile)) {
 
   if (gptActionsSource.includes("PLANME_PREVIEW_DATA_PARAM")) {
     failures.push("GPT Actions must not expose preview data query parameters");
+  }
+}
+
+for (const file of forbiddenFiles) {
+  if (existsSync(join(root, file))) {
+    failures.push(`Legacy compressed preview URL file must be removed: ${file}`);
+  }
+}
+
+const coreIndexFile = join(root, "packages/planme-core/src/index.ts");
+
+if (existsSync(coreIndexFile)) {
+  const coreIndexSource = readFileSync(coreIndexFile, "utf8");
+
+  if (coreIndexSource.includes("preview-payload")) {
+    failures.push("Core package must not export legacy compressed preview payload helpers");
   }
 }
 
