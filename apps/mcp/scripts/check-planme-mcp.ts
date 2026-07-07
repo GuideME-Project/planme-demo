@@ -8,8 +8,11 @@ import {
   createGeneratedItinerary,
   createPlanmeDraftPreview,
   generatePlanmeDraftWithOpenAi,
+  resolvePlanmeDraftCoordinates,
   searchAccommodationCandidates,
+  type PlanmeDraftGeocoder,
 } from "@planme/core";
+import { createNaverGeocoder } from "../src/naver-geocoding.js";
 import { persistItineraryForDetailPage } from "../src/planme-mcp.js";
 import { createPlanmeHttpServer } from "../src/server.js";
 
@@ -97,9 +100,24 @@ async function assertOpenAiGeneratorContract(): Promise<void> {
                   standardRouteText: "동탄 → 남해 숙소 → 남해 독일마을",
                   carrymeRouteText: "동탄 → 남해 독일마을 → 남해 숙소",
                   stops: [
-                    { name: "동탄", role: "origin", caption: "출발" },
-                    { name: "남해 독일마을", role: "visit", caption: "관광" },
-                    { name: "남해 숙소", role: "luggageDestination", caption: "짐 도착" },
+                    {
+                      name: "동탄",
+                      role: "origin",
+                      caption: "출발",
+                      addressQuery: "경기도 화성시 동탄역",
+                    },
+                    {
+                      name: "남해 독일마을",
+                      role: "visit",
+                      caption: "관광",
+                      addressQuery: "경상남도 남해군 삼동면 독일로 89-7 남해 독일마을",
+                    },
+                    {
+                      name: "남해 숙소",
+                      role: "luggageDestination",
+                      caption: "짐 도착",
+                      addressQuery: "경상남도 남해군 남해 숙소",
+                    },
                   ],
                   timeline: [
                     {
@@ -134,13 +152,191 @@ async function assertOpenAiGeneratorContract(): Promise<void> {
 
   assert.equal(generatedDraft.title, "남해 아이 동반 가족여행 1박 2일 초안");
   assert.equal(generatedDraft.days[0]?.timeline[0]?.title, "동탄 출발");
+  assert.equal(
+    generatedDraft.days[0]?.stops[1]?.addressQuery,
+    "경상남도 남해군 삼동면 독일로 89-7 남해 독일마을",
+  );
   assert.match(capturedBody, /json_schema/);
+  assert.match(capturedBody, /addressQuery/);
   assert.match(capturedBody, /역\/터미널\/공항은 기본 수하물 보관·수령지가 아닙니다/);
   assert.match(capturedBody, /luggageDestination/);
   assert.match(capturedBody, /펜션 사랑가/);
   assert.match(capturedBody, /아래 숙소 후보 중 하나/);
   assert.match(capturedBody, /PLANME_OPENAI_MODEL|test-model/);
   assert.doesNotMatch(capturedBody, /test-api-key/);
+}
+
+/**
+ * Verifies AI draft stop coordinates can be resolved from required Korean address queries.
+ */
+async function assertDraftCoordinateResolverContract(): Promise<void> {
+  const geocoder: PlanmeDraftGeocoder = async ({ query }) => {
+    if (query.includes("남해 독일마을")) {
+      return {
+        coordinate: { lat: 34.7983, lng: 128.0406 },
+        matchedAddress: "경상남도 남해군 삼동면 독일로 89-7",
+      };
+    }
+
+    return null;
+  };
+
+  const result = await resolvePlanmeDraftCoordinates(
+    {
+      title: "남해 가족여행 초안",
+      region: "남해",
+      duration: "1박 2일",
+      summary: "좌표 보강 테스트",
+      origin: "동탄",
+      assumptions: ["동탄 출발"],
+      savedMinutes: 40,
+      days: [
+        {
+          day: 1,
+          label: "Day 1",
+          stops: [
+            {
+              name: "남해 독일마을",
+              role: "visit",
+              caption: "방문지",
+              addressQuery: "경상남도 남해군 삼동면 독일로 89-7 남해 독일마을",
+            },
+            {
+              name: "모호한 장소",
+              role: "visit",
+              caption: "방문지",
+              addressQuery: "남해 모호한 장소",
+            },
+          ],
+          timeline: [
+            {
+              time: "10:00",
+              title: "남해 독일마을 방문",
+              description: "좌표 보강된 장소 방문",
+              category: "event",
+            },
+          ],
+        },
+      ],
+    },
+    geocoder,
+  );
+
+  assert.equal(result.draft.days[0]?.stops[0]?.coordinate?.lat, 34.7983);
+  assert.equal(result.draft.days[0]?.stops[0]?.coordinate?.lng, 128.0406);
+  assert.equal(result.validationIssues[0]?.code, "coordinate_resolution_failed");
+}
+
+/**
+ * Verifies the MCP Naver Geocoding adapter without calling the real API.
+ */
+async function assertNaverGeocoderContract(): Promise<void> {
+  const calls: Array<{ url: string; headers: Record<string, string> }> = [];
+  const geocoder = createNaverGeocoder({
+    keyId: "test-key-id",
+    secret: "test-secret",
+    fetchImpl: async (url, init) => {
+      calls.push({
+        url: String(url),
+        headers: init?.headers as Record<string, string>,
+      });
+
+      return new Response(
+        JSON.stringify({
+          addresses: [
+            {
+              roadAddress: "경상남도 남해군 삼동면 독일로 89-7",
+              x: "128.0406",
+              y: "34.7983",
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    },
+  });
+
+  const result = await geocoder({
+    query: "경상남도 남해군 삼동면 독일로 89-7 남해 독일마을",
+    stop: { name: "남해 독일마을" },
+    region: "남해",
+    dayIndex: 0,
+    stopIndex: 0,
+  });
+
+  assert.equal(result?.coordinate.lat, 34.7983);
+  assert.equal(result?.coordinate.lng, 128.0406);
+  assert.match(calls[0]?.url ?? "", /query=/);
+  assert.equal(calls[0]?.headers["x-ncp-apigw-api-key-id"], "test-key-id");
+  assert.equal(calls[0]?.headers["x-ncp-apigw-api-key"], "test-secret");
+}
+
+/**
+ * Verifies AI recommendations can enrich non-lodging stops with Naver-resolved coordinates.
+ */
+async function assertAiRecommendationCoordinateResolutionContract(): Promise<void> {
+  const response = await createAiRecommendedItineraryResponse(
+    "http://localhost:3000/api/gpt/itineraries/recommend",
+    { destination: "남해", origin: "동탄", durationDays: 2 },
+    {
+      accommodationCandidateSearcher: async () => [],
+      aiItineraryGenerator: async () => ({
+        title: "남해 가족여행 초안",
+        region: "남해",
+        duration: "1박 2일",
+        summary: "좌표 보강 추천 테스트",
+        origin: "동탄",
+        assumptions: ["동탄 출발"],
+        savedMinutes: 40,
+        days: [
+          {
+            day: 1,
+            label: "Day 1",
+            standardDurationMinutes: 420,
+            carrymeDurationMinutes: 360,
+            standardRouteText: "동탄 → 남해 독일마을",
+            carrymeRouteText: "동탄 → 남해 독일마을",
+            stops: [
+              {
+                name: "동탄",
+                role: "origin",
+                caption: "출발",
+                addressQuery: "경기도 화성시 동탄역",
+              },
+              {
+                name: "남해 독일마을",
+                role: "visit",
+                caption: "관광",
+                addressQuery: "경상남도 남해군 삼동면 독일로 89-7 남해 독일마을",
+              },
+            ],
+            timeline: [
+              {
+                time: "10:00",
+                title: "남해 독일마을 방문",
+                description: "독일마을 산책",
+                category: "event",
+                highlight: true,
+                savingLabel: "약 40분 절약",
+              },
+            ],
+          },
+        ],
+      }),
+      draftGeocoder: async ({ query }) =>
+        query.includes("남해 독일마을")
+          ? { coordinate: { lat: 34.7983, lng: 128.0406 } }
+          : { coordinate: { lat: 37.2001, lng: 127.0951 } },
+    },
+  );
+
+  const standardRoute = response.itinerary.days[0]?.standard;
+
+  assert.equal(standardRoute?.stops.every((stop) => Boolean(stop.coordinate)), true);
+  assert.ok(
+    (standardRoute?.geoPath?.length ?? 0) >= 2,
+    "Expected resolved coordinates to create a renderable Naver geoPath",
+  );
 }
 
 /**
@@ -619,7 +815,10 @@ async function startServer() {
  */
 async function main(): Promise<void> {
   await assertOpenAiGeneratorContract();
+  await assertDraftCoordinateResolverContract();
+  await assertNaverGeocoderContract();
   await assertAccommodationCandidateContract();
+  await assertAiRecommendationCoordinateResolutionContract();
   await assertThreeDayAiDraftContract();
   await assertGoogleMapsKeyFallbackContract();
   assertDraftPreviewSlugContract();

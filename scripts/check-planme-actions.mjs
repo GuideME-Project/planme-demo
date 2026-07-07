@@ -35,6 +35,7 @@ for (const file of requiredFiles) {
 }
 
 const openApiFile = join(webRoot, "app/api/gpt/openapi/route.ts");
+const routeMapFile = join(webRoot, "components/itinerary/RouteMap.tsx");
 
 if (existsSync(openApiFile)) {
   const openApiSource = readFileSync(openApiFile, "utf8");
@@ -65,6 +66,14 @@ if (existsSync(openApiFile)) {
 
   if (!openApiSource.includes(".png")) {
     failures.push("OpenAPI schema must document .png preview image URLs for optional preview metadata");
+  }
+}
+
+if (existsSync(routeMapFile)) {
+  const routeMapSource = readFileSync(routeMapFile, "utf8");
+
+  if (!routeMapSource.includes("addRouteSegment(route.geoPath, color, routeStyle);")) {
+    failures.push("RouteMap must render route.geoPath when geoSegments are unavailable");
   }
 }
 

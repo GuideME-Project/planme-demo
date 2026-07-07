@@ -20,6 +20,7 @@ export type PlanmeDraftStop = {
   role?: PlanmeDraftStopRole;
   caption?: string;
   coordinate?: MapCoordinate;
+  addressQuery?: string;
 };
 
 export type PlanmeDraftTimelineEvent = {
@@ -82,6 +83,10 @@ type DraftPreviewRecord = PlanmeDraftPreviewResult & {
   committedAt?: string;
 };
 
+type CreatePlanmeDraftPreviewOptions = {
+  extraValidationIssues?: PlanmeDraftValidationIssue[];
+};
+
 const draftPreviewStore = new Map<string, DraftPreviewRecord>();
 const committedDraftKeys = new Map<string, string>();
 
@@ -103,9 +108,13 @@ const DRAFT_PLACE_ALIAS_REPLACEMENTS: Array<{ pattern: RegExp; replacement: stri
  */
 export function createPlanmeDraftPreview(
   input: PlanmeDraftPreviewRequest,
+  options: CreatePlanmeDraftPreviewOptions = {},
 ): PlanmeDraftPreviewResult {
   const previewId = input.previewId?.trim() || createDraftPreviewId(input);
-  const validationIssues = validateDraftPreviewInput(input);
+  const validationIssues = [
+    ...validateDraftPreviewInput(input),
+    ...(options.extraValidationIssues ?? []),
+  ];
   const existingRecord = draftPreviewStore.get(previewId);
   const version = existingRecord ? existingRecord.version + 1 : 1;
   const itinerary = buildDraftItinerary(input, previewId, validationIssues);
@@ -131,8 +140,9 @@ export function createPlanmeDraftPreview(
  */
 export function updatePlanmeDraftPreview(
   input: PlanmeDraftPreviewRequest,
+  options: CreatePlanmeDraftPreviewOptions = {},
 ): PlanmeDraftPreviewResult {
-  return createPlanmeDraftPreview(input);
+  return createPlanmeDraftPreview(input, options);
 }
 
 /**

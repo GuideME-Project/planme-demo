@@ -333,6 +333,9 @@ function NaverRouteMap({
             return;
           }
 
+          if (route.geoPath?.length) {
+            addRouteSegment(route.geoPath, color, routeStyle);
+          }
         };
 
         if (showStandard) {

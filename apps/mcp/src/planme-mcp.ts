@@ -17,6 +17,10 @@ import {
   type RecommendItineraryRequest,
 } from "@planme/core";
 import { z } from "zod";
+import {
+  createNaverGeocoder,
+  hasNaverGeocoderRuntimeConfig,
+} from "./naver-geocoding.js";
 import { createPlanmeWidgetHtml } from "./planme-widget.js";
 
 export const PLANME_WIDGET_URI = "ui://planme/itinerary-widget-v2.html";
@@ -324,6 +328,12 @@ export function createPlanmeMcpServer(): McpServer {
         response = await createAiRecommendedItineraryResponse(
           "https://planme-demo.vercel.app/mcp",
           input,
+          {
+            draftGeocoder: hasNaverGeocoderRuntimeConfig()
+              ? createNaverGeocoder()
+              : undefined,
+            googleMapsReferer: `${PLANME_WEB_ORIGIN}/`,
+          },
         );
       } catch (error) {
         if (error instanceof PlanmeAiConfigurationError) {

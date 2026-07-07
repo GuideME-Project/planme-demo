@@ -7,6 +7,7 @@ import {
   createPlanmeDraftPreview,
   type PlanmeDraftPreviewRequest,
   type PlanmeDraftPreviewResult,
+  type PlanmeDraftValidationIssue,
 } from "./draft-itineraries.js";
 import type { PlanmeItinerary } from "./mock-data.js";
 import {
@@ -18,6 +19,10 @@ import {
   type AccommodationCandidate,
   type AccommodationCandidateSearcher,
 } from "./accommodation-candidates.js";
+import {
+  resolvePlanmeDraftCoordinates,
+  type PlanmeDraftGeocoder,
+} from "./draft-coordinate-resolution.js";
 
 export type RecommendItineraryRequest = GeneratedItineraryRequest & {
   previewId?: string;
@@ -54,7 +59,12 @@ export type GptActionItineraryResponse = {
 export type AiRecommendedItineraryOptions = {
   aiItineraryGenerator?: AiItineraryGenerator;
   accommodationCandidateSearcher?: AccommodationCandidateSearcher;
+  draftGeocoder?: PlanmeDraftGeocoder;
   googleMapsReferer?: string;
+};
+
+type RecommendedItineraryResponseOptions = {
+  extraValidationIssues?: PlanmeDraftValidationIssue[];
 };
 
 /**
@@ -152,9 +162,12 @@ export function toDraftGptActionItineraryResponse(
 export function createRecommendedItineraryResponse(
   requestUrl: string,
   input: RecommendItineraryRequest,
+  options: RecommendedItineraryResponseOptions = {},
 ) {
   if (hasDraftDays(input)) {
-    const result = createPlanmeDraftPreview(toDraftPreviewRequest(input));
+    const result = createPlanmeDraftPreview(toDraftPreviewRequest(input), {
+      extraValidationIssues: options.extraValidationIssues,
+    });
 
     // Recommendations with concrete ChatGPT stops should preserve those stops in the widget.
     return {
@@ -207,7 +220,26 @@ export async function createAiRecommendedItineraryResponse(
   options: AiRecommendedItineraryOptions = {},
 ) {
   if (hasDraftDays(input)) {
-    return createRecommendedItineraryResponse(requestUrl, input);
+    const resolution = await resolveDraftCoordinatesIfPossible(
+      toDraftPreviewRequest(input),
+      options.draftGeocoder,
+    );
+
+    return createRecommendedItineraryResponse(
+      requestUrl,
+      {
+        ...input,
+        title: resolution.draft.title,
+        region: resolution.draft.region,
+        duration: resolution.draft.duration,
+        summary: resolution.draft.summary,
+        origin: resolution.draft.origin ?? input.origin,
+        assumptions: resolution.draft.assumptions ?? input.assumptions,
+        savedMinutes: resolution.draft.savedMinutes ?? input.savedMinutes,
+        days: resolution.draft.days,
+      },
+      { extraValidationIssues: resolution.validationIssues },
+    );
   }
 
   const aiItineraryGenerator = options.aiItineraryGenerator ?? generatePlanmeDraftWithOpenAi;
@@ -225,23 +257,46 @@ export async function createAiRecommendedItineraryResponse(
     accommodationCandidates.length > 0
       ? { ...input, accommodationCandidates }
       : input;
-  const draft = applyAccommodationCandidatesToDraft(
+  const candidateDraft = applyAccommodationCandidatesToDraft(
     await aiItineraryGenerator(generatorInput),
     accommodationCandidates,
   );
+  const resolution = await resolveDraftCoordinatesIfPossible(
+    candidateDraft,
+    options.draftGeocoder,
+  );
+  const draft = resolution.draft;
 
   // OpenAI owns itinerary drafting; PlanME only validates and renders the returned draft.
-  return createRecommendedItineraryResponse(requestUrl, {
-    ...input,
-    title: draft.title,
-    region: draft.region,
-    duration: draft.duration,
-    summary: draft.summary,
-    origin: draft.origin ?? input.origin,
-    assumptions: draft.assumptions ?? input.assumptions,
-    savedMinutes: draft.savedMinutes ?? input.savedMinutes,
-    days: draft.days,
-  });
+  return createRecommendedItineraryResponse(
+    requestUrl,
+    {
+      ...input,
+      title: draft.title,
+      region: draft.region,
+      duration: draft.duration,
+      summary: draft.summary,
+      origin: draft.origin ?? input.origin,
+      assumptions: draft.assumptions ?? input.assumptions,
+      savedMinutes: draft.savedMinutes ?? input.savedMinutes,
+      days: draft.days,
+    },
+    { extraValidationIssues: resolution.validationIssues },
+  );
+}
+
+/**
+ * Resolves draft coordinates only when the MCP server provides a geocoder.
+ */
+async function resolveDraftCoordinatesIfPossible(
+  draft: PlanmeDraftPreviewRequest,
+  geocoder?: PlanmeDraftGeocoder,
+) {
+  if (!geocoder) {
+    return { draft, validationIssues: [] };
+  }
+
+  return resolvePlanmeDraftCoordinates(draft, geocoder);
 }
 
 /**
