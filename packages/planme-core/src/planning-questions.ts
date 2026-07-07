@@ -26,7 +26,7 @@ export type PlanmePlanningAssessment = {
     hotelName: string | null;
     preferences: string[];
   };
-  nextAction: "ask_user" | "draft_planme_itinerary";
+  nextAction: "ask_user" | "recommend_planme_itinerary";
 };
 
 export type PlanmePlanningRequest = RecommendItineraryRequest & {
@@ -64,7 +64,7 @@ export function assessPlanmePlanningInput(
     missingSlots,
     questions,
     normalizedInput,
-    nextAction: status === "ready" ? "draft_planme_itinerary" : "ask_user",
+    nextAction: status === "ready" ? "recommend_planme_itinerary" : "ask_user",
   };
 }
 

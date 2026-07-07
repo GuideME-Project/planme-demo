@@ -21,8 +21,8 @@ export const metadata: Metadata = {
   },
   description: "GuideME 스타일의 여정으로 안내하는 PlanME 일정 데모입니다.",
   openGraph: {
-    title: "PlanME 부산 BTS 공연 1박 2일 추천 일정",
-    description: "인천공항 입국 후 부산 공연장으로 바로 향하는 CarryME 동선을 확인하세요.",
+    title: "PlanME Demo",
+    description: "GuideME 스타일의 여정으로 안내하는 PlanME 일정 데모입니다.",
     images: ["/og"],
     type: "website",
   },

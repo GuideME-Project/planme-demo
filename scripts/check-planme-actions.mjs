@@ -6,7 +6,6 @@ const root = cwd();
 const webRoot = join(root, "apps/web");
 
 const requiredFiles = [
-  "app/api/gpt/itineraries/recommend/route.ts",
   "app/api/gpt/itineraries/[itineraryId]/route.ts",
   "app/api/gpt/itineraries/[itineraryId]/share/route.ts",
   "app/api/gpt/itineraries/preview-store/route.ts",
@@ -15,12 +14,14 @@ const requiredFiles = [
 ];
 
 const requiredOpenApiPaths = [
-  "/api/gpt/itineraries/recommend",
   "/api/gpt/itineraries/{itineraryId}",
   "/api/gpt/itineraries/{itineraryId}/share",
 ];
 
+const forbiddenOpenApiPaths = ["/api/gpt/itineraries/recommend"];
+
 const forbiddenFiles = [
+  "apps/web/app/api/gpt/itineraries/recommend/route.ts",
   "apps/web/app/itinerary/preview/page.tsx",
   "packages/planme-core/src/preview-payload.ts",
 ];
@@ -41,6 +42,12 @@ if (existsSync(openApiFile)) {
   for (const routePath of requiredOpenApiPaths) {
     if (!openApiSource.includes(routePath)) {
       failures.push(`OpenAPI schema does not expose ${routePath}`);
+    }
+  }
+
+  for (const routePath of forbiddenOpenApiPaths) {
+    if (openApiSource.includes(routePath)) {
+      failures.push(`OpenAPI schema must not expose web generation route ${routePath}`);
     }
   }
 
@@ -88,6 +95,16 @@ if (existsSync(coreIndexFile)) {
 
   if (coreIndexSource.includes("preview-payload")) {
     failures.push("Core package must not export legacy compressed preview payload helpers");
+  }
+}
+
+const legacyPlanRouteFile = join(webRoot, "app/api/plan/route.ts");
+
+if (existsSync(legacyPlanRouteFile)) {
+  const legacyPlanRouteSource = readFileSync(legacyPlanRouteFile, "utf8");
+
+  if (legacyPlanRouteSource.includes("export async function POST")) {
+    failures.push("Legacy /api/plan route must not expose a POST generator.");
   }
 }
 

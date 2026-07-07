@@ -7,18 +7,11 @@ import {
 import {
   assessPlanmePlanningInput,
   createAiRecommendedItineraryResponse,
-  commitPlanmeDraftPreview,
-  createPlanmeDraftPreview,
   formatPlanmeAiGenerationError,
   getGptActionItineraryResponse,
   PlanmeAiConfigurationError,
-  toDraftGptActionItineraryResponse,
   toGptActionItineraryResponse,
-  updatePlanmeDraftPreview,
   type GptActionItineraryResponse,
-  type PlanmeDraftCommitRequest,
-  type PlanmeDraftPreviewRequest,
-  type PlanmeDraftPreviewResult,
   type PlanmeItinerary,
   type PlanmePlanningRequest,
   type RecommendItineraryRequest,
@@ -67,50 +60,6 @@ const timelineEventSchema = z.object({
   savingLabel: z.string().optional(),
 });
 
-const draftStopSchema = z.object({
-  name: z
-    .string()
-    .min(1)
-    .describe("Single stop or POI name only. Do not put a full route list in one stop."),
-  role: z
-    .enum(["origin", "visit", "luggageDestination", "finalDestination"])
-    .describe(
-      "Use luggageDestination only for lodging, hotel, or an explicitly named CarryME pickup point. Do not use a plain train/subway station, terminal, or airport as a luggage handoff point.",
-    )
-    .optional(),
-  caption: z.string().optional(),
-  coordinate: z
-    .object({
-      lat: z.number(),
-      lng: z.number(),
-    })
-    .optional(),
-});
-
-const draftTimelineEventSchema = z.object({
-  time: z.string(),
-  title: z
-    .string()
-    .describe("Short single-event title only, such as 독일마을 산책. Do not repeat the full route."),
-  description: z.string(),
-  category: z
-    .enum(["arrival", "carryme", "transit", "meal", "hotel", "event"])
-    .optional(),
-  highlight: z.boolean().optional(),
-  savingLabel: z.string().optional(),
-});
-
-const draftDaySchema = z.object({
-  day: z.number().int().min(1).max(14).optional(),
-  label: z.string().optional(),
-  stops: z.array(draftStopSchema).min(1),
-  timeline: z.array(draftTimelineEventSchema).min(1),
-  standardDurationMinutes: z.number().int().min(0).optional(),
-  carrymeDurationMinutes: z.number().int().min(0).optional(),
-  standardRouteText: z.string().optional(),
-  carrymeRouteText: z.string().optional(),
-});
-
 const planningSlotSchema = z.enum([
   "destination",
   "origin",
@@ -137,28 +86,6 @@ const itinerarySummarySchema = {
   timeline: z.array(timelineEventSchema),
 };
 
-const draftValidationIssueSchema = z.object({
-  code: z.string(),
-  message: z.string(),
-  severity: z.enum(["error", "warning"]),
-});
-
-const recommendationSummarySchema = {
-  ...itinerarySummarySchema,
-  previewId: z.string().optional(),
-  status: z.enum(["preview_ready", "needs_revision", "committed"]).optional(),
-  validationIssues: z.array(draftValidationIssueSchema).optional(),
-  version: z.number().int().min(1).optional(),
-};
-
-const draftPreviewSummarySchema = {
-  ...itinerarySummarySchema,
-  previewId: z.string(),
-  status: z.enum(["preview_ready", "needs_revision", "committed"]),
-  validationIssues: z.array(draftValidationIssueSchema),
-  version: z.number().int().min(1),
-};
-
 const planningAssessmentSchema = {
   status: z.enum(["needs_input", "ready"]),
   missingSlots: z.array(planningSlotSchema),
@@ -171,7 +98,7 @@ const planningAssessmentSchema = {
     hotelName: z.string().nullable(),
     preferences: z.array(z.string()),
   }),
-  nextAction: z.enum(["ask_user", "draft_planme_itinerary"]),
+  nextAction: z.enum(["ask_user", "recommend_planme_itinerary"]),
 };
 
 type ItinerarySummary = {
@@ -190,21 +117,6 @@ type ItinerarySummary = {
     highlight?: boolean;
     savingLabel?: string;
   }>;
-  previewId?: string;
-  status?: PlanmeDraftPreviewResult["status"];
-  validationIssues?: PlanmeDraftPreviewResult["validationIssues"];
-  version?: number;
-};
-
-type DraftPreviewSummary = ItinerarySummary & {
-  previewId: string;
-  status: "preview_ready" | "needs_revision" | "committed";
-  validationIssues: Array<{
-    code: string;
-    message: string;
-    severity: "error" | "warning";
-  }>;
-  version: number;
 };
 
 /**
@@ -212,15 +124,6 @@ type DraftPreviewSummary = ItinerarySummary & {
  */
 function toItinerarySummary(response: GptActionItineraryResponse): ItinerarySummary {
   const firstDay = response.itinerary.days[0];
-  const draftFields =
-    response.previewId && response.status && response.validationIssues && response.version
-      ? {
-          previewId: response.previewId,
-          status: response.status,
-          validationIssues: response.validationIssues,
-          version: response.version,
-        }
-      : {};
 
   // Keep model-visible data compact; full itinerary details are passed through _meta for the widget.
   return {
@@ -232,22 +135,6 @@ function toItinerarySummary(response: GptActionItineraryResponse): ItinerarySumm
     standardTotalMinutes: response.standardTotalMinutes,
     carrymeTotalMinutes: response.carrymeTotalMinutes,
     timeline: firstDay.timeline,
-    ...draftFields,
-  };
-}
-
-/**
- * Converts a normalized draft preview into model-visible MCP output.
- */
-function toDraftPreviewSummary(result: PlanmeDraftPreviewResult): DraftPreviewSummary {
-  const response = toDraftGptActionItineraryResponse(result, `${PLANME_WEB_ORIGIN}/mcp`);
-
-  return {
-    ...toItinerarySummary(response),
-    previewId: result.previewId,
-    status: result.status,
-    validationIssues: result.validationIssues,
-    version: result.version,
   };
 }
 
@@ -271,8 +158,8 @@ function toWidgetMeta(itinerary: PlanmeItinerary, pageUrl: string) {
 /**
  * Persists an MCP-produced itinerary through the web app so short detail links can reopen it.
  */
-async function persistItineraryForDetailPage(itinerary: PlanmeItinerary): Promise<void> {
-  if (process.env.VERCEL !== "1") {
+export async function persistItineraryForDetailPage(itinerary: PlanmeItinerary): Promise<void> {
+  if (process.env.VERCEL !== "1" && !process.env.PLANME_WEB_ORIGIN?.trim()) {
     return;
   }
 
@@ -280,7 +167,7 @@ async function persistItineraryForDetailPage(itinerary: PlanmeItinerary): Promis
   const timeout = setTimeout(() => controller.abort(), 2500);
 
   try {
-    const response = await fetch(`${PLANME_WEB_ORIGIN}/api/gpt/itineraries/preview-store`, {
+    const response = await fetch(`${getPlanmeWebOrigin()}/api/gpt/itineraries/preview-store`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -291,16 +178,22 @@ async function persistItineraryForDetailPage(itinerary: PlanmeItinerary): Promis
 
     if (!response.ok) {
       // Do not log the itinerary payload; status is enough to diagnose handoff failures.
-      console.error("PlanME preview store handoff failed", response.status);
+      throw new Error(`PlanME preview store handoff failed with status ${response.status}`);
     }
   } catch (error) {
     const safeMessage = error instanceof Error ? error.message : "unknown error";
 
-    // The widget can still render from _meta; this only affects the external detail page.
-    console.error("PlanME preview store handoff error", safeMessage);
+    throw new Error(`PlanME preview store handoff error: ${safeMessage}`);
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/**
+ * Reads the web origin lazily so tests and Vercel env can override the handoff target.
+ */
+function getPlanmeWebOrigin() {
+  return process.env.PLANME_WEB_ORIGIN?.trim() || PLANME_WEB_ORIGIN;
 }
 
 /**
@@ -379,7 +272,7 @@ export function createPlanmeMcpServer(): McpServer {
             type: "text" as const,
             text:
               assessment.status === "ready"
-                ? "PlanME 일정 초안에 필요한 기본 조건이 준비됐습니다. 대화에서 일정 초안을 작성한 뒤 preview_planme_itinerary를 호출하세요."
+                ? "PlanME 일정 생성에 필요한 기본 조건이 준비됐습니다. recommend_planme_itinerary를 호출해 MCP 서버에서 일정을 생성하세요."
                 : `PlanME 일정 생성 전에 ${assessment.questions
                     .map((question) => question.text)
                     .join(" ")}`,
@@ -391,182 +284,16 @@ export function createPlanmeMcpServer(): McpServer {
 
   registerAppTool(
     server,
-    "preview_planme_itinerary",
-    {
-      title: "Preview PlanME itinerary draft",
-      description:
-        "Render a PlanME widget from the itinerary draft ChatGPT just authored in the conversation. Use this as soon as a draft itinerary is available; do not wait for the user to explicitly ask to open PlanME. CarryME luggage handoff points must be lodging, hotels, or explicit pickup points, not plain train/subway stations, terminals, or airports.",
-      inputSchema: {
-        title: z
-          .string()
-          .min(1)
-          .describe("Compact itinerary title. Do not list every stop in the title."),
-        region: z.string().optional(),
-        duration: z.string().optional(),
-        summary: z.string().optional(),
-        origin: z.string().optional().describe("Optional departure city or station. Do not invent an airport origin."),
-        assumptions: z.array(z.string()).optional(),
-        savedMinutes: z.number().int().min(0).optional(),
-        days: z.array(draftDaySchema).min(1),
-      },
-      outputSchema: draftPreviewSummarySchema,
-      _meta: {
-        ui: {
-          resourceUri: PLANME_WIDGET_URI,
-        },
-        "openai/outputTemplate": PLANME_WIDGET_URI,
-        "openai/toolInvocation/invoking": "PlanME 일정 초안을 위젯으로 구성하는 중입니다.",
-        "openai/toolInvocation/invoked": "PlanME 일정 초안 위젯이 준비됐습니다.",
-      },
-    },
-    async (input: PlanmeDraftPreviewRequest) => {
-      const result = createPlanmeDraftPreview(input);
-      await persistItineraryForDetailPage(result.itinerary);
-      const structuredContent = toDraftPreviewSummary(result);
-
-      // The full normalized itinerary is passed through _meta so the widget and text stay aligned.
-      return {
-        structuredContent,
-        content: [
-          {
-            type: "text" as const,
-            text: `${result.itinerary.title} 초안을 PlanME 위젯으로 표시했습니다.`,
-          },
-        ],
-        _meta: toWidgetMeta(result.itinerary, structuredContent.pageUrl),
-      };
-    },
-  );
-
-  registerAppTool(
-    server,
-    "update_planme_itinerary_preview",
-    {
-      title: "Update PlanME itinerary preview",
-      description:
-        "Replace the current PlanME preview with a revised itinerary draft after the user changes the plan in conversation. CarryME luggage handoff points must be lodging, hotels, or explicit pickup points, not plain train/subway stations, terminals, or airports.",
-      inputSchema: {
-        previewId: z.string().min(1).optional(),
-        baseVersion: z.number().int().min(1).optional(),
-        title: z
-          .string()
-          .min(1)
-          .describe("Compact itinerary title. Do not list every stop in the title."),
-        region: z.string().optional(),
-        duration: z.string().optional(),
-        summary: z.string().optional(),
-        origin: z.string().optional().describe("Optional departure city or station. Do not invent an airport origin."),
-        assumptions: z.array(z.string()).optional(),
-        savedMinutes: z.number().int().min(0).optional(),
-        days: z.array(draftDaySchema).min(1),
-      },
-      outputSchema: draftPreviewSummarySchema,
-      _meta: {
-        ui: {
-          resourceUri: PLANME_WIDGET_URI,
-        },
-        "openai/outputTemplate": PLANME_WIDGET_URI,
-        "openai/toolInvocation/invoking": "PlanME 일정 초안을 갱신하는 중입니다.",
-        "openai/toolInvocation/invoked": "PlanME 일정 초안이 갱신됐습니다.",
-      },
-    },
-    async (input: PlanmeDraftPreviewRequest) => {
-      const result = updatePlanmeDraftPreview(input);
-      await persistItineraryForDetailPage(result.itinerary);
-      const structuredContent = toDraftPreviewSummary(result);
-
-      // A revised draft should re-render the same widget with the latest normalized itinerary.
-      return {
-        structuredContent,
-        content: [
-          {
-            type: "text" as const,
-            text: `${result.itinerary.title} 초안을 PlanME 위젯에 다시 반영했습니다.`,
-          },
-        ],
-        _meta: toWidgetMeta(result.itinerary, structuredContent.pageUrl),
-      };
-    },
-  );
-
-  registerAppTool(
-    server,
-    "commit_planme_itinerary",
-    {
-      title: "Commit PlanME itinerary",
-      description:
-        "Commit a previously rendered PlanME preview after the user explicitly confirms the draft. This is a state-changing action and requires userConfirmed=true.",
-      inputSchema: {
-        previewId: z.string().min(1),
-        version: z.number().int().min(1),
-        userConfirmed: z.boolean(),
-        idempotencyKey: z.string().min(1),
-        visibility: z.enum(["private", "public"]),
-      },
-      outputSchema: draftPreviewSummarySchema,
-      _meta: {
-        ui: {
-          resourceUri: PLANME_WIDGET_URI,
-        },
-        "openai/outputTemplate": PLANME_WIDGET_URI,
-        "openai/toolInvocation/invoking": "PlanME 일정을 확정 저장하는 중입니다.",
-        "openai/toolInvocation/invoked": "PlanME 일정이 확정됐습니다.",
-      },
-    },
-    async (input: PlanmeDraftCommitRequest) => {
-      const result = commitPlanmeDraftPreview(input);
-
-      if (!result) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text" as const,
-              text: "PlanME 일정 확정에 실패했습니다. previewId, version, userConfirmed 값을 다시 확인하세요.",
-            },
-          ],
-        };
-      }
-
-      await persistItineraryForDetailPage(result.itinerary);
-      const structuredContent = toDraftPreviewSummary(result);
-
-      // Returning the same widget keeps the committed state visually aligned with the preview.
-      return {
-        structuredContent,
-        content: [
-          {
-            type: "text" as const,
-            text: `${result.itinerary.title} 일정이 PlanME에 확정됐습니다.`,
-          },
-        ],
-        _meta: toWidgetMeta(result.itinerary, structuredContent.pageUrl),
-      };
-    },
-  );
-
-  registerAppTool(
-    server,
     "recommend_planme_itinerary",
     {
-      title: "Recommend or render PlanME itinerary",
+      title: "Recommend PlanME itinerary",
       description:
-        "Render a PlanME widget. When ChatGPT has already drafted concrete stops or timeline events in conversation, include days with real POI names so the widget matches the draft. If days is omitted, PlanME asks OpenAI to draft the itinerary server-side. CarryME luggage handoff points must be lodging, hotels, or explicit pickup points, not plain train/subway stations, terminals, or airports.",
+        "Generate a PlanME itinerary server-side and render the widget. Do not pass ChatGPT-authored days or timeline events; this MCP server calls OpenAI internally and then saves the generated itinerary for the detail page. CarryME luggage handoff points must be lodging, hotels, or explicit pickup points, not plain train/subway stations, terminals, or airports.",
       inputSchema: {
-        title: z
-          .string()
-          .optional()
-          .describe("Compact itinerary title. Do not list every stop in the title."),
-        region: z.string().optional(),
-        duration: z.string().optional(),
-        summary: z.string().optional(),
-        assumptions: z.array(z.string()).optional(),
-        savedMinutes: z.number().int().min(0).optional(),
-        days: z.array(draftDaySchema).optional(),
         destination: z
           .string()
           .optional()
-          .describe("Region or city only, such as 남해 or 여수. Put concrete POI routes in days.stops instead."),
+          .describe("Region or city only, such as 남해 or 여수."),
         durationDays: z.number().int().min(1).max(14).optional(),
         arrivalAirport: z.string().optional(),
         arrivalTime: z.string().optional(),
@@ -577,10 +304,10 @@ export function createPlanmeMcpServer(): McpServer {
         preferences: z
           .array(z.string())
           .optional()
-          .describe("User preferences like 아이 동반 or 바다 전망. Do not put a full POI route here."),
+          .describe("User preferences like 아이 동반 or 바다 전망."),
         theme: z.enum(["light", "dark"]).optional(),
       },
-      outputSchema: recommendationSummarySchema,
+      outputSchema: itinerarySummarySchema,
       _meta: {
         ui: {
           resourceUri: PLANME_WIDGET_URI,
@@ -628,7 +355,25 @@ export function createPlanmeMcpServer(): McpServer {
         };
       }
 
-      await persistItineraryForDetailPage(response.itinerary);
+      try {
+        await persistItineraryForDetailPage(response.itinerary);
+      } catch (error) {
+        const safeMessage = error instanceof Error ? error.message : "unknown error";
+
+        // Do not expose a detail URL when the web store could not persist the generated payload.
+        console.error("PlanME generated itinerary handoff failed", safeMessage);
+
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text" as const,
+              text: "PlanME 일정은 생성됐지만 상세 일정 저장에 실패했습니다. 잠시 후 다시 시도하세요.",
+            },
+          ],
+        };
+      }
+
       const structuredContent = toItinerarySummary(response);
 
       // Return a concise text fallback for clients that do not render the widget.

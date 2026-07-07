@@ -17,7 +17,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "INVALID_ITINERARY" }, { status: 400 });
   }
 
-  const savedPreview = await savePreviewItinerary(body.itinerary);
+  let savedPreview;
+
+  try {
+    savedPreview = await savePreviewItinerary(body.itinerary);
+  } catch (error) {
+    const safeMessage = error instanceof Error ? error.message : "unknown error";
+
+    // Do not log the itinerary payload; storage errors are enough to diagnose handoff failures.
+    console.error("PlanME preview store save failed", safeMessage);
+
+    return NextResponse.json(
+      {
+        error: "PREVIEW_STORE_UNAVAILABLE",
+        message: "PlanME generated itinerary store is unavailable.",
+      },
+      { status: 500 },
+    );
+  }
 
   return NextResponse.json({
     itineraryId: savedPreview.itineraryId,
