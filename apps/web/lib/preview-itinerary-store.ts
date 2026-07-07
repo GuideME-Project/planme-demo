@@ -38,6 +38,10 @@ export async function findPlanmeItineraryForDetailPage(id: string): Promise<Plan
     return storedItinerary;
   }
 
+  if (isGeneratedItineraryId(itineraryId)) {
+    return null;
+  }
+
   return getPlanmeItineraryById(itineraryId);
 }
 
@@ -54,7 +58,11 @@ export async function savePreviewItinerary(
   } catch (error) {
     const safeMessage = error instanceof Error ? error.message : "unknown error";
 
-    // Saving should not block GPT responses; detail pages can still fall back deterministically.
+    if (isProductionRuntime()) {
+      throw new Error(`PlanME preview store save failed: ${safeMessage}`);
+    }
+
+    // Local development can use memory so preview-store E2E tests do not require Redis.
     console.error("PlanME preview store save failed", safeMessage);
 
     return new MemoryPreviewItineraryStore().save(itinerary, ttlSeconds);
@@ -70,7 +78,7 @@ export async function getPreviewItineraryById(id: string): Promise<PlanmeItinera
   } catch (error) {
     const safeMessage = error instanceof Error ? error.message : "unknown error";
 
-    // Lookup failures should degrade to existing generated-id fallback behavior.
+    // Lookup failures should not leak stale generated links into deterministic demo data.
     console.error("PlanME preview store lookup failed", safeMessage);
     return null;
   }
@@ -92,9 +100,19 @@ function getPreviewItineraryStore(): PreviewItineraryStore {
     return cachedPreviewItineraryStore;
   }
 
-  if (process.env.NODE_ENV === "production" && !warnedMissingUpstashEnv) {
-    // Production should normally use Upstash; the fallback keeps demo links from hard failing.
-    console.warn("PlanME preview store is using memory because Upstash env vars are missing.");
+  if (isProductionRuntime()) {
+    if (!warnedMissingUpstashEnv) {
+      // Production generated links must survive cross-request handoff, so memory is unsafe here.
+      console.error("PlanME preview store requires Upstash env vars in production.");
+      warnedMissingUpstashEnv = true;
+    }
+
+    throw new Error("UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are required.");
+  }
+
+  if (!warnedMissingUpstashEnv) {
+    // Memory fallback is intentionally limited to local development and tests.
+    console.warn("PlanME preview store is using local memory because Upstash env vars are missing.");
     warnedMissingUpstashEnv = true;
   }
 
@@ -251,6 +269,20 @@ function normalizeItineraryId(id: string) {
   } catch {
     return id;
   }
+}
+
+/**
+ * Identifies AI-generated short ids that must be present in the preview store.
+ */
+function isGeneratedItineraryId(id: string) {
+  return id.startsWith("generated-");
+}
+
+/**
+ * Restricts unsafe memory fallback to local development.
+ */
+function isProductionRuntime() {
+  return process.env.NODE_ENV === "production";
 }
 
 /**
