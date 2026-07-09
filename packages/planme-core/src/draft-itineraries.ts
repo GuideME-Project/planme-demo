@@ -8,6 +8,7 @@ import type {
   RouteStop,
   TimelineEvent,
 } from "./mock-data.js";
+import type { PlanmePlaceCandidateSource } from "./place-candidates.js";
 
 export type PlanmeDraftStopRole =
   | "origin"
@@ -20,6 +21,10 @@ export type PlanmeDraftStop = {
   role?: PlanmeDraftStopRole;
   caption?: string;
   coordinate?: MapCoordinate;
+  addressQuery?: string;
+  placeId?: string;
+  placeSource?: PlanmePlaceCandidateSource;
+  placeSourceRef?: string;
 };
 
 export type PlanmeDraftTimelineEvent = {
@@ -82,6 +87,10 @@ type DraftPreviewRecord = PlanmeDraftPreviewResult & {
   committedAt?: string;
 };
 
+type CreatePlanmeDraftPreviewOptions = {
+  extraValidationIssues?: PlanmeDraftValidationIssue[];
+};
+
 const draftPreviewStore = new Map<string, DraftPreviewRecord>();
 const committedDraftKeys = new Map<string, string>();
 
@@ -103,9 +112,13 @@ const DRAFT_PLACE_ALIAS_REPLACEMENTS: Array<{ pattern: RegExp; replacement: stri
  */
 export function createPlanmeDraftPreview(
   input: PlanmeDraftPreviewRequest,
+  options: CreatePlanmeDraftPreviewOptions = {},
 ): PlanmeDraftPreviewResult {
   const previewId = input.previewId?.trim() || createDraftPreviewId(input);
-  const validationIssues = validateDraftPreviewInput(input);
+  const validationIssues = [
+    ...validateDraftPreviewInput(input),
+    ...(options.extraValidationIssues ?? []),
+  ];
   const existingRecord = draftPreviewStore.get(previewId);
   const version = existingRecord ? existingRecord.version + 1 : 1;
   const itinerary = buildDraftItinerary(input, previewId, validationIssues);
@@ -131,8 +144,9 @@ export function createPlanmeDraftPreview(
  */
 export function updatePlanmeDraftPreview(
   input: PlanmeDraftPreviewRequest,
+  options: CreatePlanmeDraftPreviewOptions = {},
 ): PlanmeDraftPreviewResult {
-  return createPlanmeDraftPreview(input);
+  return createPlanmeDraftPreview(input, options);
 }
 
 /**
@@ -307,7 +321,7 @@ function buildDraftDay(
       routeText: day.standardRouteText?.trim() || routeText,
       durationMinutes: standardMinutes,
       stops,
-      description: "ChatGPT 초안을 기준으로 한 일반 이동 흐름",
+      description: "짐을 직접 들고 이동하는 일반 동선",
     }),
     carryme: buildRoutePlan({
       id: "carryme",
@@ -376,7 +390,10 @@ function buildRoutePlan({
   routeText: string;
   stops: RouteStop[];
 }): RoutePlan {
-  const geoPath = stops.flatMap((stop) => (stop.coordinate ? [stop.coordinate] : []));
+  const hasCompleteGeoPath = stops.length > 0 && stops.every((stop) => stop.coordinate);
+  const geoPath = hasCompleteGeoPath
+    ? stops.map((stop) => stop.coordinate as MapCoordinate)
+    : [];
 
   return {
     id,
@@ -413,6 +430,9 @@ function toRouteStop(stop: PlanmeDraftStop): RouteStop {
     caption: stop.caption?.trim() || getCaptionForRole(role),
     coordinate: stop.coordinate,
     icon: getIconForRole(role),
+    placeId: stop.placeId,
+    placeSource: stop.placeSource,
+    placeSourceRef: stop.placeSourceRef,
   };
 }
 
@@ -700,7 +720,7 @@ function normalizeDraftPlaceAliases(value: string) {
  * Keeps the widget title compact when a model sends a whole route as the title.
  */
 function normalizeDraftDisplayTitle(title: string, region: string, duration: string) {
-  const normalizedTitle = normalizeDraftPlaceAliases(title.trim());
+  const normalizedTitle = stripPlanmeTitlePrefix(normalizeDraftPlaceAliases(title.trim()));
 
   if (!isRouteLikeText(normalizedTitle)) {
     return normalizedTitle;
@@ -716,6 +736,13 @@ function buildCompactDraftTitle(region: string, duration: string) {
   const durationLabel = duration === "초안" ? "" : `${duration} `;
 
   return `${region} ${durationLabel}일정 초안`.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Removes the product prefix from page titles while keeping the brand in navigation.
+ */
+function stripPlanmeTitlePrefix(value: string) {
+  return value.replace(/^PlanME\s+/i, "").trim();
 }
 
 /**

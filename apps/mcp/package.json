@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "vercel-build": "cd ../.. && npm --workspace @planme/core run build",
     "pretest:mcp": "npm --workspace @planme/core run build",
-    "test:mcp": "tsx scripts/check-planme-mcp.ts"
+    "test:mcp": "tsx scripts/check-planme-mcp.ts",
+    "smoke:external": "tsx scripts/check-planme-external-smoke.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "^1.7.4",

@@ -43,6 +43,7 @@ import type {
   RoutePlan,
   RoutePlanId,
   RouteStop,
+  RouteTransitMarker,
   TimelineEvent,
 } from "@planme/core";
 import { RouteMap } from "@/components/itinerary/RouteMap";
@@ -60,6 +61,7 @@ type EditableDayPlan = Omit<PlanmeItinerary["days"][number], "day"> & {
 };
 
 type DestinationMode = "drive" | "transit" | "walk";
+type RouteGeometryStatus = "complete" | "partial" | "none";
 
 type DestinationRow = {
   coordinate?: MapCoordinate;
@@ -108,16 +110,20 @@ type PlaceDetailsApiResponse = {
 };
 
 type RouteCheckApiResponse = {
+  geometryStatus?: RouteGeometryStatus;
   message?: string;
   ok: boolean;
   path?: MapCoordinate[];
   segments?: Array<{
     distanceMeters: number;
     durationSeconds: number;
+    geometryStatus?: RouteGeometryStatus;
     mode: DestinationMode;
     path: MapCoordinate[];
     paths?: MapCoordinate[][];
+    transitMarkers?: RouteTransitMarker[];
   }>;
+  transitMarkers?: RouteTransitMarker[];
   totalDurationSeconds?: number;
   totalDistanceMeters?: number;
   totalDurationLabel?: string;
@@ -134,11 +140,13 @@ type AsyncStatus = "idle" | "loading" | "success" | "error";
 type ComputedRouteResult = {
   durationLabel?: string;
   durationMinutes?: number;
+  geometryStatus?: RouteGeometryStatus;
   path: MapCoordinate[];
   routeText: string;
   segments: MapCoordinate[][];
   stops: RouteStop[];
   timeline: TimelineEvent[];
+  transitMarkers: RouteTransitMarker[];
 };
 
 type ComputedRouteState = Partial<
@@ -291,12 +299,23 @@ type OdsayTrainPathResponse = OdsayResponseWithError & {
 
 type OdsayTransitSubPath = {
   distance?: number;
+  endName?: string;
   endX?: number;
   endY?: number;
   sectionTime?: number;
+  startName?: string;
   startX?: number;
   startY?: number;
   trafficType?: number;
+};
+
+type ProviderRouteSegment = {
+  distanceMeters: number;
+  durationSeconds: number;
+  geometryStatus?: RouteGeometryStatus;
+  path: MapCoordinate[];
+  paths: MapCoordinate[][];
+  transitMarkers?: RouteTransitMarker[];
 };
 
 type OdsayTransitPath = {
@@ -599,10 +618,10 @@ function createTimelineFromRows(rows: DestinationRow[], savingLabel?: string): T
     return {
       category,
       description: isFirst
-        ? "경로 다시 계산 결과가 반영된 출발지"
+        ? "출발지"
         : isLast
-          ? "경로 다시 계산 결과가 반영된 도착지"
-          : "경로 다시 계산 결과가 반영된 방문지",
+          ? "도착지"
+          : "방문지",
       savingLabel: index === 1 ? savingLabel : undefined,
       time: times[index] ?? times[times.length - 1],
       title: isFirst
@@ -612,6 +631,36 @@ function createTimelineFromRows(rows: DestinationRow[], savingLabel?: string): T
           : `${row.name} 방문`,
     };
   });
+}
+
+/**
+ * Adds long-distance boarding/alighting events without listing every transfer.
+ */
+function createTimelineWithTransitMarkers(
+  rows: DestinationRow[],
+  transitMarkers: RouteTransitMarker[],
+  savingLabel?: string,
+): TimelineEvent[] {
+  const baseTimeline = createTimelineFromRows(rows, savingLabel);
+
+  if (transitMarkers.length === 0) {
+    return baseTimeline;
+  }
+
+  const markerEvents = transitMarkers.map((marker, index): TimelineEvent => ({
+    category: "transit",
+    description:
+      marker.role === "boarding"
+        ? "장거리 대중교통 탑승 지점"
+        : "장거리 대중교통 하차 지점",
+    time: marker.role === "boarding" ? "10:20" : "15:00",
+    title: marker.label,
+    savingLabel: index === 0 ? savingLabel : undefined,
+  }));
+
+  const firstEvent = baseTimeline[0];
+
+  return firstEvent ? [firstEvent, ...markerEvents, ...baseTimeline.slice(1)] : markerEvents;
 }
 
 /**
@@ -695,9 +744,9 @@ function assertPlausibleTransitSegment(
     return;
   }
 
-  // Long-distance transit must include a real drawable route, not just endpoint markers.
+  // Long-distance transit without drawable geometry is handled as marker-only partial route.
   if (!segment.paths.some((path) => path.length > 2)) {
-    throw new Error("지도에 표시할 장거리 대중교통 경로 좌표를 확인하지 못했습니다.");
+    return;
   }
 
   const drawableDistanceMeters = segment.paths.reduce(
@@ -810,6 +859,7 @@ async function requestOdsay<T extends OdsayResponseWithError>(
 
   const requestPromise = (async () => {
     await waitForOdsayRequestSlot();
+    recordPlanmeBrowserUsage("odsay_request");
 
     const response = await fetch(url);
     const data = (await response.json()) as T;
@@ -831,6 +881,19 @@ async function requestOdsay<T extends OdsayResponseWithError>(
   } finally {
     inFlightOdsayRequests.delete(cacheKey);
   }
+}
+
+/**
+ * Records browser-only usage counters without blocking route calculation.
+ */
+function recordPlanmeBrowserUsage(event: "odsay_request") {
+  void fetch("/api/planme/usage", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ event }),
+  }).catch(() => undefined);
 }
 
 /**
@@ -1184,40 +1247,73 @@ function isOdsayLongDistanceTransitSubPath(subPath: OdsayTransitSubPath) {
 }
 
 /**
- * Builds a drawable coarse path from ODsay long-distance chunk endpoints.
+ * Maps ODsay long-distance traffic codes into marker categories.
  */
-function getOdsaySubPathBoundaryPath(subPaths: OdsayTransitSubPath[]) {
-  const path: MapCoordinate[] = [];
-
-  for (const subPath of subPaths) {
-    const startCoordinate = toOdsayMapCoordinate({ x: subPath.startX, y: subPath.startY });
-    const endCoordinate = toOdsayMapCoordinate({ x: subPath.endX, y: subPath.endY });
-
-    // Keep only provider-supplied transfer endpoints; never join rows without provider points.
-    if (startCoordinate) {
-      appendMapCoordinate(path, startCoordinate);
-    }
-
-    if (endCoordinate) {
-      appendMapCoordinate(path, endCoordinate);
-    }
+function getTransitMarkerMode(trafficType?: number): RouteTransitMarker["mode"] {
+  if (trafficType === 1) {
+    return "subway";
   }
 
-  return path;
+  if (trafficType === 4) {
+    return "train";
+  }
+
+  if (trafficType === 5 || trafficType === 6) {
+    return "bus";
+  }
+
+  return "transit";
+}
+
+/**
+ * Extracts only the first boarding and final alighting point for long-distance transit.
+ */
+function createLongDistanceTransitMarkers(
+  subPaths: OdsayTransitSubPath[],
+  segmentIndex: number,
+): RouteTransitMarker[] {
+  const firstSubPath = subPaths.find(
+    (subPath) => typeof subPath.startX === "number" && typeof subPath.startY === "number",
+  );
+  const lastSubPath = [...subPaths]
+    .reverse()
+    .find((subPath) => typeof subPath.endX === "number" && typeof subPath.endY === "number");
+  const markers: RouteTransitMarker[] = [];
+
+  if (typeof firstSubPath?.startX === "number" && typeof firstSubPath.startY === "number") {
+    markers.push({
+      coordinate: { lat: firstSubPath.startY, lng: firstSubPath.startX },
+      id: `transit-${segmentIndex}-boarding`,
+      label: `탑승: ${firstSubPath.startName?.trim() || "대중교통 탑승"}`,
+      mode: getTransitMarkerMode(firstSubPath.trafficType),
+      role: "boarding",
+      segmentIndex,
+    });
+  }
+
+  if (typeof lastSubPath?.endX === "number" && typeof lastSubPath.endY === "number") {
+    markers.push({
+      coordinate: { lat: lastSubPath.endY, lng: lastSubPath.endX },
+      id: `transit-${segmentIndex}-alighting`,
+      label: `하차: ${lastSubPath.endName?.trim() || "대중교통 하차"}`,
+      mode: getTransitMarkerMode(lastSubPath.trafficType),
+      role: "alighting",
+      segmentIndex,
+    });
+  }
+
+  return markers;
 }
 
 /**
  * Merges multiple drawable provider segments without inventing missing links.
  */
-function combineOdsaySegments(
-  segments: Array<{
-    distanceMeters: number;
-    durationSeconds: number;
-    path: MapCoordinate[];
-    paths: MapCoordinate[][];
-  }>,
-) {
+function combineOdsaySegments(segments: ProviderRouteSegment[]): ProviderRouteSegment {
   const path: MapCoordinate[] = [];
+  const transitMarkers = segments.flatMap((segment) => segment.transitMarkers ?? []);
+  const drawablePaths = segments
+    .flatMap((segment) => segment.paths)
+    .filter((segment) => segment.length > 2);
 
   for (const segment of segments) {
     for (const coordinate of segment.path) {
@@ -1228,15 +1324,22 @@ function combineOdsaySegments(
   return {
     distanceMeters: segments.reduce((sum, segment) => sum + segment.distanceMeters, 0),
     durationSeconds: segments.reduce((sum, segment) => sum + segment.durationSeconds, 0),
+    geometryStatus: segments.some((segment) => segment.geometryStatus === "partial")
+      ? "partial"
+      : "complete",
     path,
-    paths: segments.flatMap((segment) => segment.paths).filter((segment) => segment.length > 2),
+    paths: drawablePaths,
+    transitMarkers,
   };
 }
 
 /**
  * Returns a drawable ODsay walking route for a local segment.
  */
-async function requestOdsayWalkRoute(origin: DestinationRow, destination: DestinationRow) {
+async function requestOdsayWalkRoute(
+  origin: DestinationRow,
+  destination: DestinationRow,
+): Promise<ProviderRouteSegment> {
   if (!origin.coordinate || !destination.coordinate) {
     throw new Error("ODsay 도보 경로 계산에는 좌표가 필요합니다.");
   }
@@ -1303,7 +1406,10 @@ async function requestOdsayLanePaths(mapObj: string) {
 /**
  * Safely requests a short access walking segment when ODsay has exact endpoints.
  */
-async function requestOptionalOdsayWalkRoute(origin: DestinationRow, destination: DestinationRow) {
+async function requestOptionalOdsayWalkRoute(
+  origin: DestinationRow,
+  destination: DestinationRow,
+): Promise<ProviderRouteSegment | null> {
   try {
     const segment = await requestOdsayWalkRoute(origin, destination);
 
@@ -1316,7 +1422,10 @@ async function requestOptionalOdsayWalkRoute(origin: DestinationRow, destination
 /**
  * Returns a local public-transit route using ODsay path search and lane graphics.
  */
-async function requestOdsayLocalTransitRoute(origin: DestinationRow, destination: DestinationRow) {
+async function requestOdsayLocalTransitRoute(
+  origin: DestinationRow,
+  destination: DestinationRow,
+): Promise<ProviderRouteSegment> {
   if (!origin.coordinate || !destination.coordinate) {
     throw new Error("ODsay 대중교통 경로 계산에는 좌표가 필요합니다.");
   }
@@ -1344,12 +1453,7 @@ async function requestOdsayLocalTransitRoute(origin: DestinationRow, destination
   const lastTransit =
     transitSubPaths[transitSubPaths.length - 1] ??
     longDistanceSubPaths[longDistanceSubPaths.length - 1];
-  const segments: Array<{
-    distanceMeters: number;
-    durationSeconds: number;
-    path: MapCoordinate[];
-    paths: MapCoordinate[][];
-  }> = [];
+  const segments: ProviderRouteSegment[] = [];
 
   if (firstTransit?.startX && firstTransit.startY) {
     const accessWalk = await requestOptionalOdsayWalkRoute(origin, {
@@ -1372,13 +1476,13 @@ async function requestOdsayLocalTransitRoute(origin: DestinationRow, destination
     segments.push({
       distanceMeters: firstPath.info.totalDistance ?? 0,
       durationSeconds: (firstPath.info.totalTime ?? 0) * 60,
+      geometryStatus: lanePaths.length > 0 ? "complete" : "partial",
       path: lanePath,
       paths: lanePaths,
     });
   }
 
   if (longDistanceSubPaths.length > 0) {
-    const longDistancePath = getOdsaySubPathBoundaryPath(longDistanceSubPaths);
     const longDistanceMeters = longDistanceSubPaths.reduce(
       (sum, subPath) => sum + (subPath.distance ?? 0),
       0,
@@ -1390,8 +1494,11 @@ async function requestOdsayLocalTransitRoute(origin: DestinationRow, destination
     segments.push({
       distanceMeters: longDistanceMeters || (firstPath?.info?.totalDistance ?? 0),
       durationSeconds: longDistanceSeconds || (firstPath?.info?.totalTime ?? 0) * 60,
-      path: longDistancePath,
-      paths: longDistancePath.length > 2 ? [longDistancePath] : [],
+      geometryStatus: "partial",
+      // ODsay long-distance bus/train chunks often expose only terminal boundary points.
+      path: [],
+      paths: [],
+      transitMarkers: createLongDistanceTransitMarkers(longDistanceSubPaths, segments.length),
     });
   }
 
@@ -1420,7 +1527,7 @@ async function requestOdsayLocalTransitRoute(origin: DestinationRow, destination
 async function requestOdsayTrainRouteBetween(
   seoulStation: OdsayTrainTerminal,
   busanStation: OdsayTrainTerminal,
-) {
+): Promise<ProviderRouteSegment> {
   if (!seoulStation.stationID || !busanStation.stationID) {
     throw new Error("ODsay 기차역 코드를 찾지 못했습니다.");
   }
@@ -1472,7 +1579,10 @@ async function requestOdsayTrainRouteBetween(
 /**
  * Composes the demo's Incheon Airport to Busan route without dropping access legs.
  */
-async function requestOdsayBusanKtxRoute(origin: DestinationRow, destination: DestinationRow) {
+async function requestOdsayBusanKtxRoute(
+  origin: DestinationRow,
+  destination: DestinationRow,
+): Promise<ProviderRouteSegment> {
   const [seoulStation, busanStation] = await Promise.all([
     requestOdsayTrainTerminal("서울"),
     requestOdsayTrainTerminal("부산"),
@@ -1495,7 +1605,7 @@ async function requestOdsayBusanKtxRoute(origin: DestinationRow, destination: De
 async function requestOdsayAirportToTrainStationRoute(
   origin: DestinationRow,
   destination: DestinationRow,
-) {
+): Promise<ProviderRouteSegment> {
   const [seoulStation, destinationStation] = await Promise.all([
     requestOdsayTrainTerminal("서울"),
     requestOdsayTrainTerminal(getTrainTerminalName(destination)),
@@ -1516,7 +1626,7 @@ async function requestOdsayAirportToTrainStationRoute(
 async function requestOdsayTrainStationToBusanRoute(
   origin: DestinationRow,
   destination: DestinationRow,
-) {
+): Promise<ProviderRouteSegment> {
   const [originStation, busanStation] = await Promise.all([
     requestOdsayTrainTerminal(getTrainTerminalName(origin)),
     requestOdsayTrainTerminal("부산"),
@@ -1574,7 +1684,10 @@ function isBusanDestinationRow(row: DestinationRow) {
 /**
  * Requests one Naver Directions segment for car routing inside a mixed provider route.
  */
-async function requestNaverDriveSegmentRoute(origin: DestinationRow, destination: DestinationRow) {
+async function requestNaverDriveSegmentRoute(
+  origin: DestinationRow,
+  destination: DestinationRow,
+): Promise<ProviderRouteSegment> {
   const cacheKey = createNaverDriveRouteCacheKey(origin, destination);
   const cachedPayload = readCachedNaverRouteResponse(cacheKey);
 
@@ -1599,7 +1712,10 @@ async function requestNaverDriveSegmentRoute(origin: DestinationRow, destination
 /**
  * Converts a Naver route API payload into one drawable route segment.
  */
-function createNaverDriveSegmentResult(payload: RouteCheckApiResponse, responseOk = true) {
+function createNaverDriveSegmentResult(
+  payload: RouteCheckApiResponse,
+  responseOk = true,
+): ProviderRouteSegment {
   const segment = payload.segments?.[0];
 
   if (!responseOk || !payload.ok || !segment) {
@@ -1625,8 +1741,10 @@ async function computeOdsayRoute(rows: DestinationRow[]): Promise<RouteCheckApiR
 
   const path: MapCoordinate[] = [];
   const segments: NonNullable<RouteCheckApiResponse["segments"]> = [];
+  const transitMarkers: RouteTransitMarker[] = [];
   let totalDistanceMeters = 0;
   let totalDurationSeconds = 0;
+  let hasPartialGeometry = false;
 
   for (let index = 0; index < rows.length - 1; index += 1) {
     const origin = rows[index];
@@ -1657,26 +1775,38 @@ async function computeOdsayRoute(rows: DestinationRow[]): Promise<RouteCheckApiR
 
     totalDistanceMeters += segment.distanceMeters;
     totalDurationSeconds += segment.durationSeconds;
+    transitMarkers.push(...(segment.transitMarkers ?? []));
+    hasPartialGeometry = hasPartialGeometry || segment.geometryStatus === "partial";
     segments.push({
       distanceMeters: segment.distanceMeters,
       durationSeconds: segment.durationSeconds,
+      geometryStatus: segment.geometryStatus,
       mode: origin.mode,
       path: segment.path,
       paths: segment.paths,
     });
   }
 
-  if (segments.every((segment) => !segment.paths?.length)) {
+  if (segments.every((segment) => !segment.paths?.length) && transitMarkers.length === 0) {
     return null;
   }
 
   return {
+    geometryStatus:
+      hasPartialGeometry || segments.some((segment) => !segment.paths?.length)
+        ? "partial"
+        : "complete",
     ok: true,
     path,
     segments,
+    transitMarkers,
     totalDistanceMeters,
     totalDurationLabel: formatDurationFromSeconds(totalDurationSeconds),
     totalDurationSeconds,
+    warnings:
+      hasPartialGeometry || segments.some((segment) => !segment.paths?.length)
+        ? ["장거리 대중교통 본선 좌표는 제공되지 않아 탑승/하차 지점만 표시합니다."]
+        : undefined,
   };
 }
 
@@ -1801,8 +1931,9 @@ function createComputedRouteResult(
   savingLabel?: string,
 ): ComputedRouteResult | null {
   const segments = getDrawableRouteSegments(payload);
+  const transitMarkers = payload.transitMarkers ?? [];
 
-  if (!payload.path?.length || segments.length === 0) {
+  if ((!payload.path?.length || segments.length === 0) && transitMarkers.length === 0) {
     return null;
   }
 
@@ -1814,11 +1945,13 @@ function createComputedRouteResult(
   return {
     durationLabel: payload.totalDurationLabel,
     durationMinutes,
-    path: payload.path,
+    geometryStatus: payload.geometryStatus ?? (segments.length > 0 ? "complete" : "partial"),
+    path: payload.path ?? [],
     routeText: rows.map((row) => row.name).join(" → "),
     segments,
     stops: createRouteStopsFromRows(rows),
-    timeline: createTimelineFromRows(rows, savingLabel),
+    timeline: createTimelineWithTransitMarkers(rows, transitMarkers, savingLabel),
+    transitMarkers,
   };
 }
 
@@ -1826,7 +1959,7 @@ function createComputedRouteResult(
  * Applies a computed provider path to an existing route plan.
  */
 function applyComputedRoute(route: RoutePlan, computedRoute?: ComputedRouteState[RoutePlanId]) {
-  if (!computedRoute?.segments?.length) {
+  if (!computedRoute) {
     return route;
   }
 
@@ -1834,10 +1967,11 @@ function applyComputedRoute(route: RoutePlan, computedRoute?: ComputedRouteState
     ...route,
     durationLabel: computedRoute.durationLabel ?? route.durationLabel,
     durationMinutes: computedRoute.durationMinutes ?? route.durationMinutes,
-    geoPath: computedRoute.path,
-    geoSegments: computedRoute.segments,
+    geoPath: computedRoute.path.length > 2 ? computedRoute.path : undefined,
+    geoSegments: computedRoute.segments.length > 0 ? computedRoute.segments : undefined,
     routeText: computedRoute.routeText,
     stops: computedRoute.stops,
+    transitMarkers: computedRoute.transitMarkers,
   };
 }
 
@@ -1859,8 +1993,28 @@ function createRecalculatedHeaderCopy(route: RoutePlan): DisplayHeaderCopy {
 
   return {
     summary: `${originLabel}에서 ${destinationLabel}(으)로 이동하는 CarryME 동선을 확인하세요.`,
-    title: `PlanME ${originLabel} → ${destinationLabel} 추천 일정`,
+    title: `${originLabel} → ${destinationLabel} 추천 일정`,
   };
+}
+
+/**
+ * Removes the brand prefix from itinerary page headings.
+ */
+function normalizeDisplayTitle(title: string) {
+  return title.replace(/^PlanME\s+/i, "").trim();
+}
+
+/**
+ * Keeps route comparison copy product-facing even for already-stored generated itineraries.
+ */
+function normalizeRouteDescription(description: string) {
+  const normalizedDescription = description
+    .replace(/^ChatGPT\s*초안을\s*기준으로\s*한\s*/i, "")
+    .trim();
+
+  return normalizedDescription === "일반 이동 흐름"
+    ? "짐을 직접 들고 이동하는 일반 동선"
+    : normalizedDescription;
 }
 
 /**
@@ -1958,7 +2112,7 @@ export function ItineraryDashboard({
     () =>
       hasComputedRoute
         ? createRecalculatedHeaderCopy(carrymeRoute)
-        : { summary: itinerary.summary, title: itinerary.title },
+        : { summary: itinerary.summary, title: normalizeDisplayTitle(itinerary.title) },
     [carrymeRoute, hasComputedRoute, itinerary.summary, itinerary.title],
   );
   const displayBenefits = useMemo(() => createGenericBenefits(), []);
@@ -2485,7 +2639,7 @@ function RouteComparisonCard({
             {route.routeText}
           </Typography>
           <Typography color={tone} sx={{ fontSize: 14, fontWeight: 800, mt: 0.5 }}>
-            {route.description}
+            {normalizeRouteDescription(route.description)}
           </Typography>
         </Box>
       </Stack>
@@ -2913,6 +3067,10 @@ function DestinationEditor({
         carrymePayload.totalDurationLabel ?? standardPayload.totalDurationLabel;
       const hasWarnings =
         Boolean(standardPayload.warnings?.length) || Boolean(carrymePayload.warnings?.length);
+      const hasPartialGeometry =
+        standardPayload.geometryStatus === "partial" ||
+        carrymePayload.geometryStatus === "partial" ||
+        hasWarnings;
 
       const distanceKm =
         typeof responseDistanceMeters === "number"
@@ -2921,8 +3079,10 @@ function DestinationEditor({
 
       setRouteStatus("success");
       setRouteMessage(
-        `경로 체크 완료 · ${responseDurationLabel ?? "시간 확인 완료"}${distanceKm}${
-          hasWarnings ? " · 일부 구간 확인 필요" : ""
+        `${hasPartialGeometry ? "일부 구간 확인 필요" : "경로 체크 완료"} · ${
+          responseDurationLabel ?? "시간 확인 완료"
+        }${distanceKm}${
+          hasPartialGeometry ? " · 탑승/하차 지점을 확인하세요" : ""
         }`,
       );
     } catch {

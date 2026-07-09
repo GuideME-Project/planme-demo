@@ -15,6 +15,18 @@ export type RouteStop = {
   caption: string;
   coordinate?: MapCoordinate;
   icon: "airport" | "hotel" | "station" | "event" | "attraction";
+  placeId?: string;
+  placeSource?: "google_text_search" | "google_nearby_search" | "naver_geocode" | "input";
+  placeSourceRef?: string;
+};
+
+export type RouteTransitMarker = {
+  coordinate: MapCoordinate;
+  id: string;
+  label: string;
+  mode: "bus" | "subway" | "train" | "transit";
+  role: "boarding" | "alighting";
+  segmentIndex?: number;
 };
 
 export type TimelineEvent = {
@@ -38,6 +50,7 @@ export type RoutePlan = {
   geoPath?: MapCoordinate[];
   geoSegments?: MapCoordinate[][];
   mapPath: MapPoint[];
+  transitMarkers?: RouteTransitMarker[];
   dashedGeoPath?: MapCoordinate[];
   dashedPath?: MapPoint[];
 };
@@ -369,7 +382,7 @@ const dayTwo: ItineraryDay = {
 
 const demoItinerary: PlanmeItinerary = {
   id: "busan-bts-1d1n",
-  title: "PlanME 부산 BTS 공연 1박 2일 추천 일정",
+  title: "부산 BTS 공연 1박 2일 추천 일정",
   region: "부산",
   duration: "1박 2일",
   summary: "인천공항 입국 후 부산 공연장으로 바로 향하는 CarryME 동선을 확인하세요.",

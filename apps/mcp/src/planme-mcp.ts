@@ -9,43 +9,28 @@ import {
   createAiRecommendedItineraryResponse,
   formatPlanmeAiGenerationError,
   getGptActionItineraryResponse,
+  isPlanmeClarificationResponse,
   PlanmeAiConfigurationError,
   toGptActionItineraryResponse,
   type GptActionItineraryResponse,
+  type PlanmeClarificationResponse,
   type PlanmeItinerary,
   type PlanmePlanningRequest,
+  type PlanmeRecommendationResponse,
   type RecommendItineraryRequest,
 } from "@planme/core";
 import { z } from "zod";
+import {
+  createNaverGeocoder,
+  hasNaverGeocoderRuntimeConfig,
+} from "./naver-geocoding.js";
 import { createPlanmeWidgetHtml } from "./planme-widget.js";
+import { createPlanmeUsageRecorder } from "./usage-counters.js";
 
 export const PLANME_WIDGET_URI = "ui://planme/itinerary-widget-v2.html";
 const PLANME_LEGACY_WIDGET_URI = "ui://planme/itinerary-widget.html";
 const PLANME_WEB_ORIGIN = "https://planme-demo.vercel.app";
 const PLANME_MCP_ORIGIN = "https://planme-demo-mcp.vercel.app";
-
-const planmeWidgetCsp = {
-  connectDomains: [PLANME_MCP_ORIGIN, PLANME_WEB_ORIGIN],
-  resourceDomains: [PLANME_MCP_ORIGIN, PLANME_WEB_ORIGIN],
-};
-
-const planmeLegacyWidgetCsp = {
-  connect_domains: planmeWidgetCsp.connectDomains,
-  resource_domains: planmeWidgetCsp.resourceDomains,
-  redirect_domains: [PLANME_WEB_ORIGIN],
-};
-
-const planmeWidgetMeta = {
-  ui: {
-    prefersBorder: true,
-    domain: PLANME_MCP_ORIGIN,
-    csp: planmeWidgetCsp,
-  },
-  "openai/widgetDescription": "PlanME 일정의 CarryME 절약 효과와 Day 1 타임라인을 보여줍니다.",
-  "openai/widgetPrefersBorder": true,
-  "openai/widgetCSP": planmeLegacyWidgetCsp,
-  "openai/widgetDomain": PLANME_MCP_ORIGIN,
-};
 
 const timelineEventSchema = z.object({
   time: z.string(),
@@ -76,14 +61,41 @@ const planningQuestionSchema = z.object({
 });
 
 const itinerarySummarySchema = {
-  itineraryId: z.string(),
-  title: z.string(),
-  summary: z.string(),
-  pageUrl: z.string().url(),
-  savedMinutes: z.number(),
-  standardTotalMinutes: z.number(),
-  carrymeTotalMinutes: z.number(),
-  timeline: z.array(timelineEventSchema),
+  clarificationContext: z
+    .object({
+      previousAnswers: z.array(z.string()),
+      previousQuestions: z.array(z.string()),
+      round: z.number(),
+      unresolvedPlaces: z.array(z.string()),
+    })
+    .optional(),
+  carrymeTotalMinutes: z.number().optional(),
+  feedbackMessage: z.string().optional(),
+  itineraryId: z.string().optional(),
+  message: z.string().optional(),
+  pageUrl: z.string().url().optional(),
+  questions: z.array(z.string()).optional(),
+  resolutionLogs: z
+    .array(
+      z.object({
+        decisionStatus: z.string(),
+        originalName: z.string(),
+        query: z.string().optional(),
+        radiusMeters: z.number().optional(),
+        reason: z.string(),
+        resolvedName: z.string().optional(),
+        source: z.string(),
+      }),
+    )
+    .optional(),
+  savedMinutes: z.number().optional(),
+  standardTotalMinutes: z.number().optional(),
+  status: z.enum(["ready", "needs_clarification"]),
+  summary: z.string().optional(),
+  timeline: z.array(timelineEventSchema).optional(),
+  title: z.string().optional(),
+  unresolvedStops: z.array(z.string()).optional(),
+  validationIssues: z.array(z.string()).optional(),
 };
 
 const planningAssessmentSchema = {
@@ -102,14 +114,19 @@ const planningAssessmentSchema = {
 };
 
 type ItinerarySummary = {
-  itineraryId: string;
-  title: string;
-  summary: string;
-  pageUrl: string;
-  savedMinutes: number;
-  standardTotalMinutes: number;
-  carrymeTotalMinutes: number;
-  timeline: Array<{
+  clarificationContext?: PlanmeClarificationResponse["clarificationContext"];
+  carrymeTotalMinutes?: number;
+  feedbackMessage?: string;
+  itineraryId?: string;
+  message?: string;
+  pageUrl?: string;
+  questions?: string[];
+  resolutionLogs?: PlanmeClarificationResponse["resolutionLogs"];
+  savedMinutes?: number;
+  standardTotalMinutes?: number;
+  status: "ready" | "needs_clarification";
+  summary?: string;
+  timeline?: Array<{
     time: string;
     title: string;
     description: string;
@@ -117,6 +134,9 @@ type ItinerarySummary = {
     highlight?: boolean;
     savingLabel?: string;
   }>;
+  title?: string;
+  unresolvedStops?: string[];
+  validationIssues?: string[];
 };
 
 /**
@@ -127,14 +147,33 @@ function toItinerarySummary(response: GptActionItineraryResponse): ItinerarySumm
 
   // Keep model-visible data compact; full itinerary details are passed through _meta for the widget.
   return {
+    carrymeTotalMinutes: response.carrymeTotalMinutes,
     itineraryId: response.itineraryId,
-    title: response.title,
-    summary: response.summary,
     pageUrl: response.pageUrl,
+    resolutionLogs: response.resolutionLogs,
     savedMinutes: response.savedMinutes,
     standardTotalMinutes: response.standardTotalMinutes,
-    carrymeTotalMinutes: response.carrymeTotalMinutes,
+    status: "ready",
+    summary: response.summary,
     timeline: firstDay.timeline,
+    title: response.title,
+    validationIssues: response.validationIssues?.map((issue) => issue.message),
+  };
+}
+
+/**
+ * Converts coordinate-resolution failures into model-visible MCP clarification content.
+ */
+function toClarificationSummary(response: PlanmeClarificationResponse): ItinerarySummary {
+  return {
+    clarificationContext: response.clarificationContext,
+    feedbackMessage: response.feedbackMessage,
+    message: response.message,
+    questions: response.questions,
+    resolutionLogs: response.resolutionLogs,
+    status: "needs_clarification",
+    unresolvedStops: response.unresolvedStops,
+    validationIssues: response.validationIssues.map((issue) => issue.message),
   };
 }
 
@@ -167,7 +206,7 @@ export async function persistItineraryForDetailPage(itinerary: PlanmeItinerary):
   const timeout = setTimeout(() => controller.abort(), 2500);
 
   try {
-    const response = await fetch(`${getPlanmeWebOrigin()}/api/gpt/itineraries/preview-store`, {
+    const response = await fetch(buildPlanmeWebUrl("/api/gpt/itineraries/preview-store"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -192,8 +231,52 @@ export async function persistItineraryForDetailPage(itinerary: PlanmeItinerary):
 /**
  * Reads the web origin lazily so tests and Vercel env can override the handoff target.
  */
-function getPlanmeWebOrigin() {
-  return process.env.PLANME_WEB_ORIGIN?.trim() || PLANME_WEB_ORIGIN;
+function getPlanmeWebOrigin(): string {
+  const raw = process.env.PLANME_WEB_ORIGIN?.trim() || PLANME_WEB_ORIGIN;
+
+  return new URL(raw).origin;
+}
+
+/**
+ * Builds an absolute web URL from the normalized PlanME web origin.
+ */
+function buildPlanmeWebUrl(path: string): string {
+  return new URL(path, `${getPlanmeWebOrigin()}/`).toString();
+}
+
+/**
+ * Builds a web-origin request URL for PlanME core link generation.
+ */
+function getPlanmeWebRequestUrl(): string {
+  // Keep generated page URLs aligned with the same web origin used for preview persistence.
+  return buildPlanmeWebUrl("/mcp");
+}
+
+/**
+ * Builds Apps SDK resource metadata using the current web origin.
+ */
+function createPlanmeWidgetMeta() {
+  const webOrigin = getPlanmeWebOrigin();
+  const widgetCsp = {
+    connectDomains: [PLANME_MCP_ORIGIN, webOrigin],
+    resourceDomains: [PLANME_MCP_ORIGIN, webOrigin],
+  };
+
+  return {
+    ui: {
+      prefersBorder: true,
+      domain: PLANME_MCP_ORIGIN,
+      csp: widgetCsp,
+    },
+    "openai/widgetDescription": "PlanME 일정의 CarryME 절약 효과와 Day 1 타임라인을 보여줍니다.",
+    "openai/widgetPrefersBorder": true,
+    "openai/widgetCSP": {
+      connect_domains: widgetCsp.connectDomains,
+      redirect_domains: [webOrigin],
+      resource_domains: widgetCsp.resourceDomains,
+    },
+    "openai/widgetDomain": PLANME_MCP_ORIGIN,
+  };
 }
 
 /**
@@ -208,7 +291,7 @@ function registerPlanmeWidgetResource(server: McpServer, name: string, resourceU
     {
       title: "PlanME itinerary widget",
       description: "Renders the PlanME Standard and CarryME timeline comparison.",
-      _meta: planmeWidgetMeta,
+      _meta: createPlanmeWidgetMeta(),
     },
     async (uri) => ({
       contents: [
@@ -216,7 +299,7 @@ function registerPlanmeWidgetResource(server: McpServer, name: string, resourceU
           uri: uri.href,
           mimeType: RESOURCE_MIME_TYPE,
           text: createPlanmeWidgetHtml(),
-          _meta: planmeWidgetMeta,
+          _meta: createPlanmeWidgetMeta(),
         },
       ],
     }),
@@ -231,6 +314,7 @@ export function createPlanmeMcpServer(): McpServer {
     name: "planme-mcp",
     version: "0.1.0",
   });
+  const usageRecorder = createPlanmeUsageRecorder();
 
   registerPlanmeWidgetResource(server, "planme-itinerary-widget-v2", PLANME_WIDGET_URI);
   registerPlanmeWidgetResource(server, "planme-itinerary-widget-legacy", PLANME_LEGACY_WIDGET_URI);
@@ -305,6 +389,15 @@ export function createPlanmeMcpServer(): McpServer {
           .array(z.string())
           .optional()
           .describe("User preferences like 아이 동반 or 바다 전망."),
+        clarificationAnswers: z.union([z.string(), z.array(z.string())]).optional(),
+        clarificationContext: z
+          .object({
+            previousAnswers: z.array(z.string()),
+            previousQuestions: z.array(z.string()),
+            round: z.number().int().min(0).max(2),
+            unresolvedPlaces: z.array(z.string()),
+          })
+          .optional(),
         theme: z.enum(["light", "dark"]).optional(),
       },
       outputSchema: itinerarySummarySchema,
@@ -318,12 +411,19 @@ export function createPlanmeMcpServer(): McpServer {
       },
     },
     async (input: RecommendItineraryRequest) => {
-      let response: GptActionItineraryResponse;
+      let response: PlanmeRecommendationResponse;
 
       try {
         response = await createAiRecommendedItineraryResponse(
-          "https://planme-demo.vercel.app/mcp",
+          getPlanmeWebRequestUrl(),
           input,
+          {
+            draftGeocoder: hasNaverGeocoderRuntimeConfig()
+              ? createNaverGeocoder({ usageRecorder })
+              : undefined,
+            googleMapsReferer: `${getPlanmeWebOrigin()}/`,
+            usageRecorder,
+          },
         );
       } catch (error) {
         if (error instanceof PlanmeAiConfigurationError) {
@@ -350,6 +450,20 @@ export function createPlanmeMcpServer(): McpServer {
             {
               type: "text" as const,
               text: `PlanME AI 일정 생성에 실패했습니다: ${safeMessage}`,
+            },
+          ],
+        };
+      }
+
+      if (isPlanmeClarificationResponse(response)) {
+        const structuredContent = toClarificationSummary(response);
+
+        return {
+          structuredContent,
+          content: [
+            {
+              type: "text" as const,
+              text: `${response.message} 확인 필요 장소: ${response.unresolvedStops.join(", ")}`,
             },
           ],
         };
@@ -410,7 +524,7 @@ export function createPlanmeMcpServer(): McpServer {
       },
     },
     async ({ itineraryId }: { itineraryId: string }) => {
-      const response = getGptActionItineraryResponse(itineraryId, "https://planme-demo.vercel.app/mcp");
+      const response = getGptActionItineraryResponse(itineraryId, getPlanmeWebRequestUrl());
 
       if (!response) {
         // MCP clients surface tool errors better when the result is explicitly marked as an error.
