@@ -231,7 +231,7 @@ export async function persistItineraryForDetailPage(itinerary: PlanmeItinerary):
 /**
  * Reads the web origin lazily so tests and Vercel env can override the handoff target.
  */
-function getPlanmeWebOrigin(): string {
+export function getPlanmeWebOrigin(): string {
   const raw = process.env.PLANME_WEB_ORIGIN?.trim() || PLANME_WEB_ORIGIN;
 
   return new URL(raw).origin;

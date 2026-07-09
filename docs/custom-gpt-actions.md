@@ -2,11 +2,13 @@
 
 ## 목적
 
-PlanME 일정 생성은 MCP 도구에서만 수행하고, Next.js 웹은 저장된 일정 상세 화면과 조회/공유 API만 제공하는 흐름을 검증합니다.
+PlanME 일정 생성은 MCP 앱 배포에서 수행하고, Next.js 웹은 저장된 일정 상세 화면과 조회/공유 API를 제공하는 흐름을 검증합니다. GPT App은 `/mcp` 도구를 사용하고, GPTs Actions는 같은 MCP 앱 배포의 REST facade(`/api/gpt/*`)를 사용합니다.
 
 ## 역할 분리
 
 - 일정 생성(MCP `recommend_planme_itinerary`): 사용자 조건을 받아 서버 내부 OpenAI 호출로 일정 초안을 생성하고, 웹 저장 API에 저장한 뒤 상세 일정 URL을 반환합니다.
+- 일정 생성(GPTs Actions `POST /api/gpt/itineraries/recommend`): MCP 앱 배포의 REST facade가 서버 내부 OpenAI 호출로 일정 초안을 생성하고, 웹 저장 API에 저장한 뒤 상세 일정 URL을 반환합니다.
+- 입력 확인(GPTs Actions `POST /api/gpt/planning/start`): 목적지, 출발지, 일정 일수 같은 필수 조건이 부족한지 확인하고 다음 질문을 반환합니다.
 - 일정 조회(Web `GET /api/gpt/itineraries/{itineraryId}`): 저장됐거나 고정 데모로 제공되는 일정을 조회합니다.
 - 일정 공유(Web `POST /api/gpt/itineraries/{itineraryId}/share`): 기존 일정의 상세 URL과 보조 미리보기 메타데이터를 반환합니다.
 - 일정 렌더링(Web `/itinerary/{itineraryId}`): 저장된 generated 일정 또는 고정 데모 일정을 상세 화면으로 보여줍니다.
@@ -19,18 +21,19 @@ PlanME 일정 생성은 MCP 도구에서만 수행하고, Next.js 웹은 저장�
 - Itinerary lookup API: `/api/gpt/itineraries/{itineraryId}`
 - Share API: `/api/gpt/itineraries/{itineraryId}/share`
 - Read-only OpenAPI schema: `/api/gpt/openapi`
+- GPTs Actions OpenAPI schema: `https://<mcp-project-domain>/api/gpt/openapi`
 - Legacy OpenAPI schema: `/api/openapi`
 - OpenGraph image: `/og`
 - Itinerary preview image: `/og/itinerary/{itineraryId}.png`
 
 ## 생성 API 제거 정책
 
-다음 웹 생성 API는 데모 웹에서 제공하지 않습니다.
+다음 웹 생성 API는 데모 웹에서 제공하지 않습니다. GPTs Actions 생성 API는 웹이 아니라 MCP 앱 배포에서 제공합니다.
 
 - GPT 일정 추천 API(`POST /api/gpt/itineraries/recommend`): route 파일을 두지 않습니다.
 - Legacy 계획 생성 API(`POST /api/plan`): GET 데모 조회만 남기고 POST 생성기를 두지 않습니다.
 
-웹 OpenAPI 스키마에도 위 생성 operation을 노출하지 않습니다. Custom GPT에서 일정을 생성해야 할 때는 MCP 도구(`recommend_planme_itinerary`)를 사용해야 합니다.
+웹 OpenAPI 스키마에는 위 생성 operation을 노출하지 않습니다. GPT App에서 일정을 생성해야 할 때는 MCP 도구(`recommend_planme_itinerary`)를 사용하고, GPTs Actions에서 일정을 생성해야 할 때는 MCP 앱 배포의 OpenAPI schema(`/api/gpt/openapi`)를 사용합니다.
 
 ## 저장 정책
 
