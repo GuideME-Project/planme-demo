@@ -1,5 +1,6 @@
 import type {
   PlanmeDraftPreviewRequest,
+  PlanmeDraftRouteStop,
   PlanmeDraftStop,
   PlanmeDraftValidationIssue,
 } from "./draft-itineraries.js";
@@ -41,40 +42,29 @@ export async function resolvePlanmeDraftCoordinates(
   const validationIssues: PlanmeDraftValidationIssue[] = [];
   const days = await Promise.all(
     draft.days.map(async (day, dayIndex) => {
-      const stops = await Promise.all(
-        day.stops.map(async (stop, stopIndex) => {
-          if (stop.coordinate) {
-            return stop;
-          }
-
-          // Use the model-provided address query first; fall back to region-qualified place text.
-          const query = createDraftGeocodeQuery(draft.region, stop);
-          const result = query
-            ? await geocoder({ query, stop, region: draft.region, dayIndex, stopIndex })
-            : null;
-
-          if (!result) {
-            validationIssues.push({
-              code: "coordinate_resolution_failed",
-              message: "일부 장소 좌표를 확인하지 못했습니다.",
-              severity: "warning",
-            });
-            return stop;
-          }
-
-          return {
-            ...stop,
-            addressQuery: result.matchedAddress ?? stop.addressQuery,
-            coordinate: result.coordinate,
-            placeId: result.placeId,
-            placeSource: result.placeSource ?? "naver_geocode",
-            placeSourceRef:
-              result.placeSourceRef ?? createDraftGeocodeSourceRef(query, result.coordinate),
-          };
-        }),
+      const standardStops = await resolveDraftStopList(
+        day.standardStops,
+        draft.region,
+        dayIndex,
+        geocoder,
+        validationIssues,
+      );
+      const carrymeStops = await resolveDraftStopList(
+        day.carrymeStops,
+        draft.region,
+        dayIndex,
+        geocoder,
+        validationIssues,
+      );
+      const stops = await resolveDraftStopList(
+        day.stops,
+        draft.region,
+        dayIndex,
+        geocoder,
+        validationIssues,
       );
 
-      return { ...day, stops };
+      return { ...day, standardStops, carrymeStops, stops };
     }),
   );
 
@@ -85,9 +75,60 @@ export async function resolvePlanmeDraftCoordinates(
 }
 
 /**
+ * Resolves every route-stop list variant used during the legacy-to-route contract transition.
+ */
+async function resolveDraftStopList<T extends PlanmeDraftRouteStop | PlanmeDraftStop>(
+  stops: T[] | undefined,
+  region: string | undefined,
+  dayIndex: number,
+  geocoder: PlanmeDraftGeocoder,
+  validationIssues: PlanmeDraftValidationIssue[],
+) {
+  if (!stops) {
+    return undefined;
+  }
+
+  return Promise.all(
+    stops.map(async (stop, stopIndex) => {
+      if (stop.coordinate) {
+        return stop;
+      }
+
+      // Use the model-provided address query first; fall back to region-qualified place text.
+      const query = createDraftGeocodeQuery(region, stop);
+      const result = query
+        ? await geocoder({ query, stop, region, dayIndex, stopIndex })
+        : null;
+
+      if (!result) {
+        validationIssues.push({
+          code: "coordinate_resolution_failed",
+          message: "일부 장소 좌표를 확인하지 못했습니다.",
+          severity: "warning",
+        });
+        return stop;
+      }
+
+      return {
+        ...stop,
+        addressQuery: result.matchedAddress ?? stop.addressQuery,
+        coordinate: result.coordinate,
+        placeId: result.placeId,
+        placeSource: result.placeSource ?? "naver_geocode",
+        placeSourceRef:
+          result.placeSourceRef ?? createDraftGeocodeSourceRef(query, result.coordinate),
+      };
+    }),
+  );
+}
+
+/**
  * Creates the safest available Naver geocoding query for a draft stop.
  */
-function createDraftGeocodeQuery(region: string | undefined, stop: PlanmeDraftStop) {
+function createDraftGeocodeQuery(
+  region: string | undefined,
+  stop: PlanmeDraftRouteStop | PlanmeDraftStop,
+) {
   const addressQuery = stop.addressQuery?.trim();
 
   if (addressQuery) {

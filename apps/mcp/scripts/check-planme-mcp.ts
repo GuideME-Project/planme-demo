@@ -196,32 +196,92 @@ async function assertOpenAiGeneratorContract(): Promise<void> {
                   carrymeDurationMinutes: 360,
                   standardRouteText: "동탄 → 남해 숙소 → 남해 독일마을",
                   carrymeRouteText: "동탄 → 남해 독일마을 → 남해 숙소",
-                  stops: [
+                  standardStops: [
                     {
                       name: "동탄",
-                      role: "origin",
                       caption: "출발",
+                      role: "출발지",
+                      mode: "transit",
+                      addressQuery: "경기도 화성시 동탄역",
+                    },
+                    {
+                      name: "남해 숙소",
+                      caption: "숙소 도착",
+                      role: "숙소",
+                      mode: "transit",
+                      addressQuery: "경상남도 남해군 남해 숙소",
+                    },
+                    {
+                      name: "남해 독일마을",
+                      caption: "관광",
+                      role: "방문지",
+                      mode: "transit",
+                      addressQuery: "경상남도 남해군 삼동면 독일로 89-7 남해 독일마을",
+                    },
+                  ],
+                  carrymeStops: [
+                    {
+                      name: "동탄",
+                      caption: "출발",
+                      role: "출발지",
+                      mode: "transit",
                       addressQuery: "경기도 화성시 동탄역",
                     },
                     {
                       name: "남해 독일마을",
-                      role: "visit",
                       caption: "관광",
+                      role: "방문지",
+                      mode: "transit",
                       addressQuery: "경상남도 남해군 삼동면 독일로 89-7 남해 독일마을",
                     },
                     {
                       name: "남해 숙소",
-                      role: "luggageDestination",
-                      caption: "짐 도착",
+                      caption: "숙소",
+                      role: "숙소",
+                      mode: "transit",
                       addressQuery: "경상남도 남해군 남해 숙소",
                     },
                   ],
-                  timeline: [
+                  standardTimeline: [
                     {
                       time: "09:00",
                       title: "동탄 출발",
                       description: "가족 여행을 시작합니다.",
                       category: "arrival",
+                      highlight: false,
+                      savingLabel: "",
+                    },
+                    {
+                      time: "13:30",
+                      title: "남해 숙소 도착",
+                      description: "가족 여행 숙소에 먼저 도착합니다.",
+                      category: "hotel",
+                      highlight: false,
+                      savingLabel: "",
+                    },
+                    {
+                      time: "14:00",
+                      title: "남해 독일마을 방문",
+                      description: "아이와 함께 가볍게 둘러봅니다.",
+                      category: "event",
+                      highlight: true,
+                      savingLabel: "약 60분 절약",
+                    },
+                  ],
+                  carrymeTimeline: [
+                    {
+                      time: "09:00",
+                      title: "동탄 출발",
+                      description: "가족 여행을 시작합니다.",
+                      category: "arrival",
+                      highlight: false,
+                      savingLabel: "",
+                    },
+                    {
+                      time: "13:30",
+                      title: "짐 숙소 도착",
+                      description: "짐은 숙소에 도착하고 여행자는 바로 관광합니다.",
+                      category: "hotel",
                       highlight: false,
                       savingLabel: "",
                     },
@@ -248,15 +308,19 @@ async function assertOpenAiGeneratorContract(): Promise<void> {
   );
 
   assert.equal(generatedDraft.title, "남해 아이 동반 가족여행 1박 2일 초안");
-  assert.equal(generatedDraft.days[0]?.timeline[0]?.title, "동탄 출발");
   assert.equal(
-    generatedDraft.days[0]?.stops[1]?.addressQuery,
+    generatedDraft.days[0]?.standardStops?.[2]?.addressQuery,
     "경상남도 남해군 삼동면 독일로 89-7 남해 독일마을",
   );
+  assert.equal(generatedDraft.days[0]?.carrymeTimeline?.[1]?.title, "짐 숙소 도착");
   assert.match(capturedBody, /json_schema/);
   assert.match(capturedBody, /addressQuery/);
   assert.match(capturedBody, /역\/터미널\/공항은 기본 수하물 보관·수령지가 아닙니다/);
-  assert.match(capturedBody, /luggageDestination/);
+  assert.match(capturedBody, /standardStops/);
+  assert.match(capturedBody, /출발지/);
+  assert.match(capturedBody, /drive/);
+  assert.doesNotMatch(capturedBody, /luggageDestination/);
+  assert.match(capturedBody, /carrymeTimeline/);
   assert.match(capturedBody, /펜션 사랑가/);
   assert.match(capturedBody, /아래 숙소 후보 중 하나/);
   assert.match(capturedBody, /PLANME_OPENAI_MODEL|test-model/);
@@ -874,6 +938,106 @@ async function assertAiRecommendationCoordinateResolutionContract(): Promise<voi
 }
 
 /**
+ * Verifies provider lot-number labels do not overwrite the user-facing AI place name.
+ */
+async function assertProviderAddressLabelDoesNotReplacePlaceName(): Promise<void> {
+  const response = await createAiRecommendedItineraryResponse(
+    "http://localhost:3000/api/gpt/itineraries/recommend",
+    { destination: "부산", origin: "서울 마포구", durationDays: 2 },
+    {
+      accommodationCandidateSearcher: async () => [],
+      aiItineraryGenerator: async () => ({
+        title: "서울 마포구 출발 부산 1박 2일 초안",
+        region: "부산",
+        duration: "1박 2일",
+        summary: "지번 후보명 보존 테스트",
+        origin: "서울 마포구",
+        assumptions: ["서울 마포구 출발"],
+        savedMinutes: 30,
+        days: [
+          {
+            day: 1,
+            label: "Day 1",
+            standardDurationMinutes: 360,
+            carrymeDurationMinutes: 330,
+            standardRouteText: "서울 마포구 → 오시리아 해안산책로",
+            carrymeRouteText: "서울 마포구 → 오시리아 해안산책로",
+            stops: [
+              {
+                name: "서울 마포구",
+                role: "origin",
+                caption: "출발",
+                addressQuery: "서울특별시 마포구",
+              },
+              {
+                name: "오시리아 해안산책로",
+                role: "visit",
+                caption: "바다 산책",
+                addressQuery: "부산광역시 기장군 기장읍 시랑리 62-15",
+              },
+            ],
+            timeline: [
+              {
+                time: "13:30",
+                title: "오시리아 해안산책로 이동",
+                description: "바다 풍경을 즐깁니다.",
+                category: "event",
+              },
+            ],
+          },
+        ],
+      }),
+      draftGeocoder: async ({ query }) => ({
+        coordinate: query.includes("62-15")
+          ? { lat: 35.1964941, lng: 129.2282823 }
+          : { lat: 37.5580889, lng: 126.9083451 },
+        placeSource: "naver_geocode",
+        placeSourceRef: `naver_geocode:${query}:35.196494:129.228282`,
+      }),
+      placeCandidateSearcher: async ({ stop }) => ({
+        candidates:
+          stop.name === "오시리아 해안산책로"
+            ? [
+                {
+                  candidateId:
+                    "google_text_search:places/osiria-lot:62-15:35.196494:129.228282",
+                  id: "places/osiria-lot",
+                  name: "62-15",
+                  address: "부산광역시 기장군 기장읍 시랑리 62-15",
+                  coordinate: { lat: 35.1964941, lng: 129.2282823 },
+                  placeId: "places/osiria-lot",
+                  query: "부산광역시 기장군 기장읍 시랑리 62-15",
+                  source: "google_text_search",
+                  sourceRef:
+                    "google_text_search:places/osiria-lot:62-15:35.196494:129.228282",
+                  types: ["establishment"],
+                },
+              ]
+            : [],
+        searchedQueries: [stop.name],
+      }),
+      placeCandidateDecider: async ({ candidates }) => ({
+        reason: "좌표 후보는 맞지만 displayName은 지번입니다.",
+        selectedCandidateId: candidates[0]?.candidateId,
+        status: "accepted",
+      }),
+    },
+  );
+
+  assertReadyRecommendation(response);
+
+  const standardRoute = response.itinerary.days[0]?.standard;
+  const timelineText = JSON.stringify(response.itinerary.days[0]?.timeline);
+
+  assert.equal(standardRoute?.stops[1]?.label, "오시리아 해안산책로");
+  assert.equal(standardRoute?.stops[1]?.placeId, "places/osiria-lot");
+  assert.match(standardRoute?.routeText ?? "", /오시리아 해안산책로/);
+  assert.doesNotMatch(standardRoute?.routeText ?? "", /62-15/);
+  assert.match(timelineText, /오시리아 해안산책로/);
+  assert.doesNotMatch(timelineText, /62-15/);
+}
+
+/**
  * Verifies Naver-only visit coordinates do not bypass AI candidate judgment.
  */
 async function assertNaverOnlyVisitRequiresCandidateContract(): Promise<void> {
@@ -998,18 +1162,33 @@ async function assertAccommodationCandidateContract(): Promise<void> {
               carrymeDurationMinutes: 360,
               standardRouteText: "남해 숙소 → 상주은모래비치 → 독일마을 → 남해 숙소",
               carrymeRouteText: "상주은모래비치 → 독일마을 → 남해 숙소",
-              stops: [
-                { name: "남해 숙소", role: "luggageDestination", caption: "짐 도착" },
-                { name: "상주은모래비치", role: "visit", caption: "해변 산책" },
-                { name: "독일마을", role: "visit", caption: "관광" },
-                { name: "남해 숙소", role: "finalDestination", caption: "휴식" },
+              standardStops: [
+                { name: "남해 숙소", caption: "숙소 도착", role: "숙소", mode: "transit" },
+                { name: "상주은모래비치", caption: "해변 산책", role: "방문지", mode: "transit" },
+                { name: "독일마을", caption: "관광", role: "방문지", mode: "transit" },
+                { name: "남해 숙소", caption: "휴식", role: "숙소", mode: "transit" },
               ],
-              timeline: [
+              carrymeStops: [
+                { name: "상주은모래비치", caption: "해변 산책", role: "방문지", mode: "transit" },
+                { name: "독일마을", caption: "관광", role: "방문지", mode: "transit" },
+                { name: "남해 숙소", caption: "휴식", role: "숙소", mode: "transit" },
+              ],
+              standardTimeline: [
                 {
                   time: "오전",
                   title: "남해 숙소 도착",
                   description: "숙소에 짐을 맡기고 여행을 시작합니다.",
                   category: "arrival",
+                  highlight: false,
+                  savingLabel: "",
+                },
+              ],
+              carrymeTimeline: [
+                {
+                  time: "오전",
+                  title: "짐 숙소 도착",
+                  description: "짐은 숙소에 도착하고 가족은 바로 여행합니다.",
+                  category: "hotel",
                   highlight: false,
                   savingLabel: "",
                 },
@@ -1031,7 +1210,9 @@ async function assertAccommodationCandidateContract(): Promise<void> {
       }),
       placeCandidateSearcher: async ({ stop }) => ({
         candidates:
-          stop.role === "visit" ? [createMockGooglePlaceCandidate(stop.name, stop.name.length)] : [],
+          stop.role === "방문지" || stop.role === "visit"
+            ? [createMockGooglePlaceCandidate(stop.name, stop.name.length)]
+            : [],
         searchedQueries: [stop.name],
       }),
       placeCandidateDecider: async ({ candidates }) => ({
@@ -1050,6 +1231,9 @@ async function assertAccommodationCandidateContract(): Promise<void> {
   assert.match(generatorInput, /펜션 사랑가/);
   assert.equal(firstStandardStop?.label, "펜션 사랑가");
   assert.deepEqual(firstStandardStop?.coordinate, { lat: 34.7601, lng: 127.9001 });
+  assert.equal(firstStandardStop?.role, "숙소");
+  assert.equal(firstStandardStop?.mode, "transit");
+  assert.equal(firstStandardStop?.placeId, "places/namhae-pension");
   assert.match(renderedPayload, /펜션 사랑가/);
   assert.doesNotMatch(renderedPayload, /남해 숙소/);
 }
@@ -1094,9 +1278,9 @@ async function assertThreeDayAiDraftContract(): Promise<void> {
             standardRouteText: "서울 → 남해 비치호텔 → 남해 독일마을",
             carrymeRouteText: "서울 → 남해 독일마을 → 남해 비치호텔",
             stops: [
-              { name: "서울", role: "origin", caption: "출발" },
-              { name: "남해 독일마을", role: "visit", caption: "관광" },
-              { name: "남해 비치호텔", role: "luggageDestination", caption: "짐 도착" },
+              { name: "서울", caption: "출발" },
+              { name: "남해 독일마을", caption: "관광" },
+              { name: "남해 비치호텔", caption: "숙소" },
             ],
             timeline: [
               {
@@ -1125,9 +1309,9 @@ async function assertThreeDayAiDraftContract(): Promise<void> {
             standardRouteText: "남해 비치호텔 → 물건방조어부림 → 남해 비치호텔",
             carrymeRouteText: "남해 비치호텔 → 물건방조어부림 → 남해 비치호텔",
             stops: [
-              { name: "남해 비치호텔", role: "origin", caption: "출발" },
-              { name: "물건방조어부림", role: "visit", caption: "해안 산책" },
-              { name: "남해 비치호텔", role: "finalDestination", caption: "휴식" },
+              { name: "남해 비치호텔", caption: "출발" },
+              { name: "물건방조어부림", caption: "해안 산책" },
+              { name: "남해 비치호텔", caption: "휴식" },
             ],
             timeline: [
               {
@@ -1156,9 +1340,9 @@ async function assertThreeDayAiDraftContract(): Promise<void> {
             standardRouteText: "남해 비치호텔 → 상주은모래비치 → 서울",
             carrymeRouteText: "남해 비치호텔 → 상주은모래비치 → 서울",
             stops: [
-              { name: "남해 비치호텔", role: "origin", caption: "출발" },
-              { name: "상주은모래비치", role: "visit", caption: "산책" },
-              { name: "서울", role: "finalDestination", caption: "귀가" },
+              { name: "남해 비치호텔", caption: "출발" },
+              { name: "상주은모래비치", caption: "산책" },
+              { name: "서울", caption: "귀가" },
             ],
             timeline: [
               {
@@ -2035,9 +2219,9 @@ function assertDraftPreviewSlugContract(): void {
         day: 1,
         label: "Day 1",
         stops: [
-          { name: "남해 숙소", role: "origin", caption: "출발" },
-          { name: "상주은모래비치", role: "visit", caption: "해변" },
-          { name: "독일마을", role: "visit", caption: "관광" },
+          { name: "남해 숙소", caption: "출발" },
+          { name: "상주은모래비치", caption: "해변" },
+          { name: "독일마을", caption: "관광" },
         ],
         timeline: [
           {
@@ -2082,10 +2266,10 @@ function assertStationLuggageGuardrail(): void {
         standardRouteText: "서울역 → 부산역 → 감천문화마을 → 부산역 인근 숙소",
         carrymeRouteText: "서울역 → 부산역 → 감천문화마을 → 부산역 인근 숙소",
         stops: [
-          { name: "서울역", role: "origin", caption: "출발" },
-          { name: "부산역", role: "luggageDestination", caption: "짐 보관" },
-          { name: "감천문화마을", role: "visit", caption: "관광" },
-          { name: "부산역 인근 숙소", role: "finalDestination", caption: "체크인" },
+          { name: "서울역", caption: "출발" },
+          { name: "부산역", caption: "짐 보관" },
+          { name: "감천문화마을", caption: "관광" },
+          { name: "부산역 인근 숙소", caption: "체크인" },
         ],
         timeline: [
           {
@@ -2326,6 +2510,7 @@ async function main(): Promise<void> {
   await assertNaverGeocoderContract();
   await assertAccommodationCandidateContract();
   await assertAiRecommendationCoordinateResolutionContract();
+  await assertProviderAddressLabelDoesNotReplacePlaceName();
   await assertNaverOnlyVisitRequiresCandidateContract();
   await assertThreeDayAiDraftContract();
   await assertGoogleMapsKeyFallbackContract();

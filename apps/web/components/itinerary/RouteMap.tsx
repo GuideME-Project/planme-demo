@@ -147,7 +147,7 @@ type RouteLineStyle = {
 
 const rollerImageSrc = "/roller/roller-flying.png";
 const rollerComfortHeadline = "캐리미로 짐을 이동하니, 편하게 관광할 수 있네요";
-const rollerMapNotice = "CarryME 경로를 지도에서 확인해요.";
+const rollerMapNotice = "짐 없이 바로 이동하는 경로를 지도에서 확인해요.";
 const routeLineStyles: Record<"standard" | "carryme", RouteLineStyle> = {
   carryme: {
     opacity: 0.96,
@@ -202,11 +202,13 @@ function getVisibleTransitMarkers({
  */
 function createRollerGuidanceContent(savingLabel: string): RollerGuidanceContent {
   const savingDurationLabel = savingLabel.replace(/\s*절약$/, "").trim();
+  const hasPositiveSaving =
+    savingDurationLabel.length > 0 && !savingLabel.startsWith("시간 절약 없음");
 
   // Keep the map bubble in sync with the same saving label used by the header and timeline.
   return {
     headline:
-      savingDurationLabel && savingDurationLabel !== "절약 없음"
+      hasPositiveSaving
         ? `캐리미로 짐을 이동하니, 관광할 시간이 ${savingDurationLabel} 더 많아졌어요`
         : rollerComfortHeadline,
   };
@@ -472,7 +474,7 @@ function NaverRouteMap({
         }}
       >
         <LegendRow color={standardColor} label="Standard 경로" />
-        <LegendRow color={carrymeColor} label="CarryME 경로" />
+        <LegendRow color={carrymeColor} label="짐 없이 바로 이동하는 경로" />
       </Stack>
     </Box>
   );
@@ -992,7 +994,7 @@ export function RouteMap({
         }}
       >
         <LegendRow color={standardColor} label="Standard 경로" />
-        <LegendRow color={carrymeColor} label="CarryME 경로" />
+        <LegendRow color={carrymeColor} label="짐 없이 바로 이동하는 경로" />
       </Stack>
         </>
       )}

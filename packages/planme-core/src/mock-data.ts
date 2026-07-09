@@ -10,14 +10,22 @@ export type MapCoordinate = {
   lng: number;
 };
 
+export type PlanmeStopRole = "출발지" | "방문지" | "숙소" | "복귀지";
+
+export type PlanmeRowMode = "drive" | "transit";
+
+export type ProviderSegmentMode = PlanmeRowMode | "walk";
+
 export type RouteStop = {
   label: string;
   caption: string;
   coordinate?: MapCoordinate;
   icon: "airport" | "hotel" | "station" | "event" | "attraction";
+  mode?: PlanmeRowMode;
   placeId?: string;
   placeSource?: "google_text_search" | "google_nearby_search" | "naver_geocode" | "input";
   placeSourceRef?: string;
+  role?: PlanmeStopRole;
 };
 
 export type RouteTransitMarker = {
@@ -62,6 +70,8 @@ export type ItineraryDay = {
   carryme: RoutePlan;
   savingMinutes: number;
   timeline: TimelineEvent[];
+  standardTimeline?: TimelineEvent[];
+  carrymeTimeline?: TimelineEvent[];
 };
 
 export type BenefitItem = {

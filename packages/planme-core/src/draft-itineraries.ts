@@ -4,27 +4,35 @@ import type {
   MapCoordinate,
   MapPoint,
   PlanmeItinerary,
+  PlanmeRowMode,
+  PlanmeStopRole,
   RoutePlan,
   RouteStop,
   TimelineEvent,
 } from "./mock-data.js";
 import type { PlanmePlaceCandidateSource } from "./place-candidates.js";
 
-export type PlanmeDraftStopRole =
-  | "origin"
-  | "visit"
-  | "luggageDestination"
-  | "finalDestination";
-
 export type PlanmeDraftStop = {
   name: string;
-  role?: PlanmeDraftStopRole;
+  role?: string;
   caption?: string;
   coordinate?: MapCoordinate;
   addressQuery?: string;
   placeId?: string;
   placeSource?: PlanmePlaceCandidateSource;
   placeSourceRef?: string;
+};
+
+export type PlanmeDraftRouteStop = {
+  name: string;
+  caption?: string;
+  coordinate?: MapCoordinate;
+  addressQuery?: string;
+  mode?: PlanmeRowMode;
+  placeId?: string;
+  placeSource?: PlanmePlaceCandidateSource;
+  placeSourceRef?: string;
+  role?: PlanmeStopRole;
 };
 
 export type PlanmeDraftTimelineEvent = {
@@ -39,8 +47,12 @@ export type PlanmeDraftTimelineEvent = {
 export type PlanmeDraftDay = {
   day?: number;
   label?: string;
-  stops: PlanmeDraftStop[];
-  timeline: PlanmeDraftTimelineEvent[];
+  stops?: PlanmeDraftStop[];
+  standardStops?: PlanmeDraftRouteStop[];
+  carrymeStops?: PlanmeDraftRouteStop[];
+  timeline?: PlanmeDraftTimelineEvent[];
+  standardTimeline?: PlanmeDraftTimelineEvent[];
+  carrymeTimeline?: PlanmeDraftTimelineEvent[];
   standardDurationMinutes?: number;
   carrymeDurationMinutes?: number;
   standardRouteText?: string;
@@ -101,6 +113,8 @@ const DRAFT_TITLE_MAX_LENGTH = 44;
 const MAX_DRAFT_DAYS = 14;
 const DEFAULT_AIRPORT_ORIGIN_PATTERN = /^(ICN|인천\s*(국제)?공항)$/i;
 const UNKNOWN_ORIGIN_LABEL = "출발지 확인 필요";
+const PLANME_STOP_ROLES = ["출발지", "방문지", "숙소", "복귀지"] as const;
+const PLANME_ROW_MODES = ["drive", "transit"] as const;
 const DRAFT_PLACE_ALIAS_REPLACEMENTS: Array<{ pattern: RegExp; replacement: string }> = [
   { pattern: /Namhae\s+German\s+Village/gi, replacement: "남해 독일마을" },
   { pattern: /House\s+N\s+Garden/gi, replacement: "원예예술촌" },
@@ -207,21 +221,29 @@ function validateDraftPreviewInput(input: PlanmeDraftPreviewRequest) {
   }
 
   input.days.forEach((day, dayIndex) => {
-    if (day.stops.length === 0) {
+    const standardStops = day.standardStops ?? day.stops ?? [];
+    const carrymeStops = day.carrymeStops ?? day.stops ?? [];
+    const standardTimeline = day.standardTimeline ?? day.timeline ?? [];
+    const carrymeTimeline = day.carrymeTimeline ?? day.timeline ?? [];
+
+    if (standardStops.length === 0 || carrymeStops.length === 0) {
       validationIssues.push({
         code: "missing_stops",
-        message: `${day.label ?? `Day ${dayIndex + 1}`}에 방문지가 필요합니다.`,
+        message: `${day.label ?? `Day ${dayIndex + 1}`}에 Standard와 CarryME 방문지가 필요합니다.`,
         severity: "error",
       });
     }
 
-    if (day.timeline.length === 0) {
+    if (standardTimeline.length === 0 || carrymeTimeline.length === 0) {
       validationIssues.push({
         code: "missing_timeline",
-        message: `${day.label ?? `Day ${dayIndex + 1}`}에 타임라인이 필요합니다.`,
+        message: `${day.label ?? `Day ${dayIndex + 1}`}에 Standard와 CarryME 타임라인이 필요합니다.`,
         severity: "error",
       });
     }
+
+    validateGeneratedRouteStopContract(day.standardStops, "Standard", day, dayIndex, validationIssues);
+    validateGeneratedRouteStopContract(day.carrymeStops, "CarryME", day, dayIndex, validationIssues);
   });
 
   if (!explicitOrigin && draftContainsDefaultAirportOrigin(input)) {
@@ -233,6 +255,42 @@ function validateDraftPreviewInput(input: PlanmeDraftPreviewRequest) {
   }
 
   return validationIssues;
+}
+
+/**
+ * Validates only the new route-stop contract; legacy `stops` payloads remain renderable.
+ */
+function validateGeneratedRouteStopContract(
+  stops: PlanmeDraftRouteStop[] | undefined,
+  routeLabel: "CarryME" | "Standard",
+  day: PlanmeDraftDay,
+  dayIndex: number,
+  validationIssues: PlanmeDraftValidationIssue[],
+) {
+  if (!stops) {
+    return;
+  }
+
+  stops.forEach((stop, stopIndex) => {
+    const dayLabel = day.label ?? `Day ${dayIndex + 1}`;
+    const stopLabel = stop.name.trim() || `${stopIndex + 1}번째 행선지`;
+
+    if (!isPlanmeStopRole(stop.role)) {
+      validationIssues.push({
+        code: "missing_stop_role",
+        message: `${dayLabel} ${routeLabel} ${stopLabel}의 역할을 확인해야 합니다.`,
+        severity: "error",
+      });
+    }
+
+    if (!isPlanmeRowMode(stop.mode)) {
+      validationIssues.push({
+        code: "missing_stop_mode",
+        message: `${dayLabel} ${routeLabel} ${stopLabel}의 대표 이동수단을 확인해야 합니다.`,
+        severity: "error",
+      });
+    }
+  });
 }
 
 /**
@@ -278,9 +336,9 @@ function buildDraftItinerary(
     duration,
     summary: `${summaryPrefix}${issueSummary}`,
     detailUrl: `/itinerary/${previewId}`,
-    carrymeSaving: savedMinutes > 0 ? `약 ${savedMinutes}분 절약 예상` : "CarryME 동선 확인",
+    carrymeSaving: formatCarrymeSavingLabel(savedMinutes),
     totalDurationLabel: `${firstDay.standard.durationLabel} → ${firstDay.carryme.durationLabel}`,
-    savedDurationLabel: savedMinutes > 0 ? `약 ${savedMinutes}분 절약` : "절약 시간 확인 중",
+    savedDurationLabel: formatCarrymeSavingLabel(savedMinutes),
     days,
     benefits: createDraftBenefits(region, input.assumptions ?? []),
   };
@@ -296,13 +354,16 @@ function buildDraftDay(
   explicitOrigin: string | null = null,
   luggageFallbackLabel = "숙소",
 ): ItineraryDay {
-  const stops = sanitizeStationLuggageStops(
-    sanitizeDraftOriginStops(day.stops.map(toRouteStop), explicitOrigin),
+  const standardStops = createDraftRouteStops(
+    day.standardStops ?? day.stops ?? [],
+    explicitOrigin,
     luggageFallbackLabel,
   );
+  const carrymeStops = day.carrymeStops
+    ? createDraftRouteStops(day.carrymeStops, explicitOrigin, luggageFallbackLabel)
+    : buildCarrymeStops(standardStops);
   let routeLikeTimelineIndex = 0;
-  const routeText = stops.map((stop) => stop.label).join(" → ") || "일정 초안 확인 중";
-  const carrymeStops = buildCarrymeStops(stops);
+  const routeText = standardStops.map((stop) => stop.label).join(" → ") || "일정 초안 확인 중";
   const carrymeRouteText =
     day.carrymeRouteText?.trim() || carrymeStops.map((stop) => stop.label).join(" → ") || routeText;
   const carrymeMinutes = Math.max(0, day.carrymeDurationMinutes ?? 300);
@@ -320,8 +381,8 @@ function buildDraftDay(
       label: "Standard",
       routeText: day.standardRouteText?.trim() || routeText,
       durationMinutes: standardMinutes,
-      stops,
       description: "짐을 직접 들고 이동하는 일반 동선",
+      stops: standardStops,
     }),
     carryme: buildRoutePlan({
       id: "carryme",
@@ -331,21 +392,22 @@ function buildDraftDay(
       stops: carrymeStops,
       description: "짐은 CarryME가 이동하고 여행자는 일정으로 바로 이동",
     }),
-    timeline: day.timeline.map((rawEvent) => {
-      const event = sanitizeStationLuggageTimelineEvent(
-        sanitizeDraftOriginTimelineEvent(rawEvent, explicitOrigin),
-      );
-      const isRouteLike = isRouteLikeText(event.title);
-      const fallbackStop = isRouteLike
-        ? selectTimelineStop(stops, event, routeLikeTimelineIndex)
-        : undefined;
-
-      if (isRouteLike) {
-        routeLikeTimelineIndex += 1;
-      }
-
-      return toTimelineEvent(event, fallbackStop);
-    }),
+    standardTimeline: buildDraftTimelineEvents(
+      day.standardTimeline ?? day.timeline ?? [],
+      standardStops,
+      explicitOrigin,
+    ),
+    carrymeTimeline: buildDraftTimelineEvents(
+      day.carrymeTimeline ?? day.timeline ?? [],
+      carrymeStops,
+      explicitOrigin,
+    ),
+    timeline: buildDraftTimelineEvents(
+      day.carrymeTimeline ?? day.timeline ?? [],
+      carrymeStops,
+      explicitOrigin,
+      routeLikeTimelineIndex,
+    ),
   };
 }
 
@@ -357,8 +419,17 @@ function buildEmptyDraftDay(savedMinutes: number): ItineraryDay {
     {
       day: 1,
       label: "Day 1",
-      stops: [{ name: "일정 초안", role: "visit", caption: "확인 필요" }],
-      timeline: [
+      standardStops: [{ name: "일정 초안", caption: "확인 필요", mode: "transit", role: "방문지" }],
+      carrymeStops: [{ name: "일정 초안", caption: "확인 필요", mode: "transit", role: "방문지" }],
+      standardTimeline: [
+        {
+          time: "--:--",
+          title: "일정 초안 확인 필요",
+          description: "ChatGPT가 만든 일정 초안을 다시 확인해야 합니다.",
+          category: "event",
+        },
+      ],
+      carrymeTimeline: [
         {
           time: "--:--",
           title: "일정 초안 확인 필요",
@@ -420,19 +491,95 @@ function buildCarrymeStops(stops: RouteStop[]) {
 }
 
 /**
+ * Converts AI-authored route stops without inferring lodging meaning from text.
+ */
+function createDraftRouteStops(
+  stops: Array<PlanmeDraftRouteStop | PlanmeDraftStop>,
+  explicitOrigin: string | null,
+  luggageFallbackLabel: string,
+) {
+  return sanitizeStationLuggageStops(
+    sanitizeDraftOriginStops(stops.map(toRouteStop), explicitOrigin),
+    luggageFallbackLabel,
+  );
+}
+
+/**
+ * Converts AI-authored timeline rows for one route without borrowing another route's semantics.
+ */
+function buildDraftTimelineEvents(
+  events: PlanmeDraftTimelineEvent[],
+  stops: RouteStop[],
+  explicitOrigin: string | null,
+  routeLikeTimelineStartIndex = 0,
+): TimelineEvent[] {
+  let routeLikeTimelineIndex = routeLikeTimelineStartIndex;
+
+  return events.map((rawEvent) => {
+    const event = sanitizeStationLuggageTimelineEvent(
+      sanitizeDraftOriginTimelineEvent(rawEvent, explicitOrigin),
+    );
+    const isRouteLike = isRouteLikeText(event.title);
+    const fallbackStop = isRouteLike
+      ? selectTimelineStop(stops, event, routeLikeTimelineIndex)
+      : undefined;
+
+    if (isRouteLike) {
+      routeLikeTimelineIndex += 1;
+    }
+
+    return toTimelineEvent(event, fallbackStop);
+  });
+}
+
+/**
+ * Checks whether an AI-authored role is part of the approved Korean stop contract.
+ */
+function isPlanmeStopRole(role: string | undefined): role is PlanmeStopRole {
+  return PLANME_STOP_ROLES.some((candidate) => candidate === role);
+}
+
+/**
+ * Checks whether a stop mode is a user-selectable representative mode.
+ */
+function isPlanmeRowMode(mode: string | undefined): mode is PlanmeRowMode {
+  return PLANME_ROW_MODES.some((candidate) => candidate === mode);
+}
+
+/**
+ * Maps the approved stop role to the existing icon vocabulary without using name keywords.
+ */
+function getIconForStopRole(role: PlanmeStopRole | undefined, caption: string): RouteStop["icon"] {
+  if (role === "숙소") {
+    return "hotel";
+  }
+
+  if (role === "출발지" || role === "복귀지" || caption === "출발") {
+    return "station";
+  }
+
+  return "event";
+}
+
+/**
  * Converts ChatGPT stop roles into stable PlanME captions and icons.
  */
-function toRouteStop(stop: PlanmeDraftStop): RouteStop {
-  const role = stop.role ?? "visit";
+function toRouteStop(stop: PlanmeDraftRouteStop | PlanmeDraftStop): RouteStop {
+  const caption = stop.caption?.trim() || "방문";
+  const role = isPlanmeStopRole(stop.role) ? stop.role : undefined;
+  const mode = "mode" in stop && isPlanmeRowMode(stop.mode) ? stop.mode : undefined;
+  const placeId = "placeId" in stop ? stop.placeId?.trim() : undefined;
 
   return {
     label: normalizeDraftPlaceAliases(stop.name.trim()),
-    caption: stop.caption?.trim() || getCaptionForRole(role),
+    caption,
     coordinate: stop.coordinate,
-    icon: getIconForRole(role),
-    placeId: stop.placeId,
+    icon: getIconForStopRole(role, caption),
+    mode,
+    placeId,
     placeSource: stop.placeSource,
     placeSourceRef: stop.placeSourceRef,
+    role,
   };
 }
 
@@ -489,13 +636,35 @@ function createRegionLuggageFallbackLabel(region: string) {
  */
 function draftContainsDefaultAirportOrigin(input: PlanmeDraftPreviewRequest) {
   return input.days.some((day) =>
-    day.stops.some((stop) => containsDefaultAirportOrigin(stop.name)) ||
-    day.timeline.some(
+    getDraftDayStops(day).some((stop) => containsDefaultAirportOrigin(stop.name)) ||
+    getDraftDayTimelineEvents(day).some(
       (event) =>
         containsDefaultAirportOrigin(event.title) ||
         containsDefaultAirportOrigin(event.description),
     ),
   );
+}
+
+/**
+ * Lists every route stop shape a draft day may provide during the contract transition.
+ */
+function getDraftDayStops(day: PlanmeDraftDay): Array<PlanmeDraftRouteStop | PlanmeDraftStop> {
+  return [
+    ...(day.standardStops ?? []),
+    ...(day.carrymeStops ?? []),
+    ...(day.stops ?? []),
+  ];
+}
+
+/**
+ * Lists every timeline shape a draft day may provide during the contract transition.
+ */
+function getDraftDayTimelineEvents(day: PlanmeDraftDay): PlanmeDraftTimelineEvent[] {
+  return [
+    ...(day.standardTimeline ?? []),
+    ...(day.carrymeTimeline ?? []),
+    ...(day.timeline ?? []),
+  ];
 }
 
 /**
@@ -863,40 +1032,6 @@ function createDraftBenefits(region: string, assumptions: string[]): BenefitItem
 }
 
 /**
- * Maps draft stop roles to short PlanME captions.
- */
-function getCaptionForRole(role: PlanmeDraftStopRole) {
-  if (role === "origin") {
-    return "출발";
-  }
-
-  if (role === "luggageDestination") {
-    return "짐 도착";
-  }
-
-  if (role === "finalDestination") {
-    return "도착";
-  }
-
-  return "방문";
-}
-
-/**
- * Maps draft stop roles to the existing PlanME icon vocabulary.
- */
-function getIconForRole(role: PlanmeDraftStopRole): RouteStop["icon"] {
-  if (role === "origin") {
-    return "station";
-  }
-
-  if (role === "luggageDestination" || role === "finalDestination") {
-    return "hotel";
-  }
-
-  return "event";
-}
-
-/**
  * Builds a small deterministic path so the existing map renderer can draw draft routes.
  */
 function createMapPath(stopCount: number): MapPoint[] {
@@ -1029,4 +1164,13 @@ function formatMinutes(totalMinutes: number) {
   }
 
   return minutes === 0 ? `약 ${hours}시간` : `약 ${hours}시간 ${minutes}분`;
+}
+
+/**
+ * Formats the shared CarryME saving label shown in GPT, previews, and detail surfaces.
+ */
+function formatCarrymeSavingLabel(savedMinutes: number) {
+  return savedMinutes > 0
+    ? `약 ${savedMinutes}분 절약`
+    : "시간 절약 없음 · 짐 없이 바로 이동";
 }
