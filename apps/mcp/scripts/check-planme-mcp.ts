@@ -2247,6 +2247,14 @@ async function assertGptsActionsRestFacade(): Promise<void> {
     assert.match(openApiText, /recommendPlanmeItinerary/);
     assert.match(openApiText, /\/api\/gpt\/planning\/start/);
     assert.match(openApiText, /\/api\/gpt\/itineraries\/recommend/);
+    assert.ok(
+      openApiPayload.components.schemas.RecommendItineraryRequest.properties
+        .clarificationAnswers,
+    );
+    assert.ok(
+      openApiPayload.components.schemas.RecommendItineraryRequest.properties
+        .clarificationContext,
+    );
 
     const planningResponse = await fetch(`${origin}/api/gpt/planning/start`, {
       method: "POST",
