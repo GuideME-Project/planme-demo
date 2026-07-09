@@ -1,5 +1,6 @@
 import { once } from "node:events";
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -26,6 +27,11 @@ import {
   createPlanmeUsageRecorder,
   readMemoryUsageCounter,
 } from "../src/usage-counters.js";
+import {
+  handleGptsOpenApiRequest,
+  handleGptsPlanningStartRequest,
+  handleGptsRecommendItineraryRequest,
+} from "../src/gpts-actions-api.js";
 
 type RecommendationContent = {
   itineraryId?: string;
@@ -99,6 +105,44 @@ function createMockGooglePlaceCandidate(name: string, index = 0) {
     source: "google_text_search" as const,
     sourceRef,
     types: ["point_of_interest"],
+  };
+}
+
+/**
+ * Starts a local HTTP server for the GPTs Actions REST facade.
+ */
+async function startGptsActionsServer() {
+  const server = createServer(async (request, response) => {
+    if (request.url === "/api/gpt/openapi") {
+      handleGptsOpenApiRequest(request, response);
+      return;
+    }
+
+    if (request.url === "/api/gpt/planning/start") {
+      await handleGptsPlanningStartRequest(request, response);
+      return;
+    }
+
+    if (request.url === "/api/gpt/itineraries/recommend") {
+      await handleGptsRecommendItineraryRequest(request, response);
+      return;
+    }
+
+    // Keep the test server minimal while still surfacing accidental route mismatches.
+    response.writeHead(404, { "content-type": "application/json; charset=utf-8" });
+    response.end(JSON.stringify({ error: "not_found" }));
+  });
+
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const addressInfo = address as AddressInfo;
+
+  return {
+    server,
+    origin: `http://127.0.0.1:${addressInfo.port}`,
   };
 }
 
@@ -2185,6 +2229,64 @@ async function assertUsageCounterContract(): Promise<void> {
 }
 
 /**
+ * Verifies the GPTs Actions REST facade exposes OpenAPI, planning, and generation errors.
+ */
+async function assertGptsActionsRestFacade(): Promise<void> {
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  const { server, origin } = await startGptsActionsServer();
+
+  try {
+    delete process.env.OPENAI_API_KEY;
+
+    const openApiResponse = await fetch(`${origin}/api/gpt/openapi`);
+    const openApiPayload = await openApiResponse.json();
+    const openApiText = JSON.stringify(openApiPayload);
+
+    assert.equal(openApiResponse.status, 200);
+    assert.match(openApiText, /startPlanmePlanning/);
+    assert.match(openApiText, /recommendPlanmeItinerary/);
+    assert.match(openApiText, /\/api\/gpt\/planning\/start/);
+    assert.match(openApiText, /\/api\/gpt\/itineraries\/recommend/);
+
+    const planningResponse = await fetch(`${origin}/api/gpt/planning/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ destination: "여수" }),
+    });
+    const planningPayload = (await planningResponse.json()) as PlanningContent;
+
+    assert.equal(planningResponse.status, 200);
+    assert.equal(planningPayload.status, "needs_input");
+    assert.equal(planningPayload.nextAction, "ask_user");
+    assert.ok(planningPayload.missingSlots?.includes("origin"));
+
+    const recommendationResponse = await fetch(`${origin}/api/gpt/itineraries/recommend`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        destination: "여수",
+        durationDays: 2,
+        origin: "서울",
+      }),
+    });
+    const recommendationText = await recommendationResponse.text();
+
+    // Without OPENAI_API_KEY, the REST facade should fail closed instead of returning a fake URL.
+    assert.equal(recommendationResponse.status, 500);
+    assert.match(recommendationText, /OPENAI_API_KEY_REQUIRED/);
+    assert.doesNotMatch(recommendationText, /\/itinerary\//);
+  } finally {
+    server.close();
+
+    if (originalOpenAiKey === undefined) {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = originalOpenAiKey;
+    }
+  }
+}
+
+/**
  * Starts the PlanME MCP server on an ephemeral local port for contract checks.
  */
 async function startServer() {
@@ -2231,6 +2333,7 @@ async function main(): Promise<void> {
   assertStationLuggageGuardrail();
   await assertPreviewStoreHandoffFailsClosed();
   await assertUsageCounterContract();
+  await assertGptsActionsRestFacade();
 
   const { server, url } = await startServer();
   const transport = new StreamableHTTPClientTransport(url);
