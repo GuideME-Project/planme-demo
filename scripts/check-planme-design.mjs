@@ -38,12 +38,15 @@ const requiredSourceFragments = [
 ];
 
 const requiredDashboardSourceFragments = [
-  'type InternalDestinationRole = "origin" | "stop" | "luggageDestination" | "finalDestination";',
-  "function createComparisonRouteRows",
   "function formatDayToggleLabel",
-  "luggageDestination",
-  "finalDestination",
+  "PlanmeRowMode",
+  "PlanmeStopRole",
+  "ProviderSegmentMode",
+  "function getDestinationRoleLabel(row: DestinationRow)",
   "savingLabel={savingLabel}",
+  "standardTimeline",
+  "carrymeTimeline",
+  "selectedDayPlan.carrymeTimeline ??",
 ];
 
 const requiredTimelinePanelSourceFragments = [
@@ -59,6 +62,10 @@ const forbiddenHtmlFragments = [
 
 const forbiddenSourceFragments = [
   "standard: rows,",
+  "DirectionsWalkRoundedIcon",
+  'label: "도보"',
+  'mode: "walk"',
+  "function getDestinationRole(index",
   "function RouteStopCell",
   "RouteStopCell",
   "showArrow={index < route.stops.length - 1}",
@@ -67,6 +74,7 @@ const forbiddenSourceFragments = [
 
 const forbiddenRouteMapSourceFragments = [
   "캐리미로 짐을 이동하니, 관광할 시간이 1시간 더 많아졌어요",
+  'label="CarryME 경로"',
 ];
 
 async function fetchHtml(path) {

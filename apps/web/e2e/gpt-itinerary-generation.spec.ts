@@ -61,6 +61,10 @@ test("opens a stored generated itinerary without needing a web OpenAI key", asyn
 
   await expect(page.getByRole("heading", { name: itinerary.title })).toBeVisible();
   await expect(page.getByText("여수 MCP 저장 테스트 코스").first()).toBeVisible();
+  await expect(page.getByText("방문지").first()).toBeVisible();
+  await expect(page.getByText("숙소").first()).toBeVisible();
+  await expect(page.getByText("도보")).not.toBeVisible();
+  await expect(page.getByText("짐 숙소 도착").first()).toBeVisible();
 });
 
 test("does not fall back to demo data for missing generated itinerary ids", async ({
@@ -82,7 +86,7 @@ function createStoredGeneratedItinerary(id: string) {
     detailUrl: `/itinerary/${id}`,
     carrymeSaving: "약 40분 절약",
     totalDurationLabel: "약 5시간 30분",
-    savedDurationLabel: "약 40분",
+    savedDurationLabel: "약 40분 절약",
     days: [
       {
         day: 1,
@@ -102,18 +106,24 @@ function createStoredGeneratedItinerary(id: string) {
               caption: "출발",
               coordinate: { lat: 37.5547, lng: 126.9706 },
               icon: "station",
+              mode: "transit",
+              role: "출발지",
             },
             {
               label: "여수 숙소",
               caption: "짐 보관",
               coordinate: { lat: 34.7392, lng: 127.7444 },
               icon: "hotel",
+              mode: "transit",
+              role: "숙소",
             },
             {
               label: "여수 MCP 저장 테스트 코스",
               caption: "방문",
               coordinate: { lat: 34.744, lng: 127.752 },
               icon: "event",
+              mode: "transit",
+              role: "방문지",
             },
           ],
           geoPath: [
@@ -141,18 +151,24 @@ function createStoredGeneratedItinerary(id: string) {
               caption: "출발",
               coordinate: { lat: 37.5547, lng: 126.9706 },
               icon: "station",
+              mode: "transit",
+              role: "출발지",
             },
             {
               label: "여수 MCP 저장 테스트 코스",
               caption: "방문",
               coordinate: { lat: 34.744, lng: 127.752 },
               icon: "event",
+              mode: "transit",
+              role: "방문지",
             },
             {
               label: "여수 숙소",
               caption: "짐 도착",
               coordinate: { lat: 34.7392, lng: 127.7444 },
               icon: "hotel",
+              mode: "transit",
+              role: "숙소",
             },
           ],
           geoPath: [
@@ -183,8 +199,8 @@ function createStoredGeneratedItinerary(id: string) {
           },
           {
             time: "17:00",
-            title: "여수 숙소 도착",
-            description: "CarryME가 이동한 짐을 숙소에서 확인합니다.",
+            title: "짐 숙소 도착",
+            description: "짐은 숙소에 도착하고 여행자는 바로 관광합니다.",
             category: "hotel",
           },
         ],

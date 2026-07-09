@@ -363,7 +363,7 @@ function createItineraryGenerationPrompt(
   const accommodationCandidates = input.accommodationCandidates ?? [];
   const accommodationInstruction =
     accommodationCandidates.length > 0
-      ? "숙소가 명시되지 않았으면 아래 숙소 후보 중 하나만 숙소/짐 도착지로 사용하고, '<지역> 숙소' 같은 일반명을 쓰지 마세요."
+      ? "숙소가 명시되지 않았으면 아래 숙소 후보 중 하나만 호텔/숙소로 사용하고, '<지역> 숙소' 같은 일반명을 쓰지 마세요."
       : "숙소가 명시되지 않았으면 '숙소 확인 필요'처럼 미정 상태를 쓰고, 특정 호텔명을 지어내지 마세요.";
 
   return [
@@ -374,7 +374,16 @@ function createItineraryGenerationPrompt(
     "사용자가 출발지를 말했으면 첫 타임라인은 '<출발지> 출발'로 작성하세요.",
     "days 배열은 여행 기간 일수와 반드시 같아야 합니다. 예: 2박 3일 또는 여행 기간 3일이면 day 1, day 2, day 3 총 3개를 작성하세요.",
     accommodationInstruction,
-    "역/터미널/공항은 기본 수하물 보관·수령지가 아닙니다. luggageDestination은 숙소, 호텔, 또는 사용자가 명시한 CarryME 수령 지점에만 사용하세요.",
+    "각 day는 standardStops, carrymeStops, standardTimeline, carrymeTimeline을 모두 작성하세요.",
+    "각 standardStops/carrymeStops stop은 name, caption, role, mode를 모두 작성하세요.",
+    "role은 반드시 출발지, 방문지, 숙소, 복귀지 중 하나입니다.",
+    "mode는 반드시 drive 또는 transit 중 하나입니다. 웹 대표 이동수단에 walk를 쓰지 마세요.",
+    "마지막 stop에도 직전 이동 흐름과 같은 대표 mode를 넣어 JSON 계약을 완성하세요.",
+    "Standard 경로는 짐 때문에 호텔/숙소를 중간 방문하는 기본 경로입니다.",
+    "CarryME 경로는 사람이 호텔/숙소 중간 방문 없이 바로 관광지 또는 최종 목적지로 이동하는 경로입니다.",
+    "CarryME 타임라인에는 Standard에서 사람이 호텔/숙소에 도착하는 시간과 같은 시간의 '짐 숙소 도착' 이벤트를 넣으세요.",
+    "호텔/숙소가 최종 목적지이면 CarryME 경로의 최종 목적지로 유지하세요.",
+    "역/터미널/공항은 기본 수하물 보관·수령지가 아닙니다. 호텔/숙소 또는 사용자가 명시한 CarryME 수령 지점만 사용하세요.",
     "부산역 짐 보관, 부산역 짐 수령처럼 교통 거점에서 짐을 맡기거나 찾는 표현을 만들지 마세요.",
     "아이 동반, 가족 여행, 실내/야외 균형 같은 선호를 반영해 무리 없는 방문지 2-4개를 고르세요.",
     "각 stops 항목에는 실제 장소명(name)과 네이버 지오코딩에 넣을 한국어 주소형 검색어(addressQuery)를 반드시 함께 작성하세요.",
@@ -596,7 +605,7 @@ function createAccommodationCandidatePromptSection(
 
   return [
     "숙소 후보:",
-    "아래 숙소 후보 중 하나를 luggageDestination 또는 finalDestination으로 사용하세요.",
+    "아래 숙소 후보 중 하나를 호텔/숙소로 사용하세요.",
     ...candidates.map((candidate, index) =>
       [
         `${index + 1}. ${candidate.name}`,
@@ -637,8 +646,10 @@ function createPlanmeDraftJsonSchema() {
           required: [
             "day",
             "label",
-            "stops",
-            "timeline",
+            "standardStops",
+            "carrymeStops",
+            "standardTimeline",
+            "carrymeTimeline",
             "standardDurationMinutes",
             "carrymeDurationMinutes",
             "standardRouteText",
@@ -647,52 +658,72 @@ function createPlanmeDraftJsonSchema() {
           properties: {
             day: { type: "integer", minimum: 1, maximum: 14 },
             label: { type: "string" },
-            stops: {
-              type: "array",
-              minItems: 2,
-              maxItems: 8,
-              items: {
-                type: "object",
-                additionalProperties: false,
-                required: ["name", "role", "caption", "addressQuery"],
-                properties: {
-                  name: { type: "string" },
-                  role: {
-                    type: "string",
-                    enum: ["origin", "visit", "luggageDestination", "finalDestination"],
-                  },
-                  caption: { type: "string" },
-                  addressQuery: { type: "string" },
-                },
-              },
-            },
-            timeline: {
-              type: "array",
-              minItems: 2,
-              maxItems: 8,
-              items: {
-                type: "object",
-                additionalProperties: false,
-                required: ["time", "title", "description", "category", "highlight", "savingLabel"],
-                properties: {
-                  time: { type: "string" },
-                  title: { type: "string" },
-                  description: { type: "string" },
-                  category: {
-                    type: "string",
-                    enum: ["arrival", "carryme", "transit", "meal", "hotel", "event"],
-                  },
-                  highlight: { type: "boolean" },
-                  savingLabel: { type: "string" },
-                },
-              },
-            },
+            standardStops: createRouteStopsSchema(),
+            carrymeStops: createRouteStopsSchema(),
+            standardTimeline: createTimelineSchema(),
+            carrymeTimeline: createTimelineSchema(),
             standardDurationMinutes: { type: "integer", minimum: 0 },
             carrymeDurationMinutes: { type: "integer", minimum: 0 },
             standardRouteText: { type: "string" },
             carrymeRouteText: { type: "string" },
           },
         },
+      },
+    },
+  };
+}
+
+/**
+ * Describes one generated route's concrete stop list with role and mode semantics.
+ */
+function createRouteStopsSchema() {
+  return {
+    type: "array",
+    minItems: 2,
+    maxItems: 8,
+    items: {
+      type: "object",
+      additionalProperties: false,
+      required: ["name", "caption", "role", "mode", "addressQuery"],
+      properties: {
+        name: { type: "string" },
+        caption: { type: "string" },
+        role: {
+          type: "string",
+          enum: ["출발지", "방문지", "숙소", "복귀지"],
+        },
+        mode: {
+          type: "string",
+          enum: ["drive", "transit"],
+        },
+        addressQuery: { type: "string" },
+      },
+    },
+  };
+}
+
+/**
+ * Describes route-specific timeline rows authored by AI.
+ */
+function createTimelineSchema() {
+  return {
+    type: "array",
+    minItems: 2,
+    maxItems: 8,
+    items: {
+      type: "object",
+      additionalProperties: false,
+      required: ["time", "title", "description", "category", "highlight", "savingLabel"],
+      properties: {
+        time: { type: "string" },
+        title: { type: "string" },
+        description: { type: "string" },
+        category: {
+          type: "string",
+          enum: ["arrival", "carryme", "transit", "meal", "hotel", "event"],
+        },
+        highlight: { type: "boolean" },
+        savingLabel: { type: "string" },
       },
     },
   };
@@ -741,18 +772,50 @@ function normalizeGeneratedDraft(draft: PlanmeDraftPreviewRequest): PlanmeDraftP
       label: day.label?.trim(),
       standardRouteText: day.standardRouteText?.trim(),
       carrymeRouteText: day.carrymeRouteText?.trim(),
-      stops: day.stops.map((stop) => ({
-        ...stop,
-        name: stop.name.trim(),
-        caption: stop.caption?.trim(),
-        addressQuery: stop.addressQuery?.trim() || undefined,
-      })),
-      timeline: day.timeline.map((event) => ({
-        ...event,
-        title: event.title.trim(),
-        description: event.description.trim(),
-        savingLabel: event.savingLabel?.trim() || undefined,
-      })),
+      standardStops: normalizeGeneratedStops(day.standardStops),
+      carrymeStops: normalizeGeneratedStops(day.carrymeStops),
+      stops: normalizeGeneratedStops(day.stops),
+      standardTimeline: normalizeGeneratedTimeline(day.standardTimeline),
+      carrymeTimeline: normalizeGeneratedTimeline(day.carrymeTimeline),
+      timeline: normalizeGeneratedTimeline(day.timeline),
     })),
   };
+}
+
+/**
+ * Trims AI-authored stops while preserving optional legacy payloads.
+ */
+function normalizeGeneratedStops<
+  T extends {
+    addressQuery?: string;
+    caption?: string;
+    mode?: string;
+    name: string;
+    placeId?: string;
+    placeSourceRef?: string;
+  },
+>(
+  stops: T[] | undefined,
+) {
+  return stops?.map((stop) => ({
+    ...stop,
+    name: stop.name.trim(),
+    addressQuery: stop.addressQuery?.trim() || undefined,
+    caption: stop.caption?.trim(),
+    mode: stop.mode?.trim(),
+    placeId: stop.placeId?.trim(),
+    placeSourceRef: stop.placeSourceRef?.trim(),
+  }));
+}
+
+/**
+ * Trims AI-authored timeline text while preserving optional legacy payloads.
+ */
+function normalizeGeneratedTimeline(events: PlanmeDraftPreviewRequest["days"][number]["timeline"]) {
+  return events?.map((event) => ({
+    ...event,
+    title: event.title.trim(),
+    description: event.description.trim(),
+    savingLabel: event.savingLabel?.trim() || undefined,
+  }));
 }

@@ -91,6 +91,8 @@ export type PlanmePlaceCandidateDecision = {
   status: PlanmePlaceDecisionStatus;
 };
 
+type ResolvableDraftStop = NonNullable<PlanmeDraftPreviewRequest["days"][number]["stops"]>[number];
+
 export type PlanmeClarificationContext = {
   previousAnswers: string[];
   previousQuestions: string[];
@@ -129,12 +131,17 @@ export type PlanmePlaceCandidateDecider = (input: {
   input: RecommendItineraryRequest;
   round: number;
   searchedQueries: string[];
-  stop: PlanmeDraftPreviewRequest["days"][number]["stops"][number];
+  stop: ResolvableDraftStop;
 }) => Promise<PlanmePlaceCandidateDecision>;
 
 type RecommendedItineraryResponseOptions = {
   extraValidationIssues?: PlanmeDraftValidationIssue[];
   resolutionLogs?: PlanmePlaceResolutionLog[];
+};
+
+type PlaceReplacement = {
+  originalName: string;
+  replacementName: string;
 };
 
 /**
@@ -478,224 +485,237 @@ async function resolveDraftPlaceCandidatesIfPossible(
   const isFinalAttempt = shouldUseFinalPlaceDecision(input);
 
   for (const day of draft.days) {
-    const replacements: Array<{ originalName: string; replacementName: string }> = [];
-    const stops = [];
+    const replacements: PlaceReplacement[] = [];
 
-    for (const stop of day.stops) {
-      if (stop.coordinate) {
-        if (!hasDraftStopHardGate(stop)) {
-          await recordPlanmeUsageSafely(options.usageRecorder, "hard_gate_failed");
-          unresolvedStops.push(stop.name);
-          validationIssues.push({
-            code: "place_source_missing",
-            message: `${stop.name} 좌표의 검색 출처를 확인하지 못했습니다.`,
-            severity: "error",
-          });
-          stops.push(stop);
-          continue;
-        }
+    const resolveStopList = async <T extends ResolvableDraftStop>(stopList: T[] | undefined) => {
+      if (!stopList) {
+        return undefined;
+      }
 
-        if (shouldVerifyCoordinateStopWithCandidate(stop)) {
-          const result = await searcher({
-            center: stop.coordinate,
-            destination: input.destination,
-            preferences: input.preferences,
-            region: draft.region ?? input.region,
-            stop,
-          });
+      const resolvedStops: T[] = [];
 
-          if (result.candidates.length === 0) {
+      for (const stop of stopList) {
+        if (stop.coordinate) {
+          if (!hasDraftStopHardGate(stop)) {
+            await recordPlanmeUsageSafely(options.usageRecorder, "hard_gate_failed");
             unresolvedStops.push(stop.name);
             validationIssues.push({
-              code: "place_candidate_not_found",
-              message: `${stop.name} 좌표는 있으나 실제 장소 후보를 확인하지 못했습니다.`,
+              code: "place_source_missing",
+              message: `${stop.name} 좌표의 검색 출처를 확인하지 못했습니다.`,
               severity: "error",
             });
-            stops.push(stop);
+            resolvedStops.push(stop);
             continue;
           }
 
-          const decision = await decider({
-            candidates: result.candidates,
-            finalAttempt: isFinalAttempt,
-            input,
-            round,
-            searchedQueries: result.searchedQueries,
-            stop,
-          });
-          const selectedCandidate = findSelectedPlaceCandidate(result.candidates, decision);
-          const finalSelectedCandidate =
-            isFinalAttempt && (decision.status !== "accepted" || !selectedCandidate)
-              ? selectFinalCandidate(result.candidates)
-              : selectedCandidate;
-          const finalDecision =
-            finalSelectedCandidate && (decision.status !== "accepted" || !selectedCandidate)
-              ? createFinalPlaceCandidateDecision(stop.name, finalSelectedCandidate, decision)
-              : decision;
+          if (shouldVerifyCoordinateStopWithCandidate(stop)) {
+            const result = await searcher({
+              center: stop.coordinate,
+              destination: input.destination,
+              preferences: input.preferences,
+              region: draft.region ?? input.region,
+              stop,
+            });
 
-          if (
-            finalDecision.status !== "accepted" ||
-            !finalSelectedCandidate ||
-            !hasPlanmePlaceCandidateHardGate(finalSelectedCandidate)
-          ) {
-            if (finalDecision.status === "accepted") {
-              await recordPlanmeUsageSafely(options.usageRecorder, "hard_gate_failed");
+            if (result.candidates.length === 0) {
+              unresolvedStops.push(stop.name);
+              validationIssues.push({
+                code: "place_candidate_not_found",
+                message: `${stop.name} 좌표는 있으나 실제 장소 후보를 확인하지 못했습니다.`,
+                severity: "error",
+              });
+              resolvedStops.push(stop);
+              continue;
             }
 
-            unresolvedStops.push(stop.name);
-            if (!isFinalAttempt) {
-              clarificationQuestions.push(...(finalDecision.questions ?? []));
+            const decision = await decider({
+              candidates: result.candidates,
+              finalAttempt: isFinalAttempt,
+              input,
+              round,
+              searchedQueries: result.searchedQueries,
+              stop,
+            });
+            const selectedCandidate = findSelectedPlaceCandidate(result.candidates, decision);
+            const finalSelectedCandidate =
+              isFinalAttempt && (decision.status !== "accepted" || !selectedCandidate)
+                ? selectFinalCandidate(result.candidates)
+                : selectedCandidate;
+            const finalDecision =
+              finalSelectedCandidate && (decision.status !== "accepted" || !selectedCandidate)
+                ? createFinalPlaceCandidateDecision(stop.name, finalSelectedCandidate, decision)
+                : decision;
+
+            if (
+              finalDecision.status !== "accepted" ||
+              !finalSelectedCandidate ||
+              !hasPlanmePlaceCandidateHardGate(finalSelectedCandidate)
+            ) {
+              if (finalDecision.status === "accepted") {
+                await recordPlanmeUsageSafely(options.usageRecorder, "hard_gate_failed");
+              }
+
+              unresolvedStops.push(stop.name);
+              if (!isFinalAttempt) {
+                clarificationQuestions.push(...(finalDecision.questions ?? []));
+              }
+              if (finalDecision.feedbackMessage?.trim()) {
+                feedbackMessages.push(finalDecision.feedbackMessage.trim());
+              }
+              validationIssues.push({
+                code:
+                  finalDecision.status === "accepted"
+                    ? "place_candidate_hard_gate_failed"
+                    : `place_candidate_${finalDecision.status}`,
+                message: `${stop.name} 후보를 확정하지 못했습니다: ${finalDecision.reason}`,
+                severity: "error",
+              });
+              resolutionLogs.push({
+                decisionStatus: finalDecision.status,
+                originalName: stop.name,
+                reason: finalDecision.reason,
+                source: result.candidates[0]?.source ?? "google_text_search",
+              });
+              resolvedStops.push(stop);
+              continue;
             }
-            if (finalDecision.feedbackMessage?.trim()) {
-              feedbackMessages.push(finalDecision.feedbackMessage.trim());
-            }
-            validationIssues.push({
-              code:
-                finalDecision.status === "accepted"
-                  ? "place_candidate_hard_gate_failed"
-                  : `place_candidate_${finalDecision.status}`,
-              message: `${stop.name} 후보를 확정하지 못했습니다: ${finalDecision.reason}`,
-              severity: "error",
+
+            const replacementStop = applyPlaceCandidateToStop(stop, finalSelectedCandidate);
+
+            center ??= finalSelectedCandidate.coordinate;
+            await recordFinalAiDecisionIfNeeded(finalDecision, options.usageRecorder);
+            replacements.push({
+              originalName: stop.name,
+              replacementName: replacementStop.name,
             });
             resolutionLogs.push({
               decisionStatus: finalDecision.status,
               originalName: stop.name,
+              query: finalSelectedCandidate.query,
+              radiusMeters: finalSelectedCandidate.radiusMeters,
               reason: finalDecision.reason,
-              source: result.candidates[0]?.source ?? "google_text_search",
+              resolvedName: replacementStop.name,
+              source: finalSelectedCandidate.source,
             });
-            stops.push(stop);
+            validationIssues.push({
+              code: "place_candidate_resolved",
+              message: `${stop.name} 후보를 ${replacementStop.name}(으)로 확정했습니다.`,
+              severity: "warning",
+            });
+            resolvedStops.push(replacementStop);
             continue;
           }
 
-          const replacementStop = applyPlaceCandidateToStop(stop, finalSelectedCandidate);
+          center ??= stop.coordinate;
+          resolvedStops.push(stop);
+          continue;
+        }
 
-          center ??= finalSelectedCandidate.coordinate;
-          await recordFinalAiDecisionIfNeeded(finalDecision, options.usageRecorder);
-          replacements.push({
-            originalName: stop.name,
-            replacementName: finalSelectedCandidate.name,
+        const result = await searcher({
+          center,
+          destination: input.destination,
+          preferences: input.preferences,
+          region: draft.region ?? input.region,
+          stop,
+        });
+
+        if (result.candidates.length === 0) {
+          unresolvedStops.push(stop.name);
+          validationIssues.push({
+            code: "place_candidate_not_found",
+            message: `${stop.name} 좌표를 확인하지 못했습니다.`,
+            severity: "error",
+          });
+          resolvedStops.push(stop);
+          continue;
+        }
+
+        const decision = await decider({
+          candidates: result.candidates,
+          finalAttempt: isFinalAttempt,
+          input,
+          round,
+          searchedQueries: result.searchedQueries,
+          stop,
+        });
+        const selectedCandidate = findSelectedPlaceCandidate(result.candidates, decision);
+
+        const finalSelectedCandidate =
+          isFinalAttempt && (decision.status !== "accepted" || !selectedCandidate)
+            ? selectFinalCandidate(result.candidates)
+            : selectedCandidate;
+        const finalDecision =
+          finalSelectedCandidate && (decision.status !== "accepted" || !selectedCandidate)
+            ? createFinalPlaceCandidateDecision(stop.name, finalSelectedCandidate, decision)
+            : decision;
+
+        if (
+          finalDecision.status !== "accepted" ||
+          !finalSelectedCandidate ||
+          !hasPlanmePlaceCandidateHardGate(finalSelectedCandidate)
+        ) {
+          if (finalDecision.status === "accepted") {
+            await recordPlanmeUsageSafely(options.usageRecorder, "hard_gate_failed");
+          }
+
+          unresolvedStops.push(stop.name);
+          if (!isFinalAttempt) {
+            clarificationQuestions.push(...(finalDecision.questions ?? []));
+          }
+          if (finalDecision.feedbackMessage?.trim()) {
+            feedbackMessages.push(finalDecision.feedbackMessage.trim());
+          }
+          validationIssues.push({
+            code:
+              finalDecision.status === "accepted"
+                ? "place_candidate_hard_gate_failed"
+                : `place_candidate_${finalDecision.status}`,
+            message: `${stop.name} 후보를 확정하지 못했습니다: ${finalDecision.reason}`,
+            severity: "error",
           });
           resolutionLogs.push({
             decisionStatus: finalDecision.status,
             originalName: stop.name,
-            query: finalSelectedCandidate.query,
-            radiusMeters: finalSelectedCandidate.radiusMeters,
             reason: finalDecision.reason,
-            resolvedName: finalSelectedCandidate.name,
-            source: finalSelectedCandidate.source,
+            source: result.candidates[0]?.source ?? "google_text_search",
           });
-          validationIssues.push({
-            code: "place_candidate_resolved",
-            message: `${stop.name} 후보를 ${finalSelectedCandidate.name}(으)로 확정했습니다.`,
-            severity: "warning",
-          });
-          stops.push(replacementStop);
+          resolvedStops.push(stop);
           continue;
         }
 
-        center ??= stop.coordinate;
-        stops.push(stop);
-        continue;
-      }
+        const replacementStop = applyPlaceCandidateToStop(stop, finalSelectedCandidate);
 
-      const result = await searcher({
-        center,
-        destination: input.destination,
-        preferences: input.preferences,
-        region: draft.region ?? input.region,
-        stop,
-      });
-
-      if (result.candidates.length === 0) {
-        unresolvedStops.push(stop.name);
-        validationIssues.push({
-          code: "place_candidate_not_found",
-          message: `${stop.name} 좌표를 확인하지 못했습니다.`,
-          severity: "error",
-        });
-        stops.push(stop);
-        continue;
-      }
-
-      const decision = await decider({
-        candidates: result.candidates,
-        finalAttempt: isFinalAttempt,
-        input,
-        round,
-        searchedQueries: result.searchedQueries,
-        stop,
-      });
-      const selectedCandidate = findSelectedPlaceCandidate(result.candidates, decision);
-
-      const finalSelectedCandidate =
-        isFinalAttempt && (decision.status !== "accepted" || !selectedCandidate)
-          ? selectFinalCandidate(result.candidates)
-          : selectedCandidate;
-      const finalDecision =
-        finalSelectedCandidate && (decision.status !== "accepted" || !selectedCandidate)
-          ? createFinalPlaceCandidateDecision(stop.name, finalSelectedCandidate, decision)
-          : decision;
-
-      if (
-        finalDecision.status !== "accepted" ||
-        !finalSelectedCandidate ||
-        !hasPlanmePlaceCandidateHardGate(finalSelectedCandidate)
-      ) {
-        if (finalDecision.status === "accepted") {
-          await recordPlanmeUsageSafely(options.usageRecorder, "hard_gate_failed");
-        }
-
-        unresolvedStops.push(stop.name);
-        if (!isFinalAttempt) {
-          clarificationQuestions.push(...(finalDecision.questions ?? []));
-        }
-        if (finalDecision.feedbackMessage?.trim()) {
-          feedbackMessages.push(finalDecision.feedbackMessage.trim());
-        }
-        validationIssues.push({
-          code:
-            finalDecision.status === "accepted"
-              ? "place_candidate_hard_gate_failed"
-              : `place_candidate_${finalDecision.status}`,
-          message: `${stop.name} 후보를 확정하지 못했습니다: ${finalDecision.reason}`,
-          severity: "error",
+        center ??= finalSelectedCandidate.coordinate;
+        await recordFinalAiDecisionIfNeeded(finalDecision, options.usageRecorder);
+        replacements.push({
+          originalName: stop.name,
+          replacementName: replacementStop.name,
         });
         resolutionLogs.push({
           decisionStatus: finalDecision.status,
           originalName: stop.name,
+          query: finalSelectedCandidate.query,
+          radiusMeters: finalSelectedCandidate.radiusMeters,
           reason: finalDecision.reason,
-          source: result.candidates[0]?.source ?? "google_text_search",
+          resolvedName: replacementStop.name,
+          source: finalSelectedCandidate.source,
         });
-        stops.push(stop);
-        continue;
+        validationIssues.push({
+          code: "place_candidate_resolved",
+          message: `${stop.name} 후보를 ${replacementStop.name}(으)로 확정했습니다.`,
+          severity: "warning",
+        });
+        resolvedStops.push(replacementStop);
       }
 
-      const replacementStop = applyPlaceCandidateToStop(stop, finalSelectedCandidate);
+      return resolvedStops;
+    };
 
-      center ??= finalSelectedCandidate.coordinate;
-      await recordFinalAiDecisionIfNeeded(finalDecision, options.usageRecorder);
-      replacements.push({
-        originalName: stop.name,
-        replacementName: finalSelectedCandidate.name,
-      });
-      resolutionLogs.push({
-        decisionStatus: finalDecision.status,
-        originalName: stop.name,
-        query: finalSelectedCandidate.query,
-        radiusMeters: finalSelectedCandidate.radiusMeters,
-        reason: finalDecision.reason,
-        resolvedName: finalSelectedCandidate.name,
-        source: finalSelectedCandidate.source,
-      });
-      validationIssues.push({
-        code: "place_candidate_resolved",
-        message: `${stop.name} 후보를 ${finalSelectedCandidate.name}(으)로 확정했습니다.`,
-        severity: "warning",
-      });
-      stops.push(replacementStop);
-    }
+    const standardStops = await resolveStopList(day.standardStops);
+    const carrymeStops = await resolveStopList(day.carrymeStops);
+    const stops = await resolveStopList(day.stops);
 
-    days.push(applyPlaceReplacementCopy({ ...day, stops }, replacements));
+    days.push(applyPlaceReplacementCopy({ ...day, standardStops, carrymeStops, stops }, replacements));
   }
 
   if (unresolvedStops.length > 0) {
@@ -730,7 +750,7 @@ async function resolveDraftPlaceCandidatesIfPossible(
  * Checks already-coordinate-bearing stops against the same source hard gate.
  */
 function hasDraftStopHardGate(
-  stop: PlanmeDraftPreviewRequest["days"][number]["stops"][number],
+  stop: ResolvableDraftStop,
 ) {
   return Boolean(stop.coordinate && (stop.placeId?.trim() || stop.placeSourceRef?.trim()));
 }
@@ -739,9 +759,9 @@ function hasDraftStopHardGate(
  * Sends Naver-geocoded visit stops through candidate judgment before saving them.
  */
 function shouldVerifyCoordinateStopWithCandidate(
-  stop: PlanmeDraftPreviewRequest["days"][number]["stops"][number],
+  stop: ResolvableDraftStop,
 ) {
-  return stop.role === "visit" && !stop.placeId?.trim();
+  return (stop.role === "방문지" || stop.role === "visit") && !stop.placeId?.trim();
 }
 
 /**
@@ -773,19 +793,67 @@ function createPlaceCandidateDecider(
 /**
  * Updates a draft stop with the selected coordinate-bearing Places candidate.
  */
-function applyPlaceCandidateToStop(
-  stop: PlanmeDraftPreviewRequest["days"][number]["stops"][number],
+function applyPlaceCandidateToStop<T extends ResolvableDraftStop>(
+  stop: T,
   candidate: PlanmePlaceCandidate,
 ) {
+  const displayName = selectDisplayNameForPlaceCandidate(stop.name, candidate);
+
   return {
     ...stop,
     addressQuery: candidate.address ?? stop.addressQuery,
     coordinate: candidate.coordinate,
-    name: candidate.name,
+    name: displayName,
     placeId: candidate.placeId,
     placeSource: candidate.source,
     placeSourceRef: candidate.sourceRef,
   };
+}
+
+/**
+ * Keeps AI-authored place labels when provider candidates expose only a lot number or broad area.
+ */
+function selectDisplayNameForPlaceCandidate(
+  originalName: string,
+  candidate: PlanmePlaceCandidate,
+) {
+  const originalLabel = originalName.trim();
+  const candidateLabel = candidate.name.trim();
+
+  if (!candidateLabel) {
+    return originalLabel;
+  }
+
+  if (!originalLabel) {
+    return candidateLabel;
+  }
+
+  if (isLotNumberLikePlaceName(candidateLabel)) {
+    return originalLabel;
+  }
+
+  if (
+    isAdministrativePlaceName(candidateLabel) &&
+    !normalizeComparableText(originalLabel).includes(normalizeComparableText(candidateLabel))
+  ) {
+    return originalLabel;
+  }
+
+  return candidateLabel;
+}
+
+/**
+ * Detects provider labels like `62-15` that are useful as an address but poor as display names.
+ */
+function isLotNumberLikePlaceName(value: string) {
+  return /^\d+(?:-\d+)?$/.test(value.trim());
+}
+
+/**
+ * Detects broad administrative labels that should not replace a specific POI name.
+ */
+function isAdministrativePlaceName(value: string) {
+  return /(특별시|광역시|특별자치시|특별자치도|도|시|군|구|읍|면|동|리)$/.test(value.trim());
 }
 
 /**
@@ -899,7 +967,7 @@ function createClarificationQuestions(candidateQuestions: string[], unresolvedSt
  */
 function applyPlaceReplacementCopy(
   day: PlanmeDraftPreviewRequest["days"][number],
-  replacements: Array<{ originalName: string; replacementName: string }>,
+  replacements: PlaceReplacement[],
 ) {
   if (replacements.length === 0) {
     return day;
@@ -909,12 +977,24 @@ function applyPlaceReplacementCopy(
     ...day,
     carrymeRouteText: replacePlaceNames(day.carrymeRouteText, replacements),
     standardRouteText: replacePlaceNames(day.standardRouteText, replacements),
-    timeline: day.timeline.map((event) => ({
-      ...event,
-      description: replacePlaceNames(event.description, replacements) ?? event.description,
-      title: replacePlaceNames(event.title, replacements) ?? event.title,
-    })),
+    carrymeTimeline: replacePlaceNamesInTimeline(day.carrymeTimeline, replacements),
+    standardTimeline: replacePlaceNamesInTimeline(day.standardTimeline, replacements),
+    timeline: replacePlaceNamesInTimeline(day.timeline, replacements),
   };
+}
+
+/**
+ * Replaces place names inside optional timeline variants without dropping absent legacy payloads.
+ */
+function replacePlaceNamesInTimeline(
+  timeline: PlanmeDraftPreviewRequest["days"][number]["timeline"],
+  replacements: PlaceReplacement[],
+) {
+  return timeline?.map((event) => ({
+    ...event,
+    description: replacePlaceNames(event.description, replacements) ?? event.description,
+    title: replacePlaceNames(event.title, replacements) ?? event.title,
+  }));
 }
 
 /**
@@ -922,7 +1002,7 @@ function applyPlaceReplacementCopy(
  */
 function replacePlaceNames(
   value: string | undefined,
-  replacements: Array<{ originalName: string; replacementName: string }>,
+  replacements: PlaceReplacement[],
 ) {
   if (!value) {
     return value;
@@ -939,9 +1019,14 @@ function replacePlaceNames(
  * Chooses the best available coordinate for Nearby Search fallback.
  */
 function findRepresentativeCoordinate(draft: PlanmeDraftPreviewRequest) {
-  const stops = draft.days.flatMap((day) => day.stops);
+  const stops = draft.days.flatMap((day) => [
+    ...(day.standardStops ?? []),
+    ...(day.carrymeStops ?? []),
+    ...(day.stops ?? []),
+  ]);
 
   return (
+    stops.find((stop) => stop.role === "숙소" && stop.coordinate)?.coordinate ??
     stops.find((stop) => stop.role === "luggageDestination" && stop.coordinate)?.coordinate ??
     stops.find((stop) => stop.role === "finalDestination" && stop.coordinate)?.coordinate ??
     stops.find((stop) => stop.coordinate)?.coordinate
@@ -999,32 +1084,12 @@ function applyAccommodationCandidatesToDraft(
         region,
         candidate.name,
       ),
-      stops: day.stops.map((stop) => {
-        if (
-          isGenericAccommodationLabel(stop.name, region) ||
-          isSameAccommodationCandidate(stop.name, candidate)
-        ) {
-          return {
-            ...stop,
-            name: candidate.name,
-            coordinate: candidate.coordinate,
-            placeId: candidate.placeId ?? candidate.id,
-            placeSource: "google_text_search",
-            placeSourceRef: createAccommodationCandidateSourceRef(candidate),
-          };
-        }
-
-        return stop;
-      }),
-      timeline: day.timeline.map((event) => ({
-        ...event,
-        title: replaceGenericAccommodationText(event.title, region, candidate.name),
-        description: replaceGenericAccommodationText(
-          event.description,
-          region,
-          candidate.name,
-        ),
-      })),
+      standardStops: replaceAccommodationStops(day.standardStops, region, candidate),
+      carrymeStops: replaceAccommodationStops(day.carrymeStops, region, candidate),
+      stops: replaceAccommodationStops(day.stops, region, candidate),
+      standardTimeline: replaceAccommodationTimeline(day.standardTimeline, region, candidate),
+      carrymeTimeline: replaceAccommodationTimeline(day.carrymeTimeline, region, candidate),
+      timeline: replaceAccommodationTimeline(day.timeline, region, candidate),
     })),
   };
 }
@@ -1053,12 +1118,74 @@ function selectAccommodationCandidate(
     return null;
   }
 
-  const stopNames = draft.days.flatMap((day) => day.stops.map((stop) => stop.name));
+  const stopNames = draft.days.flatMap((day) =>
+    [
+      ...(day.standardStops ?? []),
+      ...(day.carrymeStops ?? []),
+      ...(day.stops ?? []),
+    ].map((stop) => stop.name),
+  );
   const matchedCandidate = candidates.find((candidate) =>
     stopNames.some((stopName) => isSameAccommodationCandidate(stopName, candidate)),
   );
 
   return matchedCandidate ?? candidates[0] ?? null;
+}
+
+/**
+ * Applies the selected accommodation candidate to any generated route stop list.
+ */
+function replaceAccommodationStops<
+  T extends {
+    coordinate?: AccommodationCandidate["coordinate"];
+    name: string;
+    placeId?: string;
+    placeSource?: string;
+    placeSourceRef?: string;
+  },
+>(
+  stops: T[] | undefined,
+  region: string,
+  candidate: AccommodationCandidate,
+) {
+  return stops?.map((stop) => {
+    if (
+      isGenericAccommodationLabel(stop.name, region) ||
+      isSameAccommodationCandidate(stop.name, candidate)
+    ) {
+      return {
+        ...stop,
+        name: candidate.name,
+        coordinate: candidate.coordinate,
+        placeId: candidate.placeId ?? candidate.id ?? stop.placeId,
+        placeSource: "google_text_search",
+        placeSourceRef: createAccommodationCandidateSourceRef(candidate),
+      };
+    }
+
+    return stop;
+  });
+}
+
+/**
+ * Applies the selected accommodation candidate to any generated timeline list.
+ */
+function replaceAccommodationTimeline<
+  T extends { description: string; title: string },
+>(
+  timeline: T[] | undefined,
+  region: string,
+  candidate: AccommodationCandidate,
+) {
+  return timeline?.map((event) => ({
+    ...event,
+    title: replaceGenericAccommodationText(event.title, region, candidate.name),
+    description: replaceGenericAccommodationText(
+      event.description,
+      region,
+      candidate.name,
+    ),
+  }));
 }
 
 /**

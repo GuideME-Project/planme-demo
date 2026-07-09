@@ -1,5 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3000";
+const baseUrl = new URL(baseURL);
+const webServerPort = (process.env.PLAYWRIGHT_WEB_SERVER_PORT ?? baseUrl.port) || "3000";
+const shouldStartWebServer = process.env.PLAYWRIGHT_SKIP_WEB_SERVER !== "1";
+
 export default defineConfig({
   expect: {
     timeout: 8_000,
@@ -14,14 +19,15 @@ export default defineConfig({
   testDir: "apps/web/e2e",
   timeout: 30_000,
   use: {
-    baseURL: "http://127.0.0.1:3000",
+    baseURL,
     trace: "on-first-retry",
   },
-  webServer: {
-    command:
-      "NEXT_PUBLIC_ODSAY_API_KEY=playwright-test npm run dev -- --hostname 127.0.0.1 --port 3000",
-    reuseExistingServer: true,
-    timeout: 120_000,
-    url: "http://127.0.0.1:3000",
-  },
+  webServer: shouldStartWebServer
+    ? {
+        command: `NEXT_PUBLIC_ODSAY_API_KEY=playwright-test npm run dev -- --hostname 127.0.0.1 --port ${webServerPort}`,
+        reuseExistingServer: true,
+        timeout: 120_000,
+        url: baseURL,
+      }
+    : undefined,
 });

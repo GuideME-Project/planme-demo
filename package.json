@@ -15,5 +15,8 @@
     "test:design": "node scripts/check-planme-design.mjs",
     "test:mcp": "npm --workspace @planme/mcp run test:mcp",
     "smoke:external": "npm --workspace @planme/mcp run smoke:external"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1"
   }
 }
