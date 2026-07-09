@@ -323,16 +323,6 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             travelerCount: { type: "integer", minimum: 1, maximum: 20 },
             luggageCount: { type: "integer", minimum: 0, maximum: 20 },
             preferences: { type: "array", items: { type: "string" } },
-            clarificationAnswers: {
-              oneOf: [
-                { type: "string" },
-                { type: "array", items: { type: "string" } },
-              ],
-              description: "User answers for unresolved place clarification questions.",
-            },
-            clarificationContext: {
-              $ref: "#/components/schemas/PlanmeClarificationContext",
-            },
             theme: { type: "string", enum: ["light", "dark"] },
           },
         },
@@ -400,6 +390,16 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             travelerCount: { type: "integer", minimum: 1, maximum: 20 },
             luggageCount: { type: "integer", minimum: 0, maximum: 20 },
             preferences: { type: "array", items: { type: "string" } },
+            clarificationAnswers: {
+              oneOf: [
+                { type: "string" },
+                { type: "array", items: { type: "string" } },
+              ],
+              description: "User answers for unresolved place clarification questions.",
+            },
+            clarificationContext: {
+              $ref: "#/components/schemas/PlanmeClarificationContext",
+            },
             theme: { type: "string", enum: ["light", "dark"] },
           },
         },
