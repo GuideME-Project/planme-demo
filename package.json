@@ -13,6 +13,7 @@
     "lint": "npm --workspace @planme/web run lint",
     "test:actions": "node scripts/check-planme-actions.mjs",
     "test:design": "node scripts/check-planme-design.mjs",
-    "test:mcp": "npm --workspace @planme/mcp run test:mcp"
+    "test:mcp": "npm --workspace @planme/mcp run test:mcp",
+    "smoke:external": "npm --workspace @planme/mcp run smoke:external"
   }
 }

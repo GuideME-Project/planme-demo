@@ -4,7 +4,7 @@ import HotelRoundedIcon from "@mui/icons-material/HotelRounded";
 import InfoRoundedIcon from "@mui/icons-material/InfoRounded";
 import TrainRoundedIcon from "@mui/icons-material/TrainRounded";
 import { alpha, Box, Stack, Typography, useTheme } from "@mui/material";
-import type { MapCoordinate, MapPoint, RoutePlan } from "@planme/core";
+import type { MapCoordinate, MapPoint, RoutePlan, RouteTransitMarker } from "@planme/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PlanmeThemeMode } from "@/theme/theme";
 
@@ -166,6 +166,38 @@ const routeLineStyles: Record<"standard" | "carryme", RouteLineStyle> = {
 };
 
 /**
+ * Returns transit markers for the currently visible comparison routes.
+ */
+function getVisibleTransitMarkers({
+  carrymeRoute,
+  showCarryme,
+  showStandard,
+  standardRoute,
+}: Pick<RouteMapProps, "carrymeRoute" | "showCarryme" | "showStandard" | "standardRoute">) {
+  const markers = [
+    ...(showStandard ? standardRoute.transitMarkers ?? [] : []),
+    ...(showCarryme ? carrymeRoute.transitMarkers ?? [] : []),
+  ];
+  const seen = new Set<string>();
+
+  return markers.filter((marker) => {
+    const key = [
+      marker.role,
+      marker.label,
+      marker.coordinate.lat.toFixed(6),
+      marker.coordinate.lng.toFixed(6),
+    ].join(":");
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
  * Builds the Roller copy agreed for CarryME benefit states.
  */
 function createRollerGuidanceContent(savingLabel: string): RollerGuidanceContent {
@@ -252,6 +284,16 @@ function NaverRouteMap({
   const markers = useMemo(
     () => standardRoute.stops.filter((stop) => Boolean(stop.coordinate)),
     [standardRoute.stops],
+  );
+  const transitMarkers = useMemo(
+    () =>
+      getVisibleTransitMarkers({
+        carrymeRoute,
+        showCarryme,
+        showStandard,
+        standardRoute,
+      }),
+    [carrymeRoute, showCarryme, showStandard, standardRoute],
   );
 
   useEffect(() => {
@@ -369,6 +411,19 @@ function NaverRouteMap({
           });
         });
 
+        transitMarkers.forEach((marker) => {
+          const markerPosition = new maps.LatLng(marker.coordinate.lat, marker.coordinate.lng);
+
+          bounds.extend(markerPosition);
+          hasBounds = true;
+          new maps.Marker({
+            ...createNaverTransitMarkerIcon({ marker, maps }),
+            map,
+            position: markerPosition,
+            title: marker.label,
+          });
+        });
+
         if (hasBounds) {
           map.fitBounds(bounds);
         }
@@ -394,6 +449,7 @@ function NaverRouteMap({
     standardColor,
     standardRoute,
     standardRoute.geoSegments,
+    transitMarkers,
   ]);
 
   return (
@@ -461,6 +517,45 @@ function createNaverMarkerIcon({
       size: new maps.Size(180, 76),
     },
     zIndex: 200,
+  };
+}
+
+/**
+ * Builds a compact boarding/alighting marker for provider partial transit routes.
+ */
+function createNaverTransitMarkerIcon({
+  marker,
+  maps,
+}: {
+  marker: RouteTransitMarker;
+  maps: NaverMapsNamespace;
+}): {
+  icon: {
+    anchor: NaverPoint;
+    content: string;
+    size: NaverSize;
+  };
+  zIndex: number;
+} {
+  const tone = marker.role === "boarding" ? "#2563eb" : "#0f9f4a";
+  const shortLabel = marker.role === "boarding" ? "탑승" : "하차";
+  const content = `
+    <div data-testid="transit-marker-${marker.role}" style="position:relative;width:190px;height:66px;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;pointer-events:none;">
+      <div style="position:absolute;left:73px;top:0;display:grid;place-items:center;width:44px;height:28px;border-radius:999px;background:${tone};border:2px solid #fff;box-shadow:0 10px 24px rgba(15,23,42,.22);color:#fff;font-size:11px;font-weight:900;">
+        ${shortLabel}
+      </div>
+      <div style="position:absolute;left:50%;top:34px;transform:translateX(-50%);white-space:nowrap;border:1px solid rgba(15,23,42,.12);border-radius:8px;background:white;padding:5px 8px;box-shadow:0 8px 20px rgba(15,23,42,.12);color:#172033;font-size:11px;font-weight:800;">
+        ${marker.label}
+      </div>
+    </div>`;
+
+  return {
+    icon: {
+      anchor: new maps.Point(95, 14),
+      content,
+      size: new maps.Size(190, 66),
+    },
+    zIndex: 240,
   };
 }
 
@@ -624,6 +719,12 @@ export function RouteMap({
   const carrymeColor = theme.palette.secondary.main;
   const rollerGuidance = createRollerGuidanceContent(savingLabel);
   const canUseNaver = Boolean(naverMapsClientId && !naverFailed);
+  const visibleTransitMarkers = getVisibleTransitMarkers({
+    carrymeRoute,
+    showCarryme,
+    showStandard,
+    standardRoute,
+  });
   const mapBackground = isDark
     ? "linear-gradient(135deg, #111827 0%, #17212d 48%, #0e2530 100%)"
     : "linear-gradient(135deg, #dceeff 0%, #f6fbff 48%, #e9f8ec 100%)";
@@ -820,6 +921,58 @@ export function RouteMap({
                 {marker.caption}
               </Typography>
             ) : null}
+          </Box>
+        </Stack>
+      ))}
+
+      {visibleTransitMarkers.map((marker, index) => (
+        <Stack
+          key={`${marker.id}-${index}`}
+          data-testid={`transit-marker-${marker.role}`}
+          spacing={0.5}
+          sx={{
+            alignItems: "center",
+            left: `${24 + index * 22}%`,
+            position: "absolute",
+            top: `${22 + (index % 2) * 12}%`,
+            transform: "translate(-50%, -50%)",
+            zIndex: 3,
+          }}
+        >
+          <Box
+            sx={{
+              bgcolor: marker.role === "boarding" ? "primary.main" : "success.main",
+              border: "3px solid",
+              borderColor: isDark ? "#0f1720" : "#ffffff",
+              borderRadius: "999px",
+              boxShadow: "0 10px 28px rgba(15,23,42,0.22)",
+              color: "#fff",
+              fontSize: 12,
+              fontWeight: 900,
+              px: 1.3,
+              py: 0.6,
+            }}
+          >
+            {marker.role === "boarding" ? "탑승" : "하차"}
+          </Box>
+          <Box
+            sx={{
+              bgcolor: isDark ? alpha("#0f1720", 0.9) : alpha("#ffffff", 0.94),
+              border: "1px solid",
+              borderColor: "divider",
+              borderRadius: 1.5,
+              boxShadow: isDark
+                ? "0 10px 24px rgba(0,0,0,0.28)"
+                : "0 10px 24px rgba(23, 32, 51, 0.12)",
+              px: 1.2,
+              py: 0.75,
+              textAlign: "center",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <Typography sx={{ fontSize: 12, fontWeight: 800 }}>
+              {marker.label}
+            </Typography>
           </Box>
         </Stack>
       ))}

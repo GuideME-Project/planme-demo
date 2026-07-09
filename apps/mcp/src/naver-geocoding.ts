@@ -1,9 +1,14 @@
-import type { PlanmeDraftGeocoder } from "@planme/core";
+import {
+  recordPlanmeUsageSafely,
+  type PlanmeDraftGeocoder,
+  type PlanmeUsageRecorder,
+} from "@planme/core";
 
 type NaverGeocoderOptions = {
   keyId?: string;
   secret?: string;
   fetchImpl?: typeof fetch;
+  usageRecorder?: PlanmeUsageRecorder;
 };
 
 type NaverGeocodingAddress = {
@@ -37,6 +42,8 @@ export function createNaverGeocoder(options: NaverGeocoderOptions = {}): PlanmeD
     const url = new URL("https://maps.apigw.ntruss.com/map-geocode/v2/geocode");
     url.searchParams.set("query", query);
 
+    await recordPlanmeUsageSafely(options.usageRecorder, "naver_geocode_request");
+
     const response = await fetchImpl(url, {
       headers: {
         "x-ncp-apigw-api-key-id": keyId,
@@ -60,6 +67,13 @@ export function createNaverGeocoder(options: NaverGeocoderOptions = {}): PlanmeD
     return {
       coordinate: { lat, lng },
       matchedAddress: firstAddress?.roadAddress || firstAddress?.jibunAddress,
+      placeSource: "naver_geocode",
+      placeSourceRef: [
+        "naver_geocode",
+        query,
+        lat.toFixed(6),
+        lng.toFixed(6),
+      ].join(":"),
     };
   };
 }

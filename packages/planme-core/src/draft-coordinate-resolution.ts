@@ -4,6 +4,7 @@ import type {
   PlanmeDraftValidationIssue,
 } from "./draft-itineraries.js";
 import type { MapCoordinate } from "./mock-data.js";
+import type { PlanmePlaceCandidateSource } from "./place-candidates.js";
 
 export type PlanmeDraftGeocoderInput = {
   query: string;
@@ -16,6 +17,9 @@ export type PlanmeDraftGeocoderInput = {
 export type PlanmeDraftGeocoderResult = {
   coordinate: MapCoordinate;
   matchedAddress?: string;
+  placeId?: string;
+  placeSource?: PlanmePlaceCandidateSource;
+  placeSourceRef?: string;
 } | null;
 
 export type PlanmeDraftGeocoder = (
@@ -60,7 +64,12 @@ export async function resolvePlanmeDraftCoordinates(
 
           return {
             ...stop,
+            addressQuery: result.matchedAddress ?? stop.addressQuery,
             coordinate: result.coordinate,
+            placeId: result.placeId,
+            placeSource: result.placeSource ?? "naver_geocode",
+            placeSourceRef:
+              result.placeSourceRef ?? createDraftGeocodeSourceRef(query, result.coordinate),
           };
         }),
       );
@@ -89,4 +98,16 @@ function createDraftGeocodeQuery(region: string | undefined, stop: PlanmeDraftSt
   const regionPrefix = region?.trim();
 
   return regionPrefix && !name.includes(regionPrefix) ? `${regionPrefix} ${name}` : name;
+}
+
+/**
+ * Creates a reproducible source reference for geocoder-derived coordinates.
+ */
+function createDraftGeocodeSourceRef(query: string, coordinate: MapCoordinate) {
+  return [
+    "naver_geocode",
+    query.trim(),
+    coordinate.lat.toFixed(6),
+    coordinate.lng.toFixed(6),
+  ].join(":");
 }

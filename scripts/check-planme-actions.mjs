@@ -36,6 +36,7 @@ for (const file of requiredFiles) {
 
 const openApiFile = join(webRoot, "app/api/gpt/openapi/route.ts");
 const routeMapFile = join(webRoot, "components/itinerary/RouteMap.tsx");
+const itineraryDashboardFile = join(webRoot, "components/itinerary/ItineraryDashboard.tsx");
 
 if (existsSync(openApiFile)) {
   const openApiSource = readFileSync(openApiFile, "utf8");
@@ -74,6 +75,14 @@ if (existsSync(routeMapFile)) {
 
   if (!routeMapSource.includes("addRouteSegment(route.geoPath, color, routeStyle);")) {
     failures.push("RouteMap must render route.geoPath when geoSegments are unavailable");
+  }
+}
+
+if (existsSync(itineraryDashboardFile)) {
+  const itineraryDashboardSource = readFileSync(itineraryDashboardFile, "utf8");
+
+  if (itineraryDashboardSource.includes("paths: longDistancePath.length > 2 ? [longDistancePath] : []")) {
+    failures.push("ODsay long-distance transit must not draw straight boundary-point fallback paths.");
   }
 }
 

@@ -893,10 +893,10 @@ function createGeneratedItineraryTitle({
   primaryPreference: string;
 }) {
   if (originTemplate) {
-    return `PlanME ${originTemplate.cityLabel} → ${destinationTemplate.destinationLabel} ${primaryPreference} ${durationLabel} 추천 일정`;
+    return `${originTemplate.cityLabel} → ${destinationTemplate.destinationLabel} ${primaryPreference} ${durationLabel} 추천 일정`;
   }
 
-  return `PlanME ${destinationTemplate.destinationLabel} ${primaryPreference} ${durationLabel} 추천 일정`;
+  return `${destinationTemplate.destinationLabel} ${primaryPreference} ${durationLabel} 추천 일정`;
 }
 
 /**

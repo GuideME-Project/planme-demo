@@ -506,10 +506,10 @@ test("updates the header and benefit copy after recalculating an edited local ca
     await expect(page.getByText(/경로 체크 완료/)).toBeVisible();
     await expect(
       page.getByRole("heading", {
-        name: "PlanME 동탄호수공원 → 아리수로50길 추천 일정",
+        name: "동탄호수공원 → 아리수로50길 추천 일정",
       }),
     ).toBeVisible();
-    await expect(page.getByText("PlanME 부산 BTS 공연 1박 2일 추천 일정")).toHaveCount(0);
+    await expect(page.getByText("부산 BTS 공연 1박 2일 추천 일정")).toHaveCount(0);
     await expect(
       page.getByText("동탄호수공원에서 아리수로50길(으)로 이동하는 CarryME 동선을 확인하세요."),
     ).toBeVisible();
@@ -650,7 +650,9 @@ test("recalculates Busan concert to Jeongeup transit and Jeongeup to Seomyeon dr
     await expect(
       page.getByText(/지도에 표시할 장거리 대중교통 경로 좌표를 확인하지 못했습니다/),
     ).toHaveCount(0);
-    await expect(page.getByText(/경로 체크 완료/)).toBeVisible();
+    await expect(page.getByText(/일부 구간 확인 필요/)).toBeVisible();
+    await expect(page.getByTestId("transit-marker-boarding").first()).toContainText("탑승: 부산");
+    await expect(page.getByTestId("transit-marker-alighting").first()).toContainText("하차: 정읍");
     const firstNaverDriveRequestCount = naverDriveRequestUrls.length;
 
     expect(firstNaverDriveRequestCount).toBe(1);
@@ -723,7 +725,7 @@ test("deduplicates identical Standard and CarryME recalculation requests to redu
 
   odsayRequestUrls.length = 0;
   await page.getByRole("button", { name: "경로 다시 계산" }).click();
-  await expect(page.getByText(/경로 체크 완료/)).toBeVisible();
+  await expect(page.getByText(/일부 구간 확인 필요/)).toBeVisible();
 
   const jeongeupTransitRequestCount = odsayRequestUrls.filter((requestUrl) => {
     const url = new URL(requestUrl);
@@ -740,7 +742,7 @@ test("deduplicates identical Standard and CarryME recalculation requests to redu
   const firstRecalculationOdsayCount = odsayRequestUrls.length;
 
   await page.getByRole("button", { name: "경로 다시 계산" }).click();
-  await expect(page.getByText(/경로 체크 완료/)).toBeVisible();
+  await expect(page.getByText(/일부 구간 확인 필요/)).toBeVisible();
   await page.waitForTimeout(300);
 
   expect(odsayRequestUrls.length).toBe(firstRecalculationOdsayCount);
