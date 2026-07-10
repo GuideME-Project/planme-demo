@@ -2742,6 +2742,7 @@ async function main(): Promise<void> {
     assert.ok(!toolNames.includes("commit_planme_itinerary"));
 
     const recommendTool = tools.tools.find((tool) => tool.name === "recommend_planme_itinerary");
+    const getItineraryTool = tools.tools.find((tool) => tool.name === "get_planme_itinerary");
     const recommendInputSchema = recommendTool?.inputSchema as
       | {
           properties?: Record<string, { enum?: string[]; description?: string }>;
@@ -2757,6 +2758,8 @@ async function main(): Promise<void> {
       "대중교통",
     ]);
     assert.match(recommendInputSchema.properties.transportMode?.description ?? "", /자동차.*drive/);
+    assert.equal(recommendTool?._meta?.["openai/outputTemplate"], undefined);
+    assert.equal(getItineraryTool?._meta?.["openai/outputTemplate"], "ui://planme/itinerary-widget-v2.html");
 
     const planningDraft = await client.callTool({
       name: "start_planme_planning",
@@ -2895,8 +2898,6 @@ async function main(): Promise<void> {
       assert.match(firstResource.text, /toolOutput/);
       assert.match(firstResource.text, /openai:set_globals/);
       assert.match(firstResource.text, /ui\/notifications\/tool-result/);
-      assert.match(firstResource.text, /needs_clarification/);
-      assert.match(firstResource.text, /일정 생성 전 확인 필요/);
       assert.doesNotMatch(firstResource.text, /부산 1박 2일/);
       assert.doesNotMatch(firstResource.text, /인천공항 도착/);
       assert.doesNotMatch(firstResource.text, /planme-route-preview/);
