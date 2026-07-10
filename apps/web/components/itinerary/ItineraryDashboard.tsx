@@ -342,8 +342,81 @@ type OdsayLoadLaneResponse = OdsayResponseWithError & {
 function createEditableDays(days: PlanmeItinerary["days"]): EditableDayPlan[] {
   return days.map((day) => ({
     ...day,
+    carryme: normalizeRoutePlanStops(day.carryme),
+    standard: normalizeRoutePlanStops(day.standard),
     uiId: `seed-day-${day.day}`,
   }));
+}
+
+/**
+ * Removes parcel-only and adjacent duplicate places from one traveler route plan.
+ */
+function normalizeRoutePlanStops(route: RoutePlan): RoutePlan {
+  const travelerStops = route.stops.filter((stop, index) => {
+    if (!isLuggageArrivalRouteStop(stop)) {
+      return true;
+    }
+
+    return !route.stops.some(
+      (candidate, candidateIndex) =>
+        candidateIndex !== index &&
+        !isLuggageArrivalRouteStop(candidate) &&
+        isSameRouteLocation(stop, candidate),
+    );
+  });
+  const stops = travelerStops.reduce<RouteStop[]>((normalized, stop) => {
+    const previous = normalized[normalized.length - 1];
+
+    if (previous && isSameRouteLocation(previous, stop)) {
+      // Keep the later traveler event and remove only the zero-distance adjacent leg.
+      normalized[normalized.length - 1] = stop;
+      return normalized;
+    }
+
+    normalized.push(stop);
+    return normalized;
+  }, []);
+
+  if (stops.length === route.stops.length) {
+    return route;
+  }
+
+  return {
+    ...route,
+    routeText: stops.map((stop) => stop.label).join(" → "),
+    stops,
+  };
+}
+
+/**
+ * Detects a CarryME parcel event that belongs in the timeline, not the traveler path.
+ */
+function isLuggageArrivalRouteStop(stop: RouteStop) {
+  const caption = stop.caption.replace(/\s+/g, " ").trim();
+
+  return stop.role === "숙소" && /짐.*도착|도착.*짐/.test(caption);
+}
+
+/**
+ * Checks whether two rendered route stops resolve to the same physical place.
+ */
+function isSameRouteLocation(left: RouteStop, right: RouteStop) {
+  if (left.placeSourceRef && right.placeSourceRef) {
+    return left.placeSourceRef === right.placeSourceRef;
+  }
+
+  if (left.placeId && right.placeId) {
+    return left.placeId === right.placeId;
+  }
+
+  if (left.coordinate && right.coordinate) {
+    return (
+      left.coordinate.lat === right.coordinate.lat &&
+      left.coordinate.lng === right.coordinate.lng
+    );
+  }
+
+  return left.label.trim() === right.label.trim();
 }
 
 /**
@@ -367,7 +440,7 @@ function createDestinationRows(route: RoutePlan): DestinationRow[] {
  * Builds the API request rows for a route plan.
  */
 function createRouteRequestRows(route: RoutePlan): DestinationRow[] {
-  return route.stops.map((stop, index) => ({
+  const rows = route.stops.map((stop, index) => ({
     caption: stop.caption,
     coordinate: stop.coordinate,
     id: `${route.id}-route-${index}-${stop.label}`,
@@ -378,6 +451,48 @@ function createRouteRequestRows(route: RoutePlan): DestinationRow[] {
     placeSourceRef: stop.placeSourceRef,
     role: stop.role,
   }));
+
+  return removeAdjacentDuplicateRows(rows);
+}
+
+/**
+ * Prevents an edited or legacy route from sending a same-place segment to a provider.
+ */
+function removeAdjacentDuplicateRows(rows: DestinationRow[]) {
+  return rows.reduce<DestinationRow[]>((normalized, row) => {
+    const previous = normalized[normalized.length - 1];
+
+    if (previous && isSameDestinationRowLocation(previous, row)) {
+      // The latest row carries the final role and caption shown after normalization.
+      normalized[normalized.length - 1] = row;
+      return normalized;
+    }
+
+    normalized.push(row);
+    return normalized;
+  }, []);
+}
+
+/**
+ * Compares editable rows using provider identity before falling back to resolved coordinates.
+ */
+function isSameDestinationRowLocation(left: DestinationRow, right: DestinationRow) {
+  if (left.placeSourceRef && right.placeSourceRef) {
+    return left.placeSourceRef === right.placeSourceRef;
+  }
+
+  if (left.placeId && right.placeId) {
+    return left.placeId === right.placeId;
+  }
+
+  if (left.coordinate && right.coordinate) {
+    return (
+      left.coordinate.lat === right.coordinate.lat &&
+      left.coordinate.lng === right.coordinate.lng
+    );
+  }
+
+  return left.name.trim() === right.name.trim();
 }
 
 /**

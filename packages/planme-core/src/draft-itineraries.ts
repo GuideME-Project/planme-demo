@@ -365,13 +365,15 @@ function buildDraftDay(
     explicitOrigin,
     luggageFallbackLabel,
   );
-  const carrymeStops = day.carrymeStops
-    ? createDraftRouteStops(day.carrymeStops, explicitOrigin, luggageFallbackLabel)
-    : buildCarrymeStops(standardStops);
+  const carrymeStops = normalizeCarrymeTravelerStops(
+    day.carrymeStops
+      ? createDraftRouteStops(day.carrymeStops, explicitOrigin, luggageFallbackLabel)
+      : buildCarrymeStops(standardStops),
+  );
   let routeLikeTimelineIndex = 0;
   const routeText = standardStops.map((stop) => stop.label).join(" → ") || "일정 초안 확인 중";
   const carrymeRouteText =
-    day.carrymeRouteText?.trim() || carrymeStops.map((stop) => stop.label).join(" → ") || routeText;
+    carrymeStops.map((stop) => stop.label).join(" → ") || day.carrymeRouteText?.trim() || routeText;
   const carrymeMinutes = Math.max(0, day.carrymeDurationMinutes ?? 300);
   const standardMinutes = Math.max(
     carrymeMinutes,
@@ -494,6 +496,69 @@ function buildCarrymeStops(stops: RouteStop[]) {
   const luggageStops = stops.filter((stop) => stop.caption === "짐 도착");
 
   return [...nonLuggageStops, ...luggageStops].length > 0 ? [...nonLuggageStops, ...luggageStops] : stops;
+}
+
+/**
+ * Keeps luggage-delivery events in the timeline without creating zero-distance traveler legs.
+ */
+function normalizeCarrymeTravelerStops(stops: RouteStop[]) {
+  const travelerStops = stops.filter((stop, index) => {
+    if (!isLuggageArrivalStop(stop)) {
+      return true;
+    }
+
+    // A separate traveler stop at the same place owns the physical route destination.
+    return !stops.some(
+      (candidate, candidateIndex) =>
+        candidateIndex !== index &&
+        !isLuggageArrivalStop(candidate) &&
+        isSamePhysicalStop(stop, candidate),
+    );
+  });
+
+  return travelerStops.reduce<RouteStop[]>((normalized, stop) => {
+    const previous = normalized[normalized.length - 1];
+
+    if (previous && isSamePhysicalStop(previous, stop)) {
+      // Prefer the later traveler event while collapsing only adjacent identical places.
+      normalized[normalized.length - 1] = stop;
+      return normalized;
+    }
+
+    normalized.push(stop);
+    return normalized;
+  }, []);
+}
+
+/**
+ * Identifies a CarryME parcel-arrival event that must not become a traveler route leg.
+ */
+function isLuggageArrivalStop(stop: RouteStop) {
+  const caption = stop.caption.replace(/\s+/g, " ").trim();
+
+  return stop.role === "숙소" && /짐.*도착|도착.*짐/.test(caption);
+}
+
+/**
+ * Compares provider identity first and exact resolved coordinates as a safe fallback.
+ */
+function isSamePhysicalStop(left: RouteStop, right: RouteStop) {
+  if (left.placeSourceRef && right.placeSourceRef) {
+    return left.placeSourceRef === right.placeSourceRef;
+  }
+
+  if (left.placeId && right.placeId) {
+    return left.placeId === right.placeId;
+  }
+
+  if (left.coordinate && right.coordinate) {
+    return (
+      left.coordinate.lat === right.coordinate.lat &&
+      left.coordinate.lng === right.coordinate.lng
+    );
+  }
+
+  return left.label.trim() === right.label.trim();
 }
 
 /**

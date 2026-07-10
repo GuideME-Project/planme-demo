@@ -128,6 +128,42 @@ function appendCoordinate(path: MapCoordinate[], coordinate: MapCoordinate) {
 }
 
 /**
+ * Removes only consecutive stops that resolve to the same physical location.
+ */
+function removeAdjacentDuplicateStops(stops: NaverRouteStop[]) {
+  return stops.reduce<NaverRouteStop[]>((normalized, stop) => {
+    const previous = normalized[normalized.length - 1];
+
+    if (previous && isSameStopLocation(previous, stop)) {
+      // Keep the later stop metadata while dropping the zero-distance provider segment.
+      normalized[normalized.length - 1] = stop;
+      return normalized;
+    }
+
+    normalized.push(stop);
+    return normalized;
+  }, []);
+}
+
+/**
+ * Compares Naver request stops by id and then by their resolved coordinates.
+ */
+function isSameStopLocation(left: NaverRouteStop, right: NaverRouteStop) {
+  if (left.id && right.id && left.id === right.id) {
+    return true;
+  }
+
+  if (left.coordinate && right.coordinate) {
+    return (
+      left.coordinate.lat === right.coordinate.lat &&
+      left.coordinate.lng === right.coordinate.lng
+    );
+  }
+
+  return left.name.trim() === right.name.trim();
+}
+
+/**
  * Checks whether the incoming route asks Naver Directions to handle non-car modes.
  */
 function routeContainsNonDriveSegment(stops: NaverRouteStop[]) {
@@ -217,7 +253,7 @@ async function requestDriveRoute(
  */
 export async function POST(request: Request) {
   const body = (await request.json()) as NaverRouteRequestBody;
-  const stops = body.stops ?? [];
+  const stops = removeAdjacentDuplicateStops(body.stops ?? []);
 
   if (routeContainsNonDriveSegment(stops)) {
     return NextResponse.json(
