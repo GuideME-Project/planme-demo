@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-type NaverRouteMode = "drive" | "transit" | "walk";
+type NaverRouteMode = "drive";
 
 type NaverRouteStop = {
   coordinate?: {
@@ -8,7 +8,7 @@ type NaverRouteStop = {
     lng: number;
   };
   id: string;
-  mode: NaverRouteMode;
+  mode: string;
   name: string;
 };
 
@@ -277,7 +277,7 @@ export async function POST(request: Request) {
       segments.push({
         distanceMeters: segment.totalDistanceMeters,
         durationSeconds: segment.totalDurationSeconds,
-        mode: origin.mode,
+        mode: "drive",
         path: segment.path,
         paths: segment.paths,
       });

@@ -12,9 +12,11 @@ export type MapCoordinate = {
 
 export type PlanmeStopRole = "출발지" | "방문지" | "숙소" | "복귀지";
 
-export type PlanmeRowMode = "drive" | "transit";
+export type PlanmeTransportMode = "drive" | "transit";
 
-export type ProviderSegmentMode = PlanmeRowMode | "walk";
+export type PlanmeRowMode = PlanmeTransportMode;
+
+export type ProviderSegmentMode = PlanmeRowMode;
 
 export type RouteStop = {
   label: string;
@@ -23,7 +25,7 @@ export type RouteStop = {
   icon: "airport" | "hotel" | "station" | "event" | "attraction";
   mode?: PlanmeRowMode;
   placeId?: string;
-  placeSource?: "google_text_search" | "google_nearby_search" | "naver_geocode" | "input";
+  placeSource?: "naver_local" | "naver_geocode" | "input";
   placeSourceRef?: string;
   role?: PlanmeStopRole;
 };
@@ -90,6 +92,7 @@ export type PlanmeItinerary = {
   carrymeSaving: string;
   totalDurationLabel: string;
   savedDurationLabel: string;
+  transportMode: PlanmeTransportMode;
   days: ItineraryDay[];
   benefits: BenefitItem[];
 };
@@ -390,6 +393,43 @@ const dayTwo: ItineraryDay = {
   ],
 };
 
+/**
+ * Upgrades fixed demo stops to the same coordinate/source/mode contract as generated itineraries.
+ */
+function applyDemoRouteContract(day: ItineraryDay): ItineraryDay {
+  const applyRoute = (route: RoutePlan): RoutePlan => ({
+    ...route,
+    stops: route.stops.map((stop, index) => {
+      const coordinate = stop.coordinate;
+      const role =
+        stop.role ??
+        (index === 0
+          ? "출발지"
+          : stop.icon === "hotel"
+            ? "숙소"
+            : index === route.stops.length - 1
+              ? "복귀지"
+              : "방문지");
+
+      return {
+        ...stop,
+        mode: "transit",
+        placeSource: coordinate ? "input" : stop.placeSource,
+        placeSourceRef: coordinate
+          ? `input:demo:${coordinate.lat.toFixed(6)}:${coordinate.lng.toFixed(6)}`
+          : stop.placeSourceRef,
+        role,
+      };
+    }),
+  });
+
+  return {
+    ...day,
+    carryme: applyRoute(day.carryme),
+    standard: applyRoute(day.standard),
+  };
+}
+
 const demoItinerary: PlanmeItinerary = {
   id: "busan-bts-1d1n",
   title: "부산 BTS 공연 1박 2일 추천 일정",
@@ -400,7 +440,8 @@ const demoItinerary: PlanmeItinerary = {
   carrymeSaving: "약 70분 절약 예상",
   totalDurationLabel: "약 6시간 30분 → 5시간 20분",
   savedDurationLabel: "약 70분 절약",
-  days: [dayOne, dayTwo],
+  transportMode: "transit",
+  days: [dayOne, dayTwo].map(applyDemoRouteContract),
   benefits: [
     {
       title: "안전한 짐 배송",

@@ -1,7 +1,7 @@
 export type PlanmeUsageCounterEvent =
   | "openai_request"
   | "function_place_search_call"
-  | "google_places_request"
+  | "naver_local_search_request"
   | "naver_geocode_request"
   | "odsay_request"
   | "itinerary_ready"

@@ -39,6 +39,7 @@ import type {
   BenefitItem,
   MapCoordinate,
   PlanmeRowMode,
+  PlanmeTransportMode,
   PlanmeStopRole,
   PlanmeItinerary,
   ProviderSegmentMode,
@@ -87,25 +88,18 @@ type DestinationDragPreview = {
 };
 
 type DestinationCandidate = {
-  mainText: string;
-  placeId: string;
-  secondaryText: string;
-  text: string;
+  address?: string;
+  candidateId: string;
+  category?: string;
+  coordinate: MapCoordinate;
+  name: string;
+  placeSource: "naver_local" | "naver_geocode";
+  placeSourceRef: string;
 };
 
-type PlacesAutocompleteApiResponse = {
+type PlaceSearchApiResponse = {
   candidates?: DestinationCandidate[];
   message?: string;
-};
-
-type PlaceDetailsApiResponse = {
-  message?: string;
-  place?: {
-    coordinate: MapCoordinate;
-    placeId: string;
-    secondaryText: string;
-    text: string;
-  };
 };
 
 type RouteCheckApiResponse = {
@@ -774,7 +768,7 @@ function writePersistentOdsayResponse(cacheKey: string, data: OdsayResponseWithE
  * Builds a stable cache key for one Naver car route segment.
  */
 function createNaverDriveRouteCacheKey(origin: DestinationRow, destination: DestinationRow) {
-  return `drive:${getRouteRowsSignature([origin, destination])}`;
+  return `drive:${getRouteRowsSignature([origin, destination], "drive")}`;
 }
 
 /**
@@ -1640,22 +1634,27 @@ function formatSavingLabelFromMinutes(standardMinutes: number, carrymeMinutes: n
 /**
  * Checks whether the route includes a public-transit segment.
  */
-function routeUsesTransit(rows: DestinationRow[]) {
-  return rows.slice(0, -1).some((row) => row.mode === "transit");
+function routeUsesTransit(transportMode: PlanmeTransportMode) {
+  return transportMode === "transit";
 }
 
 /**
  * Creates a stable route signature so identical comparison routes can share one provider call.
  */
-function getRouteRowsSignature(rows: DestinationRow[]) {
+function getRouteRowsSignature(
+  rows: DestinationRow[],
+  transportMode: PlanmeTransportMode,
+) {
   return JSON.stringify(
-    rows.map((row) => ({
-      lat: row.coordinate?.lat,
-      lng: row.coordinate?.lng,
-      mode: row.mode,
-      name: row.name,
-      placeId: row.placeId,
-    })),
+    {
+      transportMode,
+      stops: rows.map((row) => ({
+        lat: row.coordinate?.lat,
+        lng: row.coordinate?.lng,
+        name: row.name,
+        placeSourceRef: row.placeSourceRef,
+      })),
+    },
   );
 }
 
@@ -1671,15 +1670,19 @@ function getRowsWithoutCoordinates(rows: DestinationRow[]) {
  */
 function getRowsWithMissingRouteContract(rows: DestinationRow[]) {
   return rows
-    .filter((row) => !row.role || !row.mode)
+    .filter((row) => !row.role || !row.placeSourceRef)
     .map((row) => row.name);
 }
 
 /**
  * Uses ODsay for transit routes and Naver Directions for car-only fallback.
  */
-async function requestRouteCheck(rows: DestinationRow[]): Promise<RouteCheckResult> {
-  const usesTransit = routeUsesTransit(rows);
+async function requestRouteCheck(
+  rows: DestinationRow[],
+  transportMode: PlanmeTransportMode,
+): Promise<RouteCheckResult> {
+  const providerRows = rows.map((row) => ({ ...row, mode: transportMode }));
+  const usesTransit = routeUsesTransit(transportMode);
   let odsayErrorMessage = "ODsay 대중교통 경로 요청에 실패했습니다.";
   const missingContractRows = getRowsWithMissingRouteContract(rows);
 
@@ -1712,7 +1715,7 @@ async function requestRouteCheck(rows: DestinationRow[]): Promise<RouteCheckResu
   }
 
   try {
-    const odsayPayload = await computeOdsayRoute(rows);
+    const odsayPayload = await computeOdsayRoute(providerRows);
 
     if (odsayPayload?.ok) {
       return { payload: odsayPayload, responseOk: true };
@@ -1732,7 +1735,7 @@ async function requestRouteCheck(rows: DestinationRow[]): Promise<RouteCheckResu
   }
 
   const response = await fetch("/api/naver/directions/routes", {
-    body: JSON.stringify({ stops: rows }),
+    body: JSON.stringify({ stops: providerRows }),
     headers: { "Content-Type": "application/json" },
     method: "POST",
   });
@@ -1795,24 +1798,16 @@ function applyComputedRoute(route: RoutePlan, computedRoute?: ComputedRouteState
 }
 
 /**
- * Builds a display-only CarryME fallback that mirrors Standard without exposing route failures.
+ * Suppresses stale or invented geometry when one provider route is unavailable.
  */
-function createStandardEquivalentComputedRoute(
-  standardRoute: RoutePlan,
-  timeline: TimelineEvent[],
-): ComputedRouteResult {
-  const path = standardRoute.geoPath ?? [];
-  const segments = standardRoute.geoSegments ?? (path.length > 0 ? [path] : []);
-
+function createUnavailableComputedRoute(rows: DestinationRow[]): ComputedRouteResult {
   return {
-    durationLabel: standardRoute.durationLabel,
-    durationMinutes: standardRoute.durationMinutes,
-    path,
-    routeText: standardRoute.routeText,
-    segments,
-    stops: standardRoute.stops,
-    timeline,
-    transitMarkers: standardRoute.transitMarkers ?? [],
+    path: [],
+    routeText: rows.map((row) => row.name).join(" → "),
+    segments: [],
+    stops: createRouteStopsFromRows(rows),
+    timeline: createTimelineFromRows(rows),
+    transitMarkers: [],
   };
 }
 
@@ -1958,6 +1953,9 @@ export function ItineraryDashboard({
     carryme: true,
   });
   const [computedRoutes, setComputedRoutes] = useState<ComputedRouteState>({});
+  const [transportMode, setTransportMode] = useState<PlanmeTransportMode>(
+    itinerary.transportMode,
+  );
 
   const isDark = mode === "dark";
   const selectedDayPlan = useMemo(
@@ -2003,20 +2001,14 @@ export function ItineraryDashboard({
     async function computeInitialRoute(rows: DestinationRow[], routeId: RoutePlanId) {
       try {
         // Initial map rendering uses verified provider coordinates instead of bundled demo lines.
-        const { payload, responseOk } = await requestRouteCheck(rows);
+        const { payload, responseOk } = await requestRouteCheck(rows, transportMode);
 
         if (cancelled || !responseOk || !payload.ok || !payload.path?.length) {
-          if (payload.blockingReason) {
-            return;
-          }
-
           if (!cancelled) {
-            setComputedRoutes({
-              carryme: createStandardEquivalentComputedRoute(
-                selectedDayPlan.standard,
-                selectedDayPlan.carrymeTimeline ?? selectedDayPlan.timeline,
-              ),
-            });
+            setComputedRoutes((current) => ({
+              ...current,
+              [routeId]: createUnavailableComputedRoute(rows),
+            }));
           }
           return;
         }
@@ -2036,13 +2028,10 @@ export function ItineraryDashboard({
           [routeId]: result,
         }));
       } catch {
-        if (!cancelled && routeId === "carryme") {
+        if (!cancelled) {
           setComputedRoutes((current) => ({
             ...current,
-            carryme: createStandardEquivalentComputedRoute(
-              selectedDayPlan.standard,
-              selectedDayPlan.carrymeTimeline ?? selectedDayPlan.timeline,
-            ),
+            [routeId]: createUnavailableComputedRoute(rows),
           }));
         }
       }
@@ -2061,6 +2050,27 @@ export function ItineraryDashboard({
    */
   const handleRoutesComputed = (payload: RouteComputationPayload) => {
     setComputedRoutes(payload);
+  };
+
+  /**
+   * Stores one itinerary-wide mode and suppresses paths computed with the previous mode.
+   */
+  const handleTransportModeChange = (nextMode: PlanmeTransportMode) => {
+    setTransportMode(nextMode);
+
+    if (!selectedDayPlan) {
+      setComputedRoutes({});
+      return;
+    }
+
+    setComputedRoutes({
+      standard: createUnavailableComputedRoute(
+        createRouteRequestRows(selectedDayPlan.standard),
+      ),
+      carryme: createUnavailableComputedRoute(
+        createRouteRequestRows(selectedDayPlan.carryme),
+      ),
+    });
   };
 
   /**
@@ -2333,6 +2343,8 @@ export function ItineraryDashboard({
                     savingLabel={savingLabel}
                     standardRoute={selectedDayPlan.standard}
                     carrymeTimeline={selectedDayPlan.carrymeTimeline ?? selectedDayPlan.timeline}
+                    transportMode={transportMode}
+                    onTransportModeChange={handleTransportModeChange}
                   />
                 </>
               ) : null}
@@ -2543,6 +2555,8 @@ type DestinationEditorProps = {
   onRoutesComputed: (payload: RouteComputationPayload) => void;
   savingLabel: string;
   standardRoute: RoutePlan;
+  transportMode: PlanmeTransportMode;
+  onTransportModeChange: (transportMode: PlanmeTransportMode) => void;
 };
 
 /**
@@ -2555,6 +2569,8 @@ function DestinationEditor({
   onRoutesComputed,
   savingLabel,
   standardRoute,
+  transportMode,
+  onTransportModeChange,
 }: DestinationEditorProps) {
   const theme = useTheme();
   const [rows, setRows] = useState<DestinationRow[]>(initialRows);
@@ -2568,9 +2584,6 @@ function DestinationEditor({
   const [dragPreview, setDragPreview] = useState<DestinationDragPreview | null>(null);
   const pointerDraggingIdRef = useRef<string | null>(null);
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const [sessionToken] = useState(
-    () => `planme-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
   const isDark = mode === "dark";
 
   const activeRow = rows.find((row) => row.id === activeRowId);
@@ -2714,17 +2727,16 @@ function DestinationEditor({
       setSuggestionMessage(null);
 
       try {
-        // Ask the server route for autocomplete so the browser does not own API contracts.
-        const response = await fetch("/api/places/autocomplete", {
+        // Ask the server route for candidates so the browser does not own API contracts.
+        const response = await fetch("/api/places/search", {
           body: JSON.stringify({
-            input: activeRow.name,
-            sessionToken,
+            query: activeRow.name,
           }),
           headers: { "Content-Type": "application/json" },
           method: "POST",
           signal: controller.signal,
         });
-        const payload = (await response.json()) as PlacesAutocompleteApiResponse;
+        const payload = (await response.json()) as PlaceSearchApiResponse;
 
         if (!response.ok) {
           setSuggestions([]);
@@ -2744,13 +2756,13 @@ function DestinationEditor({
         setSuggestionStatus("error");
         setSuggestionMessage("장소 검색 요청을 완료하지 못했습니다.");
       }
-    }, 250);
+    }, 300);
 
     return () => {
       window.clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [activeRow, sessionToken]);
+  }, [activeRow]);
 
   /**
    * Adds a waypoint before the final destination so start and end stay visually stable.
@@ -2758,7 +2770,6 @@ function DestinationEditor({
   const handleAddWaypoint = () => {
     const newRow: DestinationRow = {
       id: `destination-local-${Date.now()}`,
-      mode: "transit",
       name: "새 행선지",
       role: "방문지",
     };
@@ -2798,7 +2809,14 @@ function DestinationEditor({
     setRows((current) =>
       current.map((row) =>
         row.id === rowId
-          ? { ...row, coordinate: undefined, name: nextName, placeId: undefined }
+          ? {
+              ...row,
+              coordinate: undefined,
+              name: nextName,
+              placeId: undefined,
+              placeSource: undefined,
+              placeSourceRef: undefined,
+            }
           : row,
       ),
     );
@@ -2823,149 +2841,110 @@ function DestinationEditor({
   };
 
   /**
-   * Updates the local transport mode for the segment after a destination row.
+   * Updates the one itinerary-wide transport mode without calling route providers.
    */
-  const handleDestinationModeChange = (
-    rowId: string,
+  const handleTransportModeSelect = (
     event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) => {
-    const nextMode = event.target.value as PlanmeRowMode;
+    const nextMode = event.target.value as PlanmeTransportMode;
 
     if (!destinationModeOptions.some((option) => option.value === nextMode)) {
       return;
     }
 
-    // Store the selected segment mode locally until the route recalculation runs.
-    setRows((current) =>
-      current.map((row) => (row.id === rowId ? { ...row, mode: nextMode } : row)),
-    );
+    onTransportModeChange(nextMode);
     setRouteStatus("idle");
-    setRouteMessage(null);
+    setRouteMessage("경로 다시 계산이 필요합니다.");
   };
 
   /**
-   * Resolves an autocomplete result into a coordinate and stores it in the row.
+   * Applies a coordinate-bearing Naver candidate without a second details call.
    */
-  const handleSelectCandidate = async (
+  const handleSelectCandidate = (
     rowId: string,
     candidate: DestinationCandidate,
   ) => {
-    setSuggestionStatus("loading");
-    setSuggestionMessage(null);
-
-    try {
-      // Details lookup finalizes the coordinate used by route checks.
-      const response = await fetch("/api/places/details", {
-        body: JSON.stringify({
-          placeId: candidate.placeId,
-          sessionToken,
-        }),
-        headers: { "Content-Type": "application/json" },
-        method: "POST",
-      });
-      const payload = (await response.json()) as PlaceDetailsApiResponse;
-
-      if (!response.ok || !payload.place) {
-        setSuggestionStatus("error");
-        setSuggestionMessage(payload.message ?? "장소 좌표를 확인하지 못했습니다.");
-        return;
-      }
-
-      setRows((current) =>
-        current.map((row) =>
-          row.id === rowId
-            ? {
-                ...row,
-                coordinate: payload.place?.coordinate,
-                name: payload.place?.text ?? candidate.mainText,
-                placeId: payload.place?.placeId,
-              }
-            : row,
-        ),
-      );
-      setActiveRowId(null);
-      setSuggestions([]);
-      setSuggestionStatus("idle");
-      setRouteStatus("idle");
-      setRouteMessage(null);
-    } catch {
-      setSuggestionStatus("error");
-      setSuggestionMessage("장소 상세 조회 요청을 완료하지 못했습니다.");
-    }
+    setRows((current) =>
+      current.map((row) =>
+        row.id === rowId
+          ? {
+              ...row,
+              coordinate: candidate.coordinate,
+              name: candidate.name,
+              placeId: undefined,
+              placeSource: candidate.placeSource,
+              placeSourceRef: candidate.placeSourceRef,
+            }
+          : row,
+      ),
+    );
+    setActiveRowId(null);
+    setSuggestions([]);
+    setSuggestionStatus("idle");
+    setRouteStatus("idle");
+    setRouteMessage(null);
   };
 
   /**
    * Checks the current destination order and travel modes through route APIs.
    */
   const handleCheckRoute = async () => {
+    const standardRows = createRouteRequestRows(standardRoute);
+    const allRows = [...standardRows, ...rows];
+
+    if (
+      getRowsWithoutCoordinates(allRows).length > 0 ||
+      getRowsWithMissingRouteContract(allRows).length > 0
+    ) {
+      setRouteStatus("error");
+      setRouteMessage("장소를 선택해 주세요");
+      return;
+    }
+
     setRouteStatus("loading");
     setRouteMessage("경로를 확인하는 중입니다.");
 
-    try {
-      const carrymeResultPayload = await requestRouteCheck(rows);
-      const carrymePayload = carrymeResultPayload.payload;
-
-      if (!carrymeResultPayload.responseOk || !carrymePayload.ok) {
-        if (carrymePayload.blockingReason) {
-          setRouteStatus("error");
-          setRouteMessage(carrymePayload.message ?? "행선지 역할과 이동수단을 확인해 주세요.");
-          return;
-        }
-
-        onRoutesComputed({
-          carryme: createStandardEquivalentComputedRoute(standardRoute, carrymeTimeline),
-        });
-        setRouteStatus("success");
-        setRouteMessage("CarryME 경로를 Standard 기준으로 표시했습니다.");
-        return;
+    const [standardSettled, carrymeSettled] = await Promise.allSettled([
+      requestRouteCheck(standardRows, transportMode),
+      requestRouteCheck(rows, transportMode),
+    ]);
+    const toComputedResult = (
+      settled: PromiseSettledResult<RouteCheckResult>,
+      routeRows: DestinationRow[],
+    ) => {
+      if (
+        settled.status !== "fulfilled" ||
+        !settled.value.responseOk ||
+        !settled.value.payload.ok
+      ) {
+        return null;
       }
 
-      const carrymeResult = createComputedRouteResult(
-        rows,
-        carrymePayload,
-        savingLabel,
-      );
+      return createComputedRouteResult(routeRows, settled.value.payload, savingLabel);
+    };
+    const standardResult = toComputedResult(standardSettled, standardRows);
+    const carrymeResult = toComputedResult(carrymeSettled, rows);
 
-      if (!carrymeResult) {
-        onRoutesComputed({
-          carryme: createStandardEquivalentComputedRoute(standardRoute, carrymeTimeline),
-        });
-        setRouteStatus("success");
-        setRouteMessage("CarryME 경로를 Standard 기준으로 표시했습니다.");
-        return;
-      }
+    onRoutesComputed({
+      standard: standardResult ?? createUnavailableComputedRoute(standardRows),
+      carryme: carrymeResult ?? createUnavailableComputedRoute(rows),
+    });
 
-      onRoutesComputed({
-        carryme: carrymeResult,
-      });
-
-      const responseDistanceMeters = carrymePayload.totalDistanceMeters;
-      const responseDurationLabel = carrymePayload.totalDurationLabel;
-      const hasWarnings = Boolean(carrymePayload.warnings?.length);
-      const hasPartialGeometry =
-        carrymePayload.geometryStatus === "partial" ||
-        hasWarnings;
-
-      const distanceKm =
-        typeof responseDistanceMeters === "number"
-          ? ` · 약 ${(responseDistanceMeters / 1000).toFixed(1)}km`
-          : "";
-
+    if (standardResult && carrymeResult) {
       setRouteStatus("success");
-      setRouteMessage(
-        `${hasPartialGeometry ? "일부 구간 확인 필요" : "경로 체크 완료"} · ${
-          responseDurationLabel ?? "시간 확인 완료"
-        }${distanceKm}${
-          hasPartialGeometry ? " · 탑승/하차 지점을 확인하세요" : ""
-        }`,
-      );
-    } catch {
-      onRoutesComputed({
-        carryme: createStandardEquivalentComputedRoute(standardRoute, carrymeTimeline),
-      });
-      setRouteStatus("success");
-      setRouteMessage("CarryME 경로를 Standard 기준으로 표시했습니다.");
+      setRouteMessage("Standard와 CarryME 경로를 계산했습니다.");
+      return;
     }
+
+    setRouteStatus("error");
+    setRouteMessage(
+      [
+        standardResult ? null : "Standard: 경로를 확인하지 못했습니다",
+        carrymeResult ? null : "CarryME: 경로를 확인하지 못했습니다",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    );
   };
 
   /**
@@ -3088,7 +3067,7 @@ function DestinationEditor({
             display: "grid",
             gridTemplateColumns: {
               xs: "1fr",
-              md: "28px 32px minmax(0, 1fr) 92px 136px",
+              md: "minmax(0, 1fr) auto",
             },
             px: 0.75,
             rowGap: 1,
@@ -3099,7 +3078,7 @@ function DestinationEditor({
             spacing={1.4}
             sx={{
               alignItems: "baseline",
-              gridColumn: { xs: "1", md: "1 / 4" },
+              gridColumn: "1",
               minWidth: 0,
             }}
           >
@@ -3111,10 +3090,28 @@ function DestinationEditor({
             direction="row"
             spacing={1}
             sx={{
-              gridColumn: { xs: "1", md: "4 / 6" },
+              gridColumn: { xs: "1", md: "2" },
               justifyContent: "flex-end",
             }}
           >
+            <TextField
+              data-testid="itinerary-transport-mode"
+              select
+              label="이동 수단"
+              onChange={handleTransportModeSelect}
+              size="small"
+              value={transportMode}
+              sx={{ minWidth: 132 }}
+            >
+              {destinationModeOptions.map((option) => (
+                <MenuItem key={option.value} value={option.value}>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+                    {option.icon}
+                    <span>{option.label}</span>
+                  </Stack>
+                </MenuItem>
+              ))}
+            </TextField>
             <Button
               onClick={handleAddWaypoint}
               size="small"
@@ -3347,14 +3344,14 @@ function DestinationEditor({
                         {suggestionStatus !== "loading"
                           ? suggestions.map((candidate) => (
                               <Box
-                                key={candidate.placeId}
+                                key={candidate.candidateId}
                                 component="button"
                                 data-testid="destination-suggestion-option"
                                 draggable={false}
                                 onPointerDown={(event) => {
                                   event.preventDefault();
                                   event.stopPropagation();
-                                  void handleSelectCandidate(row.id, candidate);
+                                  handleSelectCandidate(row.id, candidate);
                                 }}
                                 sx={{
                                   bgcolor: "transparent",
@@ -3378,14 +3375,14 @@ function DestinationEditor({
                                 }}
                               >
                                 <Typography sx={{ fontSize: 13.5, fontWeight: 900 }}>
-                                  {candidate.mainText || candidate.text}
+                                  {candidate.name}
                                 </Typography>
-                                {candidate.secondaryText ? (
+                                {candidate.address ? (
                                   <Typography
                                     color="text.secondary"
                                     sx={{ fontSize: 12, mt: 0.2 }}
                                   >
-                                    {candidate.secondaryText}
+                                    {candidate.address}
                                   </Typography>
                                 ) : null}
                               </Box>
@@ -3464,50 +3461,12 @@ function DestinationEditor({
                       >
                         {row.name} → {nextRow.name}
                       </Typography>
-                      <TextField
-                        data-testid="destination-segment-mode"
-                        select
-                        hiddenLabel
-                        onChange={(event) => handleDestinationModeChange(row.id, event)}
-                        size="small"
-                        value={row.mode ?? ""}
-                        sx={{
-                          "& .MuiInputBase-root": {
-                            bgcolor: "background.paper",
-                            borderRadius: 1,
-                            fontSize: 13,
-                            height: 34,
-                            width: { xs: "100%", sm: 136 },
-                          },
-                          "& .MuiSelect-select": {
-                            alignItems: "center",
-                            display: "flex",
-                            justifyContent: "center",
-                            minWidth: 96,
-                            py: 0,
-                            textAlign: "center",
-                            whiteSpace: "nowrap",
-                          },
-                          "& .MuiSelect-select .MuiStack-root": {
-                            justifyContent: "center",
-                            width: "100%",
-                          },
-                        }}
+                      <Typography
+                        color="text.secondary"
+                        sx={{ fontSize: 12, fontWeight: 800, whiteSpace: "nowrap" }}
                       >
-                        {!row.mode ? (
-                          <MenuItem disabled value="">
-                            확인 필요
-                          </MenuItem>
-                        ) : null}
-                        {destinationModeOptions.map((option) => (
-                          <MenuItem key={option.value} value={option.value}>
-                            <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-                              {option.icon}
-                              <span>{option.label}</span>
-                            </Stack>
-                          </MenuItem>
-                        ))}
-                      </TextField>
+                        {transportMode === "drive" ? "자동차" : "대중교통"}
+                      </Typography>
                     </Stack>
                   </Box>
                 ) : null}

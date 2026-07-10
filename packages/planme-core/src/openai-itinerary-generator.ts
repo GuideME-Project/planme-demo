@@ -2,23 +2,29 @@ import type { PlanmeDraftPreviewRequest } from "./draft-itineraries.js";
 import type {
   PlanmePlaceCandidateDecision,
   PlanmePlaceCandidateDecider,
+  PlanmeReplacementQuerySuggester,
   RecommendItineraryRequest,
 } from "./gpt-actions.js";
-import type { MapCoordinate } from "./mock-data.js";
 import type { PlanmePlaceCandidateSearcher } from "./place-candidates.js";
+import type { PlanmeResolvedRequiredPlaces } from "./place-candidates.js";
 import {
   recordPlanmeUsageSafely,
   type PlanmeUsageRecorder,
 } from "./usage-events.js";
 
+export type AiGeneratedDraft = Omit<PlanmeDraftPreviewRequest, "transportMode"> & {
+  transportMode?: PlanmeDraftPreviewRequest["transportMode"];
+};
+
 export type AiItineraryGenerator = (
   input: RecommendItineraryRequest,
   context?: AiItineraryGeneratorContext,
-) => Promise<PlanmeDraftPreviewRequest>;
+) => Promise<AiGeneratedDraft>;
 
 export type AiItineraryGeneratorContext = {
   googleMapsReferer?: string;
   placeCandidateSearcher?: PlanmePlaceCandidateSearcher;
+  requiredPlaces?: PlanmeResolvedRequiredPlaces;
   usageRecorder?: PlanmeUsageRecorder;
 };
 
@@ -88,6 +94,76 @@ export function createOpenAiPlaceCandidateDecider(
   options: OpenAiItineraryGeneratorOptions = {},
 ): PlanmePlaceCandidateDecider {
   return (input) => decidePlanmePlaceCandidateWithOpenAi(input, options);
+}
+
+/**
+ * Creates a bounded AI helper that suggests one replacement search query per attempt.
+ */
+export function createOpenAiReplacementQuerySuggester(
+  options: OpenAiItineraryGeneratorOptions = {},
+): PlanmeReplacementQuerySuggester {
+  return async ({ attempt, itinerary, stop }) => {
+    const apiKey = options.apiKey?.trim() || readRuntimeEnv("OPENAI_API_KEY");
+    const model = options.model?.trim() || readRuntimeEnv("PLANME_OPENAI_MODEL") || DEFAULT_OPENAI_MODEL;
+    const fetchImpl = options.fetchImpl ?? fetch;
+
+    if (!apiKey) {
+      throw new PlanmeAiConfigurationError();
+    }
+
+    await recordPlanmeUsageSafely(options.usageRecorder, "openai_request");
+
+    const response = await fetchImpl(OPENAI_RESPONSES_API_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        input: [
+          "한국 국내 여행 일정의 실제 대체 장소 검색어 하나를 작성하세요.",
+          "원래 장소와 같은 지역, 일정 주제, 장소 종류를 최대한 유지하세요.",
+          "장소나 좌표를 지어내지 말고 네이버 지역 검색에 넣을 짧은 한국어 검색어만 반환하세요.",
+          `대체 시도: ${attempt}/2`,
+          `원래 장소: ${stop.name}`,
+          `원래 검색어: ${stop.addressQuery ?? stop.name}`,
+          `목적지: ${itinerary.destination ?? itinerary.region ?? "미정"}`,
+          `선호: ${(itinerary.preferences ?? []).join(", ") || "없음"}`,
+        ].join("\n"),
+        text: {
+          format: {
+            type: "json_schema",
+            name: "planme_replacement_place_query",
+            strict: true,
+            schema: {
+              type: "object",
+              additionalProperties: false,
+              required: ["query"],
+              properties: {
+                query: { type: "string" },
+              },
+            },
+          },
+        },
+      }),
+    });
+    const payload = (await response.json()) as OpenAiResponsesApiResult;
+
+    if (!response.ok) {
+      throw new Error(payload.error?.message ?? "OpenAI replacement query generation failed.");
+    }
+
+    const outputText = extractOpenAiOutputText(payload);
+
+    if (!outputText) {
+      return null;
+    }
+
+    const parsed = JSON.parse(outputText) as { query?: string };
+
+    return parsed.query?.trim() || null;
+  };
 }
 
 /**
@@ -188,7 +264,7 @@ export async function generatePlanmeDraftWithOpenAi(
     if (toolOutputs.length === 0) {
       if (requiresPlaceSearchTools && !hasExecutedPlaceToolCall && !retriedMissingToolCall) {
         retriedMissingToolCall = true;
-        pendingInput = createMissingToolCallRetryPrompt(input);
+        pendingInput = createMissingToolCallRetryPrompt(input, context);
         previousResponseId = undefined;
         continue;
       }
@@ -197,7 +273,10 @@ export async function generatePlanmeDraftWithOpenAi(
         throw new Error("OpenAI itinerary generation did not request place search tools.");
       }
 
-      return normalizeGeneratedDraft(parseOpenAiDraftPayload(payload));
+      return applyGeneratedTransportMode(
+        normalizeGeneratedDraft(parseOpenAiDraftPayload(payload)),
+        input.transportMode,
+      );
     }
 
     hasExecutedPlaceToolCall = true;
@@ -209,14 +288,40 @@ export async function generatePlanmeDraftWithOpenAi(
 }
 
 /**
+ * Applies the user-confirmed itinerary mode to every generated route stop.
+ */
+function applyGeneratedTransportMode(
+  draft: PlanmeDraftPreviewRequest,
+  transportMode: RecommendItineraryRequest["transportMode"],
+): PlanmeDraftPreviewRequest {
+  // The model may describe route details, but it cannot override the itinerary-wide mode.
+  const applyToStops = <T extends { mode?: string }>(stops: T[] | undefined) =>
+    stops?.map((stop) => ({ ...stop, mode: transportMode }));
+
+  return {
+    ...draft,
+    transportMode,
+    days: draft.days.map((day) => ({
+      ...day,
+      standardStops: applyToStops(day.standardStops),
+      carrymeStops: applyToStops(day.carrymeStops),
+      stops: applyToStops(day.stops),
+    })),
+  };
+}
+
+/**
  * Builds a stricter retry prompt when the model skipped required place-search tools.
  */
-function createMissingToolCallRetryPrompt(input: RecommendItineraryRequest) {
+function createMissingToolCallRetryPrompt(
+  input: RecommendItineraryRequest,
+  context: AiItineraryGeneratorContext,
+) {
   return [
-    createItineraryGenerationPrompt(input, true),
+    createItineraryGenerationPrompt(input, true, context.requiredPlaces),
     "",
     "이전 응답에는 장소 검색 함수 호출이 없었습니다.",
-    "이번 응답에서는 일정 JSON을 바로 만들지 말고, 일정에 넣을 실제 장소 후보를 search_places_text 또는 search_places_nearby로 먼저 확인하세요.",
+    "이번 응답에서는 일정 JSON을 바로 만들지 말고, 일정에 넣을 실제 장소 후보를 search_naver_places로 먼저 확인하세요.",
   ].join("\n");
 }
 
@@ -232,7 +337,7 @@ function createOpenAiItineraryRequestBody(
 
   return {
     model,
-    input: createItineraryGenerationPrompt(input, Boolean(tools)),
+    input: createItineraryGenerationPrompt(input, Boolean(tools), context.requiredPlaces),
     ...(tools ? { tool_choice: "auto", tools } : {}),
     text: {
       format: {
@@ -251,7 +356,7 @@ function createOpenAiItineraryRequestBody(
 function createPlaceCandidateDecisionPrompt(input: OpenAiPlaceCandidateDecisionInput) {
   return [
     "너는 PlanME 일정의 장소 후보 검증자입니다.",
-    "서버가 Google/Naver API로 찾은 후보만 보고 판단하세요.",
+    "서버가 네이버 API로 찾은 후보만 보고 판단하세요.",
     "외부 후보 없이 장소 존재나 좌표를 추정하지 마세요.",
     "사용자 의도와 후보가 자연스럽게 맞으면 accepted를 반환하고 selectedCandidateId를 지정하세요.",
     "후보가 여러 의미로 해석되거나 의도 조건이 부족하면 ambiguous를 반환하세요.",
@@ -275,12 +380,11 @@ function createPlaceCandidateDecisionPrompt(input: OpenAiPlaceCandidateDecisionI
         address: candidate.address,
         candidateId: candidate.candidateId,
         coordinate: candidate.coordinate,
+        category: candidate.category,
         name: candidate.name,
         placeId: candidate.placeId,
-        primaryType: candidate.primaryType,
         source: candidate.source,
         sourceRef: candidate.sourceRef,
-        types: candidate.types,
       })),
     ),
   ].join("\n");
@@ -357,6 +461,7 @@ function readRuntimeEnv(name: string) {
 function createItineraryGenerationPrompt(
   input: RecommendItineraryRequest,
   hasPlaceSearchTools = false,
+  requiredPlaces?: PlanmeResolvedRequiredPlaces,
 ) {
   const durationDays = input.durationDays ?? 2;
   const preferences = input.preferences?.length ? input.preferences.join(", ") : "없음";
@@ -375,10 +480,10 @@ function createItineraryGenerationPrompt(
     "days 배열은 여행 기간 일수와 반드시 같아야 합니다. 예: 2박 3일 또는 여행 기간 3일이면 day 1, day 2, day 3 총 3개를 작성하세요.",
     accommodationInstruction,
     "각 day는 standardStops, carrymeStops, standardTimeline, carrymeTimeline을 모두 작성하세요.",
-    "각 standardStops/carrymeStops stop은 name, caption, role, mode를 모두 작성하세요.",
+    "각 standardStops/carrymeStops stop은 name, caption, role, requiredPlaceKind를 모두 작성하세요.",
     "role은 반드시 출발지, 방문지, 숙소, 복귀지 중 하나입니다.",
-    "mode는 반드시 drive 또는 transit 중 하나입니다. 웹 대표 이동수단에 walk를 쓰지 마세요.",
-    "마지막 stop에도 직전 이동 흐름과 같은 대표 mode를 넣어 JSON 계약을 완성하세요.",
+    "requiredPlaceKind는 사용자 출발지면 origin, 사용자 목적지면 destination, 그 밖의 중간 장소면 null입니다.",
+    `일정 전체 이동 수단은 ${input.transportMode}이며 모든 대표 구간에 동일하게 적용됩니다. stop별로 다른 이동 수단을 결정하지 마세요.`,
     "Standard 경로는 짐 때문에 호텔/숙소를 중간 방문하는 기본 경로입니다.",
     "CarryME 경로는 사람이 호텔/숙소 중간 방문 없이 바로 관광지 또는 최종 목적지로 이동하는 경로입니다.",
     "CarryME 타임라인에는 Standard에서 사람이 호텔/숙소에 도착하는 시간과 같은 시간의 '짐 숙소 도착' 이벤트를 넣으세요.",
@@ -390,7 +495,7 @@ function createItineraryGenerationPrompt(
     "addressQuery에는 위도/경도를 쓰지 말고, 가능한 도로명/지번/행정구역을 포함한 한국어 검색어를 쓰세요.",
     "정확한 주소를 모르면 '<광역/시군구> <장소명>' 형태로 작성하고 좌표는 절대 추측하지 마세요.",
     hasPlaceSearchTools
-      ? "일정에 넣을 실제 장소는 search_places_text 또는 search_places_nearby 함수로 후보를 확인한 뒤, 후보에 있는 실제 장소명을 사용하세요."
+      ? "일정에 넣을 실제 장소는 search_naver_places 함수로 후보를 확인한 뒤, 후보에 있는 실제 장소명을 사용하세요."
       : "",
     "",
     `목적지: ${input.destination ?? input.region ?? "미정"}`,
@@ -400,6 +505,12 @@ function createItineraryGenerationPrompt(
     `인원: ${input.travelerCount ?? 1}명`,
     `짐 개수: ${input.luggageCount ?? 1}개`,
     `선호: ${preferences}`,
+    requiredPlaces
+      ? `고정 출발지: ${requiredPlaces.origin.name} | ${requiredPlaces.origin.address ?? "주소 없음"} | ${requiredPlaces.origin.coordinate.lat}, ${requiredPlaces.origin.coordinate.lng}`
+      : "고정 출발지: 미확인",
+    requiredPlaces
+      ? `고정 사용자 목적지: ${requiredPlaces.destination.name} | ${requiredPlaces.destination.address ?? "주소 없음"} | ${requiredPlaces.destination.coordinate.lat}, ${requiredPlaces.destination.coordinate.lng}`
+      : "고정 사용자 목적지: 미확인",
     createAccommodationCandidatePromptSection(accommodationCandidates),
   ].join("\n");
 }
@@ -411,15 +522,14 @@ function createPlanmePlaceSearchTools() {
   return [
     {
       type: "function",
-      name: "search_places_text",
-      description: "Search Korean place candidates by text query for a PlanME itinerary stop.",
+      name: "search_naver_places",
+      description: "Search verified Korean Naver place candidates with coordinates.",
       parameters: {
         type: "object",
         additionalProperties: false,
-        required: ["center", "maxCandidates", "query", "region", "userIntent"],
+        required: ["maxCandidates", "query", "region", "userIntent"],
         properties: {
-          center: createNullableCoordinateJsonSchema(),
-          maxCandidates: { type: ["integer", "null"], minimum: 1, maximum: 10 },
+          maxCandidates: { type: ["integer", "null"], minimum: 1, maximum: 5 },
           query: { type: "string" },
           region: { type: ["string", "null"] },
           userIntent: { type: ["string", "null"] },
@@ -427,52 +537,7 @@ function createPlanmePlaceSearchTools() {
       },
       strict: true,
     },
-    {
-      type: "function",
-      name: "search_places_nearby",
-      description:
-        "Search Korean place candidates near a known coordinate. PlanME caps nearby radius at 20km.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        required: ["center", "maxCandidates", "query", "radiusMeters", "region", "userIntent"],
-        properties: {
-          center: createCoordinateJsonSchema(),
-          maxCandidates: { type: ["integer", "null"], minimum: 1, maximum: 10 },
-          query: { type: ["string", "null"] },
-          radiusMeters: { type: "integer", minimum: 1, maximum: 20000 },
-          region: { type: ["string", "null"] },
-          userIntent: { type: ["string", "null"] },
-        },
-      },
-      strict: true,
-    },
   ];
-}
-
-/**
- * Reuses one strict coordinate schema for both text bias and nearby searches.
- */
-function createCoordinateJsonSchema() {
-  return {
-    type: "object",
-    additionalProperties: false,
-    required: ["lat", "lng"],
-    properties: {
-      lat: { type: "number" },
-      lng: { type: "number" },
-    },
-  };
-}
-
-/**
- * Lets strict OpenAI function schemas represent optional text-search bias coordinates.
- */
-function createNullableCoordinateJsonSchema() {
-  return {
-    ...createCoordinateJsonSchema(),
-    type: ["object", "null"],
-  };
 }
 
 /**
@@ -519,12 +584,11 @@ async function executePlanmePlaceToolCall(
   await recordPlanmeUsageSafely(context.usageRecorder, "function_place_search_call");
 
   const result = await context.placeCandidateSearcher?.({
-    center: args.center ?? undefined,
     destination: input.destination,
+    maxCandidates: args.maxCandidates ?? undefined,
     preferences: args.userIntent ? [args.userIntent] : input.preferences,
-    radiusMeters: args.radiusMeters ?? undefined,
+    query,
     region: args.region || input.region,
-    searchMode: functionCall.name === "search_places_nearby" ? "nearby" : "text",
     stop: {
       addressQuery: query,
       name: query,
@@ -540,10 +604,8 @@ async function executePlanmePlaceToolCall(
 }
 
 type PlanmePlaceSearchToolArgs = {
-  center?: MapCoordinate | null;
   maxCandidates?: number | null;
   query?: string | null;
-  radiusMeters?: number | null;
   region?: string | null;
   userIntent?: string | null;
 };
@@ -556,30 +618,14 @@ function parsePlanmePlaceSearchArgs(rawArguments: string): PlanmePlaceSearchTool
     const parsed = JSON.parse(rawArguments) as PlanmePlaceSearchToolArgs;
 
     return {
-      center: normalizeToolCoordinate(parsed.center),
       maxCandidates: normalizeToolCandidateLimit(parsed.maxCandidates),
       query: parsed.query?.trim(),
-      radiusMeters: parsed.radiusMeters,
       region: parsed.region?.trim(),
       userIntent: parsed.userIntent?.trim(),
     };
   } catch {
     return {};
   }
-}
-
-/**
- * Accepts only numeric coordinates from model tool arguments.
- */
-function normalizeToolCoordinate(coordinate: MapCoordinate | null | undefined) {
-  if (
-    typeof coordinate?.lat !== "number" ||
-    typeof coordinate.lng !== "number"
-  ) {
-    return undefined;
-  }
-
-  return coordinate;
 }
 
 /**
@@ -590,7 +636,7 @@ function normalizeToolCandidateLimit(limit: number | null | undefined) {
     return 5;
   }
 
-  return Math.max(1, Math.min(10, Math.trunc(limit)));
+  return Math.max(1, Math.min(5, Math.trunc(limit)));
 }
 
 /**
@@ -684,7 +730,7 @@ function createRouteStopsSchema() {
     items: {
       type: "object",
       additionalProperties: false,
-      required: ["name", "caption", "role", "mode", "addressQuery"],
+      required: ["name", "caption", "role", "requiredPlaceKind", "addressQuery"],
       properties: {
         name: { type: "string" },
         caption: { type: "string" },
@@ -692,9 +738,9 @@ function createRouteStopsSchema() {
           type: "string",
           enum: ["출발지", "방문지", "숙소", "복귀지"],
         },
-        mode: {
-          type: "string",
-          enum: ["drive", "transit"],
+        requiredPlaceKind: {
+          type: ["string", "null"],
+          enum: ["origin", "destination", null],
         },
         addressQuery: { type: "string" },
       },

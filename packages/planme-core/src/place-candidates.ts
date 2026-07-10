@@ -6,8 +6,7 @@ import {
 } from "./usage-events.js";
 
 export type PlanmePlaceCandidateSource =
-  | "google_text_search"
-  | "google_nearby_search"
+  | "naver_local"
   | "naver_geocode"
   | "input";
 
@@ -16,24 +15,39 @@ export type PlanmePlaceCandidate = {
   id: string;
   name: string;
   address?: string;
+  category?: string;
   coordinate: MapCoordinate;
   placeId?: string;
-  primaryType?: string;
   query?: string;
-  radiusMeters?: number;
   source: PlanmePlaceCandidateSource;
   sourceRef: string;
-  types?: string[];
+};
+
+export type PlanmeRequiredPlaceKind = "origin" | "destination";
+
+export type PlanmeResolvedRequiredPlace = {
+  address?: string;
+  coordinate: MapCoordinate;
+  inputText: string;
+  kind: PlanmeRequiredPlaceKind;
+  name: string;
+  source: PlanmePlaceCandidateSource;
+  sourceRef: string;
+};
+
+export type PlanmeResolvedRequiredPlaces = {
+  destination: PlanmeResolvedRequiredPlace;
+  origin: PlanmeResolvedRequiredPlace;
 };
 
 export type PlanmePlaceCandidateSearchInput = {
-  center?: MapCoordinate;
   destination?: string;
+  maxCandidates?: number;
   preferences?: string[];
-  radiusMeters?: number;
+  query?: string;
   region?: string;
-  searchMode?: "text" | "nearby";
   stop: PlanmeDraftStop;
+  userIntent?: string;
 };
 
 export type PlanmePlaceCandidateSearchResult = {
@@ -45,121 +59,91 @@ export type PlanmePlaceCandidateSearcher = (
   input: PlanmePlaceCandidateSearchInput,
 ) => Promise<PlanmePlaceCandidateSearchResult>;
 
-type GooglePlacesSearchResponse = {
-  places?: GooglePlace[];
+type NaverLocalSearchItem = {
+  address?: string;
+  category?: string;
+  link?: string;
+  mapx?: string;
+  mapy?: string;
+  roadAddress?: string;
+  title?: string;
 };
 
-type GooglePlace = {
-  displayName?: {
-    text?: string;
-  };
-  formattedAddress?: string;
-  id?: string;
-  location?: {
-    latitude?: number;
-    longitude?: number;
-  };
-  primaryType?: string;
-  types?: string[];
+type NaverLocalSearchResponse = {
+  items?: NaverLocalSearchItem[];
 };
 
 type SearchPlanmePlaceCandidateOptions = {
-  apiKey?: string;
+  clientId?: string;
+  clientSecret?: string;
   fetchImpl?: typeof fetch;
-  referer?: string;
   usageRecorder?: PlanmeUsageRecorder;
 };
 
-export const PLANME_NEARBY_RADIUS_METERS = [5000, 10000, 20000] as const;
+const NAVER_LOCAL_SEARCH_URL = "https://openapi.naver.com/v1/search/local.json";
 const DEFAULT_PLANME_PLACE_CANDIDATE_LIMIT = 5;
-const MAX_PLANME_PLACE_CANDIDATE_LIMIT = 10;
-
-const GOOGLE_PLACES_TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText";
-const GOOGLE_PLACES_NEARBY_SEARCH_URL = "https://places.googleapis.com/v1/places:searchNearby";
-const GOOGLE_PLACES_FIELD_MASK =
-  "places.id,places.displayName,places.formattedAddress,places.location,places.primaryType,places.types";
-const GOOGLE_MAPS_API_KEY_ENV_NAMES = [
-  "PLANME_GOOGLE_MAPS_API_KEY",
-  "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY",
-] as const;
+const MAX_PLANME_PLACE_CANDIDATE_LIMIT = 5;
+const NAVER_LOCAL_COORDINATE_SCALE = 10_000_000;
 
 /**
- * Resolves a non-lodging PlanME stop into searchable Google Places candidates.
+ * Signals that NAVER Developers local-search credentials are unavailable.
+ */
+export class PlanmePlaceSearchConfigurationError extends Error {
+  constructor() {
+    super("NAVER_MAPS_CLIENT_ID and NAVER_MAPS_CLIENT_SECRET are required.");
+    this.name = "PlanmePlaceSearchConfigurationError";
+  }
+}
+
+/**
+ * Preserves a safe provider status without exposing the provider response body.
+ */
+export class PlanmePlaceSearchProviderError extends Error {
+  constructor(readonly status: number) {
+    super("Naver local place search failed.");
+    this.name = "PlanmePlaceSearchProviderError";
+  }
+}
+
+/**
+ * Searches coordinate-bearing Korean place candidates through Naver Local Search.
  */
 export async function searchPlanmePlaceCandidates(
   input: PlanmePlaceCandidateSearchInput,
   options: SearchPlanmePlaceCandidateOptions = {},
 ): Promise<PlanmePlaceCandidateSearchResult> {
-  const apiKey = readGoogleMapsApiKey(options.apiKey);
-  const fetchImpl = options.fetchImpl ?? fetch;
   const searchedQueries = createPlanmePlaceTextQueries(input);
-  const searchCenter = input.center ?? input.stop.coordinate;
   const sourceCandidate = createSourceBackedStopCandidate(input.stop, searchedQueries[0]);
 
-  if (!apiKey || searchedQueries.length === 0) {
+  if (searchedQueries.length === 0) {
     return {
       candidates: sourceCandidate ? [sourceCandidate] : [],
       searchedQueries,
     };
   }
 
-  if (input.searchMode === "nearby") {
-    if (!searchCenter) {
-      return {
-        candidates: sourceCandidate ? [sourceCandidate] : [],
-        searchedQueries,
-      };
+  const clientId = options.clientId?.trim() || readRuntimeEnv("NAVER_MAPS_CLIENT_ID");
+  const clientSecret =
+    options.clientSecret?.trim() || readRuntimeEnv("NAVER_MAPS_CLIENT_SECRET");
+
+  if (!clientId || !clientSecret) {
+    if (sourceCandidate) {
+      return { candidates: [sourceCandidate], searchedQueries };
     }
 
-    const candidates = await requestGoogleNearbyCandidates({
-      apiKey,
-      center: searchCenter,
-      fetchImpl,
-      query: searchedQueries[0] ?? input.stop.name,
-      radiusMeters: normalizeNearbyRadius(input.radiusMeters),
-      referer: options.referer,
-      usageRecorder: options.usageRecorder,
-    });
-
-    return {
-      candidates: appendSourceBackedCandidate(candidates, sourceCandidate),
-      searchedQueries,
-    };
+    throw new PlanmePlaceSearchConfigurationError();
   }
+
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const maxCandidates = normalizeCandidateLimit(input.maxCandidates);
 
   for (const query of searchedQueries) {
-    const candidates = await requestGoogleTextSearchCandidates({
-      apiKey,
-      center: searchCenter,
+    const candidates = await requestNaverLocalCandidates({
+      clientId,
+      clientSecret,
       fetchImpl,
+      maxCandidates,
       query,
-      referer: options.referer,
-      usageRecorder: options.usageRecorder,
-    });
-
-    if (candidates.length > 0) {
-      return {
-        candidates: appendSourceBackedCandidate(candidates, sourceCandidate),
-        searchedQueries,
-      };
-    }
-  }
-
-  if (!searchCenter) {
-    return {
-      candidates: sourceCandidate ? [sourceCandidate] : [],
-      searchedQueries,
-    };
-  }
-
-  for (const radiusMeters of PLANME_NEARBY_RADIUS_METERS) {
-    const candidates = await requestGoogleNearbyCandidates({
-      apiKey,
-      center: searchCenter,
-      fetchImpl,
-      query: searchedQueries[0] ?? input.stop.name,
-      radiusMeters: normalizeNearbyRadius(radiusMeters),
-      referer: options.referer,
       usageRecorder: options.usageRecorder,
     });
 
@@ -178,220 +162,168 @@ export async function searchPlanmePlaceCandidates(
 }
 
 /**
- * Builds specific Korean Places queries from the draft stop and user travel intent.
+ * Builds deterministic Korean text queries without destination-biasing explicit queries.
  */
-export function createPlanmePlaceTextQueries(input: PlanmePlaceCandidateSearchInput): string[] {
-  const region = input.destination?.trim() || input.region?.trim() || "";
+export function createPlanmePlaceTextQueries(
+  input: PlanmePlaceCandidateSearchInput,
+): string[] {
+  const explicitQuery = input.query?.trim() || input.stop.addressQuery?.trim() || "";
   const stopName = input.stop.name.trim();
-  const addressQuery = input.stop.addressQuery?.trim() ?? "";
+  const region = input.region?.trim() || input.destination?.trim() || "";
   const queries = [
-    addressQuery,
+    explicitQuery,
     joinQueryParts(region, stopName),
-    ...createPreferenceQueries(region, stopName, input.preferences ?? []),
+    ...createPreferenceQueries(region, input.userIntent, input.preferences ?? []),
   ];
 
   return [...new Set(queries.map((query) => query.trim()).filter(Boolean))];
 }
 
 /**
- * Calls Google Places Text Search (New) and returns coordinate-bearing candidates.
+ * Checks the minimum evidence needed before a candidate can become a saved stop.
  */
-async function requestGoogleTextSearchCandidates({
-  apiKey,
-  center,
-  fetchImpl,
-  query,
-  referer,
-  usageRecorder,
-}: {
-  apiKey: string;
-  center?: MapCoordinate;
-  fetchImpl: typeof fetch;
-  query: string;
-  referer?: string;
-  usageRecorder?: PlanmeUsageRecorder;
-}) {
-  try {
-    await recordPlanmeUsageSafely(usageRecorder, "google_places_request");
-
-    const response = await fetchImpl(GOOGLE_PLACES_TEXT_SEARCH_URL, {
-      method: "POST",
-      headers: createGooglePlacesHeaders(apiKey, referer),
-      body: JSON.stringify({
-        languageCode: "ko",
-        regionCode: "KR",
-        textQuery: query,
-        ...(center
-          ? {
-              locationBias: {
-                circle: {
-                  center: toGoogleLatLng(center),
-                  radius: PLANME_NEARBY_RADIUS_METERS[PLANME_NEARBY_RADIUS_METERS.length - 1],
-                },
-              },
-            }
-          : {}),
-      }),
-    });
-
-    if (!response.ok) {
-      return [];
-    }
-
-    const payload = (await response.json()) as GooglePlacesSearchResponse;
-
-    return normalizeGooglePlaces(payload.places ?? [], {
-      query,
-      source: "google_text_search",
-    });
-  } catch {
-    return [];
-  }
+export function hasPlanmePlaceCandidateHardGate(
+  candidate: PlanmePlaceCandidate,
+): boolean {
+  return isValidCoordinate(candidate.coordinate) && Boolean(candidate.sourceRef.trim());
 }
 
 /**
- * Calls Google Places Nearby Search (New) with the product-capped radius ladder.
+ * Calls the official Naver local-search endpoint with a bounded result count.
  */
-async function requestGoogleNearbyCandidates({
-  apiKey,
-  center,
+async function requestNaverLocalCandidates({
+  clientId,
+  clientSecret,
   fetchImpl,
+  maxCandidates,
   query,
-  radiusMeters,
-  referer,
   usageRecorder,
 }: {
-  apiKey: string;
-  center: MapCoordinate;
+  clientId: string;
+  clientSecret: string;
   fetchImpl: typeof fetch;
+  maxCandidates: number;
   query: string;
-  radiusMeters: number;
-  referer?: string;
   usageRecorder?: PlanmeUsageRecorder;
 }) {
-  try {
-    await recordPlanmeUsageSafely(usageRecorder, "google_places_request");
+  const url = new URL(NAVER_LOCAL_SEARCH_URL);
+  url.searchParams.set("query", query);
+  url.searchParams.set("display", String(maxCandidates));
+  url.searchParams.set("start", "1");
+  url.searchParams.set("sort", "random");
 
-    const response = await fetchImpl(GOOGLE_PLACES_NEARBY_SEARCH_URL, {
-      method: "POST",
-      headers: createGooglePlacesHeaders(apiKey, referer),
-      body: JSON.stringify({
-        languageCode: "ko",
-        locationRestriction: {
-          circle: {
-            center: toGoogleLatLng(center),
-            radius: radiusMeters,
-          },
-        },
-        maxResultCount: DEFAULT_PLANME_PLACE_CANDIDATE_LIMIT,
-        rankPreference: "DISTANCE",
-        regionCode: "KR",
-      }),
-    });
+  await recordPlanmeUsageSafely(usageRecorder, "naver_local_search_request");
 
-    if (!response.ok) {
-      return [];
-    }
+  const response = await fetchImpl(url, {
+    headers: {
+      "X-Naver-Client-Id": clientId,
+      "X-Naver-Client-Secret": clientSecret,
+    },
+    method: "GET",
+  });
 
-    const payload = (await response.json()) as GooglePlacesSearchResponse;
-
-    return normalizeGooglePlaces(payload.places ?? [], {
-      query,
-      radiusMeters,
-      source: "google_nearby_search",
-    });
-  } catch {
-    return [];
+  if (!response.ok) {
+    throw new PlanmePlaceSearchProviderError(response.status);
   }
+
+  const payload = (await response.json()) as NaverLocalSearchResponse;
+
+  return normalizeNaverLocalItems(payload.items ?? [], query).slice(0, maxCandidates);
 }
 
 /**
- * Converts Google Places responses into compact PlanME place candidate shapes.
+ * Converts Naver Local Search items into PlanME's provider-neutral candidate shape.
  */
-function normalizeGooglePlaces(
-  places: GooglePlace[],
-  context: Pick<PlanmePlaceCandidate, "query" | "radiusMeters" | "source">,
-) {
+function normalizeNaverLocalItems(items: NaverLocalSearchItem[], query: string) {
   const candidates: PlanmePlaceCandidate[] = [];
+  const seen = new Set<string>();
 
-  for (const place of places) {
-    const name = place.displayName?.text?.trim() ?? "";
-    const address = place.formattedAddress?.trim();
-    const latitude = place.location?.latitude;
-    const longitude = place.location?.longitude;
+  for (const item of items) {
+    const name = stripNaverHighlightMarkup(item.title ?? "");
+    const coordinate = normalizeNaverLocalCoordinate(item.mapx, item.mapy);
+    const address = item.roadAddress?.trim() || item.address?.trim() || undefined;
 
-    if (!name || typeof latitude !== "number" || typeof longitude !== "number") {
+    if (!name || !coordinate) {
       continue;
     }
 
-    const id = place.id?.trim() || `${name}:${address ?? ""}`;
+    const id = item.link?.trim() || address || name;
     const sourceRef = createPlanmePlaceSourceRef({
-      coordinate: { lat: latitude, lng: longitude },
+      coordinate,
       id,
-      query: context.query,
-      source: context.source,
+      source: "naver_local",
     });
 
+    if (seen.has(sourceRef)) {
+      continue;
+    }
+
+    seen.add(sourceRef);
     candidates.push({
+      address,
       candidateId: sourceRef,
+      category: item.category?.trim() || undefined,
+      coordinate,
       id,
       name,
-      address,
-      coordinate: { lat: latitude, lng: longitude },
-      placeId: place.id?.trim(),
-      primaryType: place.primaryType,
+      query,
+      source: "naver_local",
       sourceRef,
-      types: place.types ?? [],
-      ...context,
     });
-
-    // Product UX only needs a short list; the cap also contains provider cost and token usage.
-    if (candidates.length >= MAX_PLANME_PLACE_CANDIDATE_LIMIT) {
-      break;
-    }
   }
 
   return candidates;
 }
 
 /**
- * Converts a provider-backed draft stop, such as Naver geocoding, into the shared candidate model.
+ * Converts Naver's integer WGS84 representation into decimal longitude and latitude.
+ */
+function normalizeNaverLocalCoordinate(
+  mapx: string | undefined,
+  mapy: string | undefined,
+): MapCoordinate | null {
+  const lng = Number(mapx) / NAVER_LOCAL_COORDINATE_SCALE;
+  const lat = Number(mapy) / NAVER_LOCAL_COORDINATE_SCALE;
+  const coordinate = { lat, lng };
+
+  return isValidCoordinate(coordinate) ? coordinate : null;
+}
+
+/**
+ * Drops the small HTML highlight vocabulary returned in Naver place titles.
+ */
+function stripNaverHighlightMarkup(value: string) {
+  return value.replace(/<[^>]*>/g, "").replace(/&amp;/g, "&").trim();
+}
+
+/**
+ * Reuses already provider-backed coordinates without issuing another provider request.
  */
 function createSourceBackedStopCandidate(
   stop: PlanmeDraftStop,
   query: string | undefined,
 ): PlanmePlaceCandidate | null {
-  if (!stop.coordinate || (!stop.placeId?.trim() && !stop.placeSourceRef?.trim())) {
+  if (!stop.coordinate || !stop.placeSourceRef?.trim() || !isValidCoordinate(stop.coordinate)) {
     return null;
   }
 
   const source = stop.placeSource ?? "input";
-  const id = stop.placeId?.trim() || stop.placeSourceRef?.trim() || stop.name.trim();
-  const sourceRef =
-    stop.placeSourceRef?.trim() ||
-    createPlanmePlaceSourceRef({
-      coordinate: stop.coordinate,
-      id,
-      query,
-      source,
-    });
+  const id = stop.placeSourceRef.trim();
 
-  // Keep provider-derived coordinates available to the AI judge without auto-accepting them.
   return {
-    candidateId: sourceRef,
+    candidateId: id,
     id,
     name: stop.name.trim(),
     address: stop.addressQuery?.trim(),
     coordinate: stop.coordinate,
-    placeId: stop.placeId?.trim(),
     query,
     source,
-    sourceRef,
+    sourceRef: id,
   };
 }
 
 /**
- * Adds the draft stop's provider-backed candidate without duplicating Google results.
+ * Adds a geocoded/input candidate without duplicating the Naver Local result.
  */
 function appendSourceBackedCandidate(
   candidates: PlanmePlaceCandidate[],
@@ -402,159 +334,80 @@ function appendSourceBackedCandidate(
   }
 
   const alreadyIncluded = candidates.some(
-    (candidate) =>
-      candidate.placeId === sourceCandidate.placeId ||
-      candidate.sourceRef === sourceCandidate.sourceRef,
+    (candidate) => candidate.sourceRef === sourceCandidate.sourceRef,
   );
 
   return alreadyIncluded ? candidates : [...candidates, sourceCandidate];
 }
 
 /**
- * Keeps Nearby Search requests inside PlanME's product cap of 20km.
+ * Keeps user and AI result counts inside the official Naver maximum of five.
  */
-function normalizeNearbyRadius(radiusMeters: number | undefined) {
-  const maxRadiusMeters = 20000;
-  const normalizedRadiusMeters =
-    typeof radiusMeters === "number" && Number.isFinite(radiusMeters)
-      ? radiusMeters
-      : maxRadiusMeters;
+function normalizeCandidateLimit(value: number | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return DEFAULT_PLANME_PLACE_CANDIDATE_LIMIT;
+  }
 
-  return Math.max(1, Math.min(maxRadiusMeters, Math.trunc(normalizedRadiusMeters)));
+  return Math.max(1, Math.min(MAX_PLANME_PLACE_CANDIDATE_LIMIT, Math.trunc(value)));
 }
 
 /**
- * Checks the minimum evidence needed before a candidate can become a saved PlanME stop.
+ * Builds extra text queries from the user's travel intent without coordinate bias.
  */
-export function hasPlanmePlaceCandidateHardGate(candidate: PlanmePlaceCandidate): boolean {
+function createPreferenceQueries(
+  region: string,
+  userIntent: string | undefined,
+  preferences: string[],
+) {
+  return [userIntent, ...preferences]
+    .map((value) => value?.trim() ?? "")
+    .filter(Boolean)
+    .map((value) => joinQueryParts(region, value));
+}
+
+/**
+ * Joins region and keyword without duplicating an existing region qualifier.
+ */
+function joinQueryParts(region: string, value: string) {
+  return region && value && !value.includes(region) ? `${region} ${value}` : value;
+}
+
+/**
+ * Checks finite latitude and longitude ranges before a candidate reaches the hard gate.
+ */
+function isValidCoordinate(coordinate: MapCoordinate) {
   return (
-    typeof candidate.coordinate.lat === "number" &&
-    typeof candidate.coordinate.lng === "number" &&
-    Boolean(candidate.placeId?.trim() || candidate.sourceRef.trim())
+    Number.isFinite(coordinate.lat) &&
+    Number.isFinite(coordinate.lng) &&
+    coordinate.lat >= -90 &&
+    coordinate.lat <= 90 &&
+    coordinate.lng >= -180 &&
+    coordinate.lng <= 180
   );
 }
 
 /**
- * Creates a reproducible source reference for non-Google candidates that do not have placeId.
+ * Creates a reproducible source reference without storing the raw search query.
  */
 function createPlanmePlaceSourceRef({
   coordinate,
   id,
-  query,
   source,
 }: {
   coordinate: MapCoordinate;
   id: string;
-  query?: string;
   source: PlanmePlaceCandidateSource;
 }) {
   return [
     source,
-    id,
-    query?.trim() ?? "",
-    coordinate.lat.toFixed(6),
-    coordinate.lng.toFixed(6),
+    id.trim(),
+    coordinate.lat.toFixed(7),
+    coordinate.lng.toFixed(7),
   ].join(":");
 }
 
 /**
- * Uses travel preferences to widen vague POI labels into searchable Korean place queries.
- */
-function createPreferenceQueries(region: string, stopName: string, preferences: string[]) {
-  const fishingPreference = [stopName, ...preferences].some((value) => /낚시/.test(value));
-
-  if (fishingPreference) {
-    return [
-      joinQueryParts(region, "바다낚시"),
-      joinQueryParts(region, "낚시터"),
-      joinQueryParts(region, "낚시공원"),
-    ];
-  }
-
-  return preferences
-    .map((preference) => preference.trim())
-    .filter(Boolean)
-    .map((preference) => joinQueryParts(region, preference));
-}
-
-/**
- * Joins region and keyword without duplicating already region-qualified text.
- */
-function joinQueryParts(region: string, value: string) {
-  if (!value) {
-    return "";
-  }
-
-  return region && !value.includes(region) ? `${region} ${value}` : value;
-}
-
-/**
- * Builds the Google Places headers while preserving API-key secrecy.
- */
-function createGooglePlacesHeaders(apiKey: string, referer?: string): Record<string, string> {
-  return {
-    "Content-Type": "application/json",
-    ...createGoogleMapsRefererHeader(referer),
-    "X-Goog-Api-Key": apiKey,
-    "X-Goog-FieldMask": GOOGLE_PLACES_FIELD_MASK,
-  };
-}
-
-/**
- * Converts PlanME's coordinate shape into Google Places request JSON.
- */
-function toGoogleLatLng(coordinate: MapCoordinate) {
-  return {
-    latitude: coordinate.lat,
-    longitude: coordinate.lng,
-  };
-}
-
-/**
- * Reads the Google Maps key from either the dedicated server name or existing Vercel public name.
- */
-function readGoogleMapsApiKey(apiKeyOverride?: string) {
-  const explicitApiKey = apiKeyOverride?.trim();
-
-  if (explicitApiKey) {
-    return explicitApiKey;
-  }
-
-  return GOOGLE_MAPS_API_KEY_ENV_NAMES
-    .map((name) => readRuntimeEnv(name))
-    .find(Boolean) ?? "";
-}
-
-/**
- * Adds only the origin-level referrer needed by HTTP-referrer-restricted Google API keys.
- */
-function createGoogleMapsRefererHeader(referer?: string): Record<string, string> {
-  const normalizedReferer = normalizeGoogleMapsReferer(referer);
-
-  return normalizedReferer ? { Referer: normalizedReferer } : {};
-}
-
-/**
- * Normalizes request URLs to an origin referrer so route details are not sent to Google.
- */
-function normalizeGoogleMapsReferer(referer?: string) {
-  const trimmedReferer = referer?.trim();
-
-  if (!trimmedReferer) {
-    return "";
-  }
-
-  try {
-    const url = new URL(trimmedReferer);
-
-    return `${url.origin}/`;
-  } catch {
-    return trimmedReferer.endsWith("/") ? trimmedReferer : `${trimmedReferer}/`;
-  }
-}
-
-/**
- * Reads server runtime variables without exposing them to browser bundles.
+ * Reads server runtime configuration without exposing values to browser payloads.
  */
 function readRuntimeEnv(name: string) {
   const runtime = globalThis as typeof globalThis & {

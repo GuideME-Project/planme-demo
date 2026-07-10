@@ -4,7 +4,7 @@ import HotelRoundedIcon from "@mui/icons-material/HotelRounded";
 import InfoRoundedIcon from "@mui/icons-material/InfoRounded";
 import TrainRoundedIcon from "@mui/icons-material/TrainRounded";
 import { alpha, Box, Stack, Typography, useTheme } from "@mui/material";
-import type { MapCoordinate, MapPoint, RoutePlan, RouteTransitMarker } from "@planme/core";
+import type { MapCoordinate, RoutePlan, RouteTransitMarker } from "@planme/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PlanmeThemeMode } from "@/theme/theme";
 
@@ -125,13 +125,6 @@ type PlanmeNaverWindow = Window & {
   };
   planmeNaverMapsPromise?: Promise<NaverMapsNamespace>;
 };
-
-/**
- * Converts percentage coordinates into an SVG polyline point string.
- */
-function toPointString(points: MapPoint[]): string {
-  return points.map((point) => `${point.x},${point.y}`).join(" ");
-}
 
 type RollerGuidanceContent = {
   headline: string;
@@ -833,36 +826,7 @@ export function RouteMap({
           </marker>
         </defs>
 
-        {showStandard ? (
-          <polyline
-            fill="none"
-            markerMid="url(#standardArrow)"
-            markerEnd="url(#standardArrow)"
-            points={toPointString(standardRoute.mapPath)}
-            stroke={standardColor}
-            strokeDasharray="5 4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeOpacity={routeLineStyles.standard.opacity}
-            strokeWidth={routeLineStyles.standard.svgStrokeWidth}
-            vectorEffect="non-scaling-stroke"
-          />
-        ) : null}
-
-        {showCarryme ? (
-          <polyline
-            fill="none"
-            markerMid="url(#carrymeArrow)"
-            markerEnd="url(#carrymeArrow)"
-            points={toPointString(carrymeRoute.mapPath)}
-            stroke={carrymeColor}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeOpacity={routeLineStyles.carryme.opacity}
-            strokeWidth={routeLineStyles.carryme.svgStrokeWidth}
-            vectorEffect="non-scaling-stroke"
-          />
-        ) : null}
+        {/* Provider geometry is rendered only by the Naver map above; no straight-line fallback. */}
 
       </Box>
 

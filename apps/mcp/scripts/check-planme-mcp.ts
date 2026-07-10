@@ -5,19 +5,20 @@ import type { AddressInfo } from "node:net";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
-  createAiRecommendedItineraryResponse,
+  createAiRecommendedItineraryResponse as createCoreAiRecommendedItineraryResponse,
   createGeneratedItinerary,
   createPlanmeDraftPreview,
   decidePlanmePlaceCandidateWithOpenAi,
   generatePlanmeDraftWithOpenAi,
   isPlanmeClarificationResponse,
-  PLANME_NEARBY_RADIUS_METERS,
   resolvePlanmeDraftCoordinates,
   searchAccommodationCandidates,
   searchPlanmePlaceCandidates,
   type GptActionItineraryResponse,
+  type AiRecommendedItineraryOptions,
   type PlanmeDraftGeocoder,
   type PlanmeRecommendationResponse,
+  type RecommendItineraryRequest,
 } from "@planme/core";
 import { createNaverGeocoder } from "../src/naver-geocoding.js";
 import { persistItineraryForDetailPage } from "../src/planme-mcp.js";
@@ -89,10 +90,10 @@ function assertReadyRecommendation(
 /**
  * Creates a provider-backed POI candidate for tests that expect ready itinerary links.
  */
-function createMockGooglePlaceCandidate(name: string, index = 0) {
-  const id = `places/${name.replace(/\s+/g, "-").toLowerCase()}`;
+function createMockNaverPlaceCandidate(name: string, index = 0) {
+  const id = `naver-${name.replace(/\s+/g, "-").toLowerCase()}`;
   const coordinate = { lat: 34.75 + index * 0.01, lng: 127.9 + index * 0.01 };
-  const sourceRef = `google_text_search:${id}:${name}:${coordinate.lat.toFixed(6)}:${coordinate.lng.toFixed(6)}`;
+  const sourceRef = `naver_local:${id}:${coordinate.lat.toFixed(6)}:${coordinate.lng.toFixed(6)}`;
 
   return {
     address: `경상남도 남해군 ${name}`,
@@ -100,12 +101,60 @@ function createMockGooglePlaceCandidate(name: string, index = 0) {
     coordinate,
     id,
     name,
-    placeId: id,
     query: name,
-    source: "google_text_search" as const,
+    source: "naver_local" as const,
     sourceRef,
-    types: ["point_of_interest"],
   };
+}
+
+/**
+ * Supplies deterministic anchor-only geocoding so recommendation tests stay provider-free.
+ */
+function createAiRecommendedItineraryResponse(
+  requestUrl: string,
+  input: RecommendItineraryRequest,
+  options: AiRecommendedItineraryOptions = {},
+) {
+  const anchorGeocoder: PlanmeDraftGeocoder = async ({ dayIndex, query }) => {
+    if (dayIndex !== -1) {
+      return null;
+    }
+
+    const coordinate = query.includes("양양")
+      ? { lat: 38.0754, lng: 128.6191 }
+      : query.includes("동탄")
+        ? { lat: 37.2001, lng: 127.0951 }
+        : { lat: 35.1796, lng: 129.0756 };
+
+    return {
+      coordinate,
+      placeSource: "naver_geocode",
+      placeSourceRef: `naver_geocode:${query}:${coordinate.lat.toFixed(6)}:${coordinate.lng.toFixed(6)}`,
+    };
+  };
+
+  const testGeocoder: PlanmeDraftGeocoder = async (geocoderInput) => {
+    const explicitResult = await options.draftGeocoder?.(geocoderInput);
+
+    if (explicitResult) {
+      if (geocoderInput.dayIndex !== -1 || explicitResult.placeSourceRef) {
+        return explicitResult;
+      }
+
+      return {
+        ...explicitResult,
+        placeSource: explicitResult.placeSource ?? "naver_geocode",
+        placeSourceRef: `naver_geocode:${geocoderInput.query}:${explicitResult.coordinate.lat.toFixed(6)}:${explicitResult.coordinate.lng.toFixed(6)}`,
+      };
+    }
+
+    return anchorGeocoder(geocoderInput);
+  };
+
+  return createCoreAiRecommendedItineraryResponse(requestUrl, input, {
+    ...options,
+    draftGeocoder: testGeocoder,
+  });
 }
 
 /**
@@ -155,7 +204,7 @@ async function assertOpenAiGeneratorContract(): Promise<void> {
   const generatedDraft = await generatePlanmeDraftWithOpenAi(
     {
       destination: "남해 가족여행",
-      durationDays: 2,
+      durationDays: 2, transportMode: "drive",
       origin: "동탄",
       accommodationCandidates: [
         {
@@ -333,11 +382,11 @@ async function assertOpenAiGeneratorContract(): Promise<void> {
  */
 async function assertOpenAiFunctionCallingContract(): Promise<void> {
   const requestBodies: string[] = [];
-  const searchedModes: Array<string | undefined> = [];
+  const searchedQueries: string[] = [];
   const generatedDraft = await generatePlanmeDraftWithOpenAi(
     {
       destination: "거제",
-      durationDays: 2,
+      durationDays: 2, transportMode: "drive",
       origin: "강원도 양양",
       preferences: ["낚시"],
     },
@@ -355,24 +404,13 @@ async function assertOpenAiFunctionCallingContract(): Promise<void> {
               output: [
                 {
                   arguments: JSON.stringify({
+                    maxCandidates: 5,
                     query: "거제 바다낚시",
                     region: "거제",
                     userIntent: "낚시",
                   }),
-                  call_id: "call_place_text",
-                  name: "search_places_text",
-                  type: "function_call",
-                },
-                {
-                  arguments: JSON.stringify({
-                    center: { lat: 34.84, lng: 128.69 },
-                    query: "거제 낚시터",
-                    radiusMeters: 20000,
-                    region: "거제",
-                    userIntent: "낚시",
-                  }),
-                  call_id: "call_place_nearby",
-                  name: "search_places_nearby",
+                  call_id: "call_naver_place",
+                  name: "search_naver_places",
                   type: "function_call",
                 },
               ],
@@ -440,35 +478,20 @@ async function assertOpenAiFunctionCallingContract(): Promise<void> {
       },
     },
     {
-      placeCandidateSearcher: async ({ radiusMeters, searchMode, stop }) => {
-        searchedModes.push(`${searchMode}:${radiusMeters ?? "none"}`);
+      placeCandidateSearcher: async ({ query, stop }) => {
+        searchedQueries.push(query ?? stop.name);
 
         return {
           candidates: [
             {
-              candidateId:
-                searchMode === "nearby"
-                  ? "google_nearby_search:places/geoje-nearby-fishing:거제 낚시터:34.812300:128.702100"
-                  : "google_text_search:places/geoje-fishing:거제 바다낚시:34.812300:128.702100",
-              id:
-                searchMode === "nearby"
-                  ? "places/geoje-nearby-fishing"
-                  : "places/geoje-fishing",
+              candidateId: "naver_local:geoje-fishing:34.812300:128.702100",
+              id: "naver-geoje-fishing",
               name: "거제바다낚시공원",
               address: "경상남도 거제시 일운면",
               coordinate: { lat: 34.8123, lng: 128.7021 },
-              placeId:
-                searchMode === "nearby"
-                  ? "places/geoje-nearby-fishing"
-                  : "places/geoje-fishing",
-              query: stop.name,
-              radiusMeters,
-              source: searchMode === "nearby" ? "google_nearby_search" : "google_text_search",
-              sourceRef:
-                searchMode === "nearby"
-                  ? "google_nearby_search:places/geoje-nearby-fishing:거제 낚시터:34.812300:128.702100"
-                  : "google_text_search:places/geoje-fishing:거제 바다낚시:34.812300:128.702100",
-              types: ["tourist_attraction"],
+              query: query ?? stop.name,
+              source: "naver_local",
+              sourceRef: "naver_local:geoje-fishing:34.812300:128.702100",
             },
           ],
           searchedQueries: [stop.name],
@@ -477,14 +500,14 @@ async function assertOpenAiFunctionCallingContract(): Promise<void> {
     },
   );
 
-  assert.equal(generatedDraft.days[0]?.stops[1]?.name, "거제바다낚시공원");
+  assert.equal(generatedDraft.days[0]?.stops?.[1]?.name, "거제바다낚시공원");
   assert.equal(requestBodies.length, 2);
-  assert.match(requestBodies[0] ?? "", /search_places_text/);
-  assert.match(requestBodies[0] ?? "", /search_places_nearby/);
+  assert.match(requestBodies[0] ?? "", /search_naver_places/);
+  assert.doesNotMatch(requestBodies[0] ?? "", /nearby|radiusMeters|center/);
   assertStrictOpenAiToolSchema(requestBodies[0] ?? "");
   assert.match(requestBodies[1] ?? "", /function_call_output/);
   assert.match(requestBodies[1] ?? "", /previous_response_id/);
-  assert.deepEqual(searchedModes, ["text:none", "nearby:20000"]);
+  assert.deepEqual(searchedQueries, ["거제 바다낚시"]);
 }
 
 /**
@@ -516,16 +539,16 @@ function assertStrictOpenAiToolSchema(requestBody: string): void {
     );
   }
 
-  const textTool = tools.find((tool) => tool.name === "search_places_text");
-  const nearbyTool = tools.find((tool) => tool.name === "search_places_nearby");
+  assert.equal(tools.length, 1);
+  const naverTool = tools.find((tool) => tool.name === "search_naver_places");
 
-  assert.deepEqual(textTool?.parameters?.properties?.center?.type, ["object", "null"]);
-  assert.deepEqual(textTool?.parameters?.properties?.maxCandidates?.type, ["integer", "null"]);
-  assert.deepEqual(nearbyTool?.parameters?.properties?.query?.type, ["string", "null"]);
-  assert.deepEqual(nearbyTool?.parameters?.properties?.maxCandidates?.type, [
+  assert.deepEqual(naverTool?.parameters?.properties?.maxCandidates?.type, [
     "integer",
     "null",
   ]);
+  assert.equal(naverTool?.parameters?.properties?.query?.type, "string");
+  assert.equal("center" in (naverTool?.parameters?.properties ?? {}), false);
+  assert.equal("radiusMeters" in (naverTool?.parameters?.properties ?? {}), false);
 }
 
 /**
@@ -536,7 +559,7 @@ async function assertOpenAiMissingToolCallRetryContract(): Promise<void> {
   const generatedDraft = await generatePlanmeDraftWithOpenAi(
     {
       destination: "거제",
-      durationDays: 2,
+      durationDays: 2, transportMode: "drive",
       origin: "강원도 양양",
       preferences: ["낚시"],
     },
@@ -572,12 +595,13 @@ async function assertOpenAiMissingToolCallRetryContract(): Promise<void> {
               output: [
                 {
                   arguments: JSON.stringify({
+                    maxCandidates: 5,
                     query: "거제 바다낚시",
                     region: "거제",
                     userIntent: "낚시",
                   }),
-                  call_id: "call_required_place_text",
-                  name: "search_places_text",
+                  call_id: "call_required_naver_place",
+                  name: "search_naver_places",
                   type: "function_call",
                 },
               ],
@@ -634,18 +658,14 @@ async function assertOpenAiMissingToolCallRetryContract(): Promise<void> {
       placeCandidateSearcher: async ({ stop }) => ({
         candidates: [
           {
-            candidateId:
-              "google_text_search:places/geoje-retry-fishing:거제 바다낚시:34.812300:128.702100",
-            id: "places/geoje-retry-fishing",
+            candidateId: "naver_local:geoje-retry-fishing:34.812300:128.702100",
+            id: "naver-geoje-retry-fishing",
             name: "거제바다낚시공원",
             address: "경상남도 거제시 일운면",
             coordinate: { lat: 34.8123, lng: 128.7021 },
-            placeId: "places/geoje-retry-fishing",
             query: stop.name,
-            source: "google_text_search",
-            sourceRef:
-              "google_text_search:places/geoje-retry-fishing:거제 바다낚시:34.812300:128.702100",
-            types: ["tourist_attraction"],
+            source: "naver_local",
+            sourceRef: "naver_local:geoje-retry-fishing:34.812300:128.702100",
           },
         ],
         searchedQueries: [stop.name],
@@ -669,17 +689,14 @@ async function assertOpenAiPlaceCandidateDecisionContract(): Promise<void> {
     {
       candidates: [
         {
-          candidateId: "google_text_search:places/geoje-fishing:거제 바다낚시:34.812300:128.702100",
-          id: "places/geoje-fishing",
+          candidateId: "naver_local:geoje-fishing:34.812300:128.702100",
+          id: "naver-geoje-fishing",
           name: "거제바다낚시공원",
           address: "경상남도 거제시 일운면",
           coordinate: { lat: 34.8123, lng: 128.7021 },
-          placeId: "places/geoje-fishing",
           query: "거제 바다낚시",
-          source: "google_text_search",
-          sourceRef:
-            "google_text_search:places/geoje-fishing:거제 바다낚시:34.812300:128.702100",
-          types: ["tourist_attraction"],
+          source: "naver_local",
+          sourceRef: "naver_local:geoje-fishing:34.812300:128.702100",
         },
       ],
       finalAttempt: false,
@@ -687,6 +704,7 @@ async function assertOpenAiPlaceCandidateDecisionContract(): Promise<void> {
         destination: "거제",
         origin: "강원도 양양",
         preferences: ["낚시"],
+        transportMode: "drive",
       },
       round: 1,
       searchedQueries: ["거제 바다낚시"],
@@ -705,7 +723,7 @@ async function assertOpenAiPlaceCandidateDecisionContract(): Promise<void> {
               questions: [],
               reason: "사용자 낚시 의도와 후보 장소가 일치합니다.",
               selectedCandidateId:
-                "google_text_search:places/geoje-fishing:거제 바다낚시:34.812300:128.702100",
+                "naver_local:geoje-fishing:34.812300:128.702100",
               status: "accepted",
             }),
           }),
@@ -718,7 +736,7 @@ async function assertOpenAiPlaceCandidateDecisionContract(): Promise<void> {
   assert.equal(decision.status, "accepted");
   assert.equal(
     decision.selectedCandidateId,
-    "google_text_search:places/geoje-fishing:거제 바다낚시:34.812300:128.702100",
+    "naver_local:geoje-fishing:34.812300:128.702100",
   );
   assert.match(capturedBody, /planme_place_candidate_decision/);
   assert.match(capturedBody, /accepted/);
@@ -743,6 +761,7 @@ async function assertDraftCoordinateResolverContract(): Promise<void> {
   const result = await resolvePlanmeDraftCoordinates(
     {
       title: "남해 가족여행 초안",
+      transportMode: "drive",
       region: "남해",
       duration: "1박 2일",
       summary: "좌표 보강 테스트",
@@ -781,8 +800,8 @@ async function assertDraftCoordinateResolverContract(): Promise<void> {
     geocoder,
   );
 
-  assert.equal(result.draft.days[0]?.stops[0]?.coordinate?.lat, 34.7983);
-  assert.equal(result.draft.days[0]?.stops[0]?.coordinate?.lng, 128.0406);
+  assert.equal(result.draft.days[0]?.stops?.[0]?.coordinate?.lat, 34.7983);
+  assert.equal(result.draft.days[0]?.stops?.[0]?.coordinate?.lng, 128.0406);
   assert.equal(result.validationIssues[0]?.code, "coordinate_resolution_failed");
 }
 
@@ -841,7 +860,7 @@ async function assertAiRecommendationCoordinateResolutionContract(): Promise<voi
   const fixedDate = new Date("2026-07-09T12:00:00.000Z");
   const response = await createAiRecommendedItineraryResponse(
     "http://localhost:3000/api/gpt/itineraries/recommend",
-    { destination: "남해", origin: "동탄", durationDays: 2 },
+    { destination: "남해", origin: "동탄", durationDays: 2, transportMode: "drive" },
     {
       accommodationCandidateSearcher: async () => [],
       aiItineraryGenerator: async () => ({
@@ -887,34 +906,37 @@ async function assertAiRecommendationCoordinateResolutionContract(): Promise<voi
           },
         ],
       }),
-      draftGeocoder: async ({ query }) =>
-        query.includes("남해 독일마을")
-          ? { coordinate: { lat: 34.7983, lng: 128.0406 } }
-          : { coordinate: { lat: 37.2001, lng: 127.0951 } },
+      draftGeocoder: async ({ query }) => {
+        const coordinate = query.includes("남해 독일마을")
+          ? { lat: 34.7983, lng: 128.0406 }
+          : { lat: 37.2001, lng: 127.0951 };
+
+        return {
+          coordinate,
+          placeSource: "naver_geocode",
+          placeSourceRef: `naver_geocode:${query}:${coordinate.lat.toFixed(6)}:${coordinate.lng.toFixed(6)}`,
+        };
+      },
       placeCandidateSearcher: async ({ stop }) => ({
         candidates:
           stop.name === "남해 독일마을"
             ? [
                 {
-                  candidateId:
-                    "google_text_search:places/namhae-german-village:남해 독일마을:34.798300:128.040600",
-                  id: "places/namhae-german-village",
+                  candidateId: "naver_local:namhae-german-village:34.798300:128.040600",
+                  id: "naver-namhae-german-village",
                   name: "남해 독일마을",
                   address: "경상남도 남해군 삼동면 독일로 89-7",
                   coordinate: { lat: 34.7983, lng: 128.0406 },
-                  placeId: "places/namhae-german-village",
                   query: "남해 독일마을",
-                  source: "google_text_search",
-                  sourceRef:
-                    "google_text_search:places/namhae-german-village:남해 독일마을:34.798300:128.040600",
-                  types: ["tourist_attraction"],
+                  source: "naver_local",
+                  sourceRef: "naver_local:namhae-german-village:34.798300:128.040600",
                 },
               ]
             : [],
         searchedQueries: [stop.name],
       }),
       placeCandidateDecider: async ({ candidates }) => ({
-        reason: "Naver 지오코딩 좌표가 있지만 방문지는 Google 후보 판단으로 확정합니다.",
+        reason: "주소 좌표가 있지만 방문지는 네이버 장소 후보 판단으로 확정합니다.",
         selectedCandidateId: candidates[0]?.candidateId,
         status: "accepted",
       }),
@@ -929,7 +951,12 @@ async function assertAiRecommendationCoordinateResolutionContract(): Promise<voi
   const standardRoute = response.itinerary.days[0]?.standard;
 
   assert.equal(standardRoute?.stops.every((stop) => Boolean(stop.coordinate)), true);
-  assert.equal(standardRoute?.stops[1]?.placeId, "places/namhae-german-village");
+  assert.ok(
+    standardRoute?.stops.some(
+      (stop) => stop.label === "남해 독일마을" && Boolean(stop.placeSourceRef),
+    ),
+    JSON.stringify(standardRoute?.stops),
+  );
   assert.equal(readMemoryUsageCounter("final_ai_decision", fixedDate), 0);
   assert.ok(
     (standardRoute?.geoPath?.length ?? 0) >= 2,
@@ -943,7 +970,7 @@ async function assertAiRecommendationCoordinateResolutionContract(): Promise<voi
 async function assertProviderAddressLabelDoesNotReplacePlaceName(): Promise<void> {
   const response = await createAiRecommendedItineraryResponse(
     "http://localhost:3000/api/gpt/itineraries/recommend",
-    { destination: "부산", origin: "서울 마포구", durationDays: 2 },
+    { destination: "부산", origin: "서울 마포구", durationDays: 2, transportMode: "drive" },
     {
       accommodationCandidateSearcher: async () => [],
       aiItineraryGenerator: async () => ({
@@ -1007,7 +1034,7 @@ async function assertProviderAddressLabelDoesNotReplacePlaceName(): Promise<void
                   coordinate: { lat: 35.1964941, lng: 129.2282823 },
                   placeId: "places/osiria-lot",
                   query: "부산광역시 기장군 기장읍 시랑리 62-15",
-                  source: "google_text_search",
+                  source: "naver_local",
                   sourceRef:
                     "google_text_search:places/osiria-lot:62-15:35.196494:129.228282",
                   types: ["establishment"],
@@ -1028,9 +1055,12 @@ async function assertProviderAddressLabelDoesNotReplacePlaceName(): Promise<void
 
   const standardRoute = response.itinerary.days[0]?.standard;
   const timelineText = JSON.stringify(response.itinerary.days[0]?.timeline);
+  const osiriaStop = standardRoute?.stops.find(
+    (stop) => stop.label === "오시리아 해안산책로",
+  );
 
-  assert.equal(standardRoute?.stops[1]?.label, "오시리아 해안산책로");
-  assert.equal(standardRoute?.stops[1]?.placeId, "places/osiria-lot");
+  assert.equal(osiriaStop?.label, "오시리아 해안산책로");
+  assert.ok(osiriaStop?.placeSourceRef);
   assert.match(standardRoute?.routeText ?? "", /오시리아 해안산책로/);
   assert.doesNotMatch(standardRoute?.routeText ?? "", /62-15/);
   assert.match(timelineText, /오시리아 해안산책로/);
@@ -1038,12 +1068,12 @@ async function assertProviderAddressLabelDoesNotReplacePlaceName(): Promise<void
 }
 
 /**
- * Verifies Naver-only visit coordinates do not bypass AI candidate judgment.
+ * Verifies Naver-geocoded visit coordinates satisfy the final coordinate/source hard gate.
  */
-async function assertNaverOnlyVisitRequiresCandidateContract(): Promise<void> {
+async function assertNaverGeocodedVisitHardGateContract(): Promise<void> {
   const response = await createAiRecommendedItineraryResponse(
     "http://localhost:3000/api/gpt/itineraries/recommend",
-    { destination: "거제", origin: "강원도 양양", durationDays: 2, preferences: ["낚시"] },
+    { destination: "거제", origin: "강원도 양양", durationDays: 2, transportMode: "drive", preferences: ["낚시"] },
     {
       accommodationCandidateSearcher: async () => [],
       aiItineraryGenerator: async () => ({
@@ -1101,16 +1131,14 @@ async function assertNaverOnlyVisitRequiresCandidateContract(): Promise<void> {
     },
   );
 
-  assert.equal(isPlanmeClarificationResponse(response), true);
+  assertReadyRecommendation(response);
+  const visitStop = response.itinerary.days[0]?.standard.stops.find(
+    (stop) => stop.label === "거제도 바다 낚시터",
+  );
 
-  if (!isPlanmeClarificationResponse(response)) {
-    throw new Error("Expected Naver-only visit stop to require clarification");
-  }
-
-  assert.equal("pageUrl" in response, false);
-  assert.deepEqual(response.unresolvedStops, ["거제도 바다 낚시터"]);
-  assert.equal(response.validationIssues[0]?.code, "place_candidate_not_found");
-  assert.doesNotMatch(response.questions.join(" "), /원하는 장소의 성격|더 구체/);
+  assert.equal(visitStop?.placeSource, "naver_geocode");
+  assert.ok(visitStop?.coordinate);
+  assert.ok(visitStop?.placeSourceRef);
 }
 
 /**
@@ -1123,7 +1151,8 @@ async function assertAccommodationCandidateContract(): Promise<void> {
     "http://localhost:3000/api/gpt/itineraries/recommend",
     {
       destination: "남해",
-      durationDays: 2,
+      durationDays: 2, transportMode: "drive",
+      origin: "동탄",
       preferences: ["가족 여행", "아이 동반"],
       travelerCount: 4,
       luggageCount: 2,
@@ -1205,18 +1234,27 @@ async function assertAccommodationCandidateContract(): Promise<void> {
           ],
         };
       },
-      draftGeocoder: async ({ stop, stopIndex }) => ({
-        coordinate: { lat: 34.75 + stopIndex * 0.01, lng: 127.9 + stop.name.length * 0.001 },
-      }),
+      draftGeocoder: async ({ query, stop, stopIndex }) => {
+        const coordinate = {
+          lat: 34.75 + stopIndex * 0.01,
+          lng: 127.9 + stop.name.length * 0.001,
+        };
+
+        return {
+          coordinate,
+          placeSource: "naver_geocode",
+          placeSourceRef: `naver_geocode:${query}:${coordinate.lat.toFixed(6)}:${coordinate.lng.toFixed(6)}`,
+        };
+      },
       placeCandidateSearcher: async ({ stop }) => ({
         candidates:
           stop.role === "방문지" || stop.role === "visit"
-            ? [createMockGooglePlaceCandidate(stop.name, stop.name.length)]
+            ? [createMockNaverPlaceCandidate(stop.name, stop.name.length)]
             : [],
         searchedQueries: [stop.name],
       }),
       placeCandidateDecider: async ({ candidates }) => ({
-        reason: "방문지는 Google 후보 판단을 통과해야 ready 처리됩니다.",
+        reason: "방문지는 네이버 후보 판단을 통과해야 ready 처리됩니다.",
         selectedCandidateId: candidates[0]?.candidateId,
         status: "accepted",
       }),
@@ -1224,16 +1262,18 @@ async function assertAccommodationCandidateContract(): Promise<void> {
   );
   assertReadyRecommendation(response);
 
-  const firstStandardStop = response.itinerary.days[0]?.standard.stops[0];
+  const accommodationStop = response.itinerary.days[0]?.standard.stops.find(
+    (stop) => stop.role === "숙소",
+  );
   const renderedPayload = JSON.stringify(response.itinerary);
 
   assert.equal(searchCallCount, 1);
   assert.match(generatorInput, /펜션 사랑가/);
-  assert.equal(firstStandardStop?.label, "펜션 사랑가");
-  assert.deepEqual(firstStandardStop?.coordinate, { lat: 34.7601, lng: 127.9001 });
-  assert.equal(firstStandardStop?.role, "숙소");
-  assert.equal(firstStandardStop?.mode, "transit");
-  assert.equal(firstStandardStop?.placeId, "places/namhae-pension");
+  assert.equal(accommodationStop?.label, "펜션 사랑가");
+  assert.deepEqual(accommodationStop?.coordinate, { lat: 34.7601, lng: 127.9001 });
+  assert.equal(accommodationStop?.role, "숙소");
+  assert.equal(accommodationStop?.mode, "drive");
+  assert.ok(accommodationStop?.placeSourceRef);
   assert.match(renderedPayload, /펜션 사랑가/);
   assert.doesNotMatch(renderedPayload, /남해 숙소/);
 }
@@ -1246,7 +1286,8 @@ async function assertThreeDayAiDraftContract(): Promise<void> {
     "http://localhost:3000/api/gpt/itineraries/recommend",
     {
       destination: "남해",
-      durationDays: 3,
+      durationDays: 3, transportMode: "drive",
+      origin: "서울",
       preferences: ["낚시", "가족 여행"],
       travelerCount: 4,
       luggageCount: 2,
@@ -1365,15 +1406,21 @@ async function assertThreeDayAiDraftContract(): Promise<void> {
           },
         ],
       }),
-      draftGeocoder: async ({ dayIndex, stopIndex }) => ({
-        coordinate: {
+      draftGeocoder: async ({ dayIndex, query, stopIndex }) => {
+        const coordinate = {
           lat: 34.7 + dayIndex * 0.02 + stopIndex * 0.003,
           lng: 127.9 + dayIndex * 0.02 + stopIndex * 0.003,
-        },
-      }),
+        };
+
+        return {
+          coordinate,
+          placeSource: "naver_geocode",
+          placeSourceRef: `naver_geocode:${query}:${coordinate.lat.toFixed(6)}:${coordinate.lng.toFixed(6)}`,
+        };
+      },
       placeCandidateSearcher: async ({ stop }) => ({
         candidates:
-          stop.role === "visit" ? [createMockGooglePlaceCandidate(stop.name, stop.name.length)] : [],
+          stop.role === "visit" ? [createMockNaverPlaceCandidate(stop.name, stop.name.length)] : [],
         searchedQueries: [stop.name],
       }),
       placeCandidateDecider: async ({ candidates }) => ({
@@ -1389,76 +1436,73 @@ async function assertThreeDayAiDraftContract(): Promise<void> {
   assert.equal(response.itinerary.days.length, 3);
   assert.equal(response.itinerary.days[2]?.day, 3);
   assert.equal(response.itinerary.days[2]?.label, "셋째 날: 바다 산책 후 귀가");
+  assert.equal(
+    response.itinerary.days.flatMap((day) => day.standard.stops).filter(
+      (stop) => stop.label === "남해",
+    ).length,
+    1,
+  );
+  assert.equal(
+    response.itinerary.days.flatMap((day) => day.carryme.stops).filter(
+      (stop) => stop.label === "남해",
+    ).length,
+    1,
+  );
 }
 
 /**
- * Verifies server code can reuse the already-configured public Google Maps key name.
+ * Verifies accommodation lookup reuses the Naver candidate contract and filters non-lodging POIs.
  */
-async function assertGoogleMapsKeyFallbackContract(): Promise<void> {
-  const originalServerKey = process.env.PLANME_GOOGLE_MAPS_API_KEY;
-  const originalPublicKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-  let capturedApiKey = "";
-  let capturedReferer = "";
+async function assertNaverAccommodationSearchContract(): Promise<void> {
+  let capturedQuery = "";
+  const candidates = await searchAccommodationCandidates(
+    {
+      destination: "남해",
+      preferences: ["가족 여행"],
+    },
+    {
+      placeCandidateSearcher: async ({ query }) => {
+        capturedQuery = query ?? "";
 
-  try {
-    delete process.env.PLANME_GOOGLE_MAPS_API_KEY;
-    process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY = "fallback-google-key";
-
-    const candidates = await searchAccommodationCandidates(
-      {
-        destination: "남해",
-        preferences: ["가족 여행"],
-      },
-      {
-        referer: "https://planme-demo.vercel.app/",
-        fetchImpl: async (_url, init) => {
-          const headers = init?.headers as Record<string, string> | undefined;
-          capturedApiKey = headers?.["X-Goog-Api-Key"] ?? "";
-          capturedReferer = headers?.Referer ?? "";
-
-          return new Response(
-            JSON.stringify({
-              places: [
-                {
-                  displayName: { text: "남해 비치호텔" },
-                  formattedAddress: "경상남도 남해군 남면 남면로 999",
-                  id: "places/namhae-beach-hotel",
-                  location: { latitude: 34.7301, longitude: 127.9001 },
-                  types: ["lodging"],
-                },
-              ],
-            }),
+        return {
+          candidates: [
             {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
+              address: "경상남도 남해군 남면 남면로 999",
+              candidateId: "naver_local:namhae-beach-hotel:34.730100:127.900100",
+              category: "숙박>호텔",
+              coordinate: { lat: 34.7301, lng: 127.9001 },
+              id: "namhae-beach-hotel",
+              name: "남해 비치호텔",
+              source: "naver_local",
+              sourceRef: "naver_local:namhae-beach-hotel:34.730100:127.900100",
             },
-          );
-        },
+            {
+              address: "경상남도 남해군",
+              candidateId: "naver_local:namhae-beach:34.731000:127.901000",
+              category: "여행>해변",
+              coordinate: { lat: 34.731, lng: 127.901 },
+              id: "namhae-beach",
+              name: "남해 해변",
+              source: "naver_local",
+              sourceRef: "naver_local:namhae-beach:34.731000:127.901000",
+            },
+          ],
+          searchedQueries: [query ?? ""],
+        };
       },
-    );
+    },
+  );
 
-    assert.equal(capturedApiKey, "fallback-google-key");
-    assert.equal(capturedReferer, "https://planme-demo.vercel.app/");
-    assert.equal(candidates[0]?.name, "남해 비치호텔");
-  } finally {
-    if (originalServerKey === undefined) {
-      delete process.env.PLANME_GOOGLE_MAPS_API_KEY;
-    } else {
-      process.env.PLANME_GOOGLE_MAPS_API_KEY = originalServerKey;
-    }
-
-    if (originalPublicKey === undefined) {
-      delete process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-    } else {
-      process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY = originalPublicKey;
-    }
-  }
+  assert.match(capturedQuery, /남해/);
+  assert.match(capturedQuery, /숙소/);
+  assert.deepEqual(candidates.map((candidate) => candidate.name), ["남해 비치호텔"]);
 }
 
 /**
- * Verifies Google Places Text Search precedes the capped Nearby Search radius ladder.
+ * Verifies Naver Local Search request, coordinate normalization, and source-backed reuse.
  */
 async function assertPlaceCandidateSearchContract(): Promise<void> {
+  /* Legacy Google Places and nearby-radius assertions removed by GUI-201.
   const textCalls: Array<{
     body: {
       locationBias?: object;
@@ -1514,7 +1558,7 @@ async function assertPlaceCandidateSearchContract(): Promise<void> {
   assert.equal(textCalls[0]?.headers.Referer, "http://localhost:3000/");
   assert.ok(textCalls[0]?.body.locationBias);
   assert.equal(textCalls[0]?.body.locationRestriction, undefined);
-  assert.equal(textResult.candidates[0]?.source, "google_text_search");
+  assert.equal(textResult.candidates[0]?.source, "naver_local");
   assert.equal(textResult.candidates[0]?.name, "거제바다낚시공원");
   assert.ok(textResult.candidates[0]?.candidateId);
   assert.ok(textResult.candidates[0]?.sourceRef);
@@ -1571,7 +1615,7 @@ async function assertPlaceCandidateSearchContract(): Promise<void> {
 
   assert.deepEqual(nearbyRadii, [...PLANME_NEARBY_RADIUS_METERS]);
   assert.equal(Math.max(...nearbyRadii), 20000);
-  assert.equal(nearbyResult.candidates[0]?.source, "google_nearby_search");
+  assert.equal(nearbyResult.candidates[0]?.source, "naver_local");
   assert.equal(nearbyResult.candidates[0]?.radiusMeters, 20000);
 
   const directNearbyUrls: string[] = [];
@@ -1616,7 +1660,7 @@ async function assertPlaceCandidateSearchContract(): Promise<void> {
   );
 
   assert.deepEqual(directNearbyUrls, ["https://places.googleapis.com/v1/places:searchNearby"]);
-  assert.equal(directNearbyResult.candidates[0]?.source, "google_nearby_search");
+  assert.equal(directNearbyResult.candidates[0]?.source, "naver_local");
 
   const stopCoordinateNearbyResult = await searchPlanmePlaceCandidates(
     {
@@ -1714,8 +1758,85 @@ async function assertPlaceCandidateSearchContract(): Promise<void> {
 
   assert.deepEqual(
     mixedResult.candidates.map((candidate) => candidate.source),
-    ["google_text_search", "naver_geocode"],
+    ["naver_local", "naver_geocode"],
   );
+  */
+
+  const calls: Array<{ headers: Record<string, string>; url: string }> = [];
+  const searchResult = await searchPlanmePlaceCandidates(
+    {
+      destination: "거제",
+      maxCandidates: 3,
+      preferences: ["바다낚시"],
+      stop: { name: "거제도 바다 낚시터", role: "visit" },
+    },
+    {
+      clientId: "test-naver-client-id",
+      clientSecret: "test-naver-client-secret",
+      fetchImpl: async (url, init) => {
+        calls.push({
+          headers: init?.headers as Record<string, string>,
+          url: String(url),
+        });
+
+        return new Response(
+          JSON.stringify({
+            items: [
+              {
+                address: "경상남도 거제시 일운면",
+                category: "여행,명소>체험",
+                link: "https://example.test/geoje-fishing",
+                mapx: "1287021000",
+                mapy: "348123000",
+                title: "<b>거제바다낚시공원</b>",
+              },
+              {
+                address: "좌표가 없는 후보",
+                title: "제외 대상",
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      },
+    },
+  );
+
+  const requestUrl = new URL(calls[0]?.url ?? "https://invalid.test");
+  assert.equal(requestUrl.origin + requestUrl.pathname, "https://openapi.naver.com/v1/search/local.json");
+  assert.equal(requestUrl.searchParams.get("display"), "3");
+  assert.equal(calls[0]?.headers["X-Naver-Client-Id"], "test-naver-client-id");
+  assert.equal(calls[0]?.headers["X-Naver-Client-Secret"], "test-naver-client-secret");
+  assert.equal(searchResult.candidates.length, 1);
+  assert.equal(searchResult.candidates[0]?.name, "거제바다낚시공원");
+  assert.deepEqual(searchResult.candidates[0]?.coordinate, { lat: 34.8123, lng: 128.7021 });
+  assert.equal(searchResult.candidates[0]?.source, "naver_local");
+  assert.match(searchResult.candidates[0]?.sourceRef ?? "", /^naver_local:/);
+
+  let providerCalled = false;
+  const sourceBackedResult = await searchPlanmePlaceCandidates(
+    {
+      destination: "거제",
+      stop: {
+        coordinate: { lat: 34.84, lng: 128.69 },
+        name: "검증된 장소",
+        placeSource: "naver_geocode",
+        placeSourceRef: "naver_geocode:verified:34.840000:128.690000",
+        role: "visit",
+      },
+    },
+    {
+      clientId: "test-naver-client-id",
+      clientSecret: "test-naver-client-secret",
+      fetchImpl: async () => {
+        providerCalled = true;
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      },
+    },
+  );
+
+  assert.equal(providerCalled, true);
+  assert.equal(sourceBackedResult.candidates[0]?.source, "naver_geocode");
 }
 
 /**
@@ -1726,7 +1847,7 @@ async function assertAiRecommendationPlaceCandidateDecisionContract(): Promise<v
     "http://localhost:3000/api/gpt/itineraries/recommend",
     {
       destination: "거제",
-      durationDays: 2,
+      durationDays: 2, transportMode: "drive",
       origin: "강원도 양양",
       preferences: ["바다전망 숙소", "낚시"],
     },
@@ -1798,7 +1919,7 @@ async function assertAiRecommendationPlaceCandidateDecisionContract(): Promise<v
                   coordinate: { lat: 34.8123, lng: 128.7021 },
                   placeId: "places/geoje-fishing-park",
                   query: "거제 바다낚시",
-                  source: "google_text_search",
+                  source: "naver_local",
                   sourceRef:
                     "google_text_search:places/geoje-fishing-park:거제 바다낚시:34.812300:128.702100",
                   types: ["tourist_attraction"],
@@ -1824,20 +1945,21 @@ async function assertAiRecommendationPlaceCandidateDecisionContract(): Promise<v
 
   assert.equal(fishingStop?.coordinate?.lat, 34.8123);
   assert.equal(fishingStop?.placeId, "places/geoje-fishing-park");
-  assert.equal(fishingStop?.placeSource, "google_text_search");
+  assert.equal(fishingStop?.placeSource, "naver_local");
   assert.match(renderedPayload, /거제바다낚시공원/);
   assert.doesNotMatch(renderedPayload, /거제도 바다 낚시터/);
-  assert.equal(response.resolutionLogs?.[0]?.source, "google_text_search");
+  assert.equal(response.resolutionLogs?.[0]?.source, "naver_local");
   assert.equal(response.resolutionLogs?.[0]?.decisionStatus, "accepted");
 }
 
 /**
- * Verifies coordinate resolution failure returns clarification instead of a broken detail URL.
+ * Verifies an unresolved intermediate place is replaced at most twice and then excluded.
  */
-async function assertAiRecommendationClarificationContract(): Promise<void> {
+async function assertIntermediatePlaceExclusionContract(): Promise<void> {
+  const replacementAttempts: number[] = [];
   const response = await createAiRecommendedItineraryResponse(
     "http://localhost:3000/api/gpt/itineraries/recommend",
-    { destination: "거제", durationDays: 2, origin: "강원도 양양", preferences: ["낚시"] },
+    { destination: "거제", durationDays: 2, transportMode: "drive", origin: "강원도 양양", preferences: ["낚시"] },
     {
       accommodationCandidateSearcher: async () => [
         {
@@ -1882,19 +2004,24 @@ async function assertAiRecommendationClarificationContract(): Promise<void> {
         candidates: [],
         searchedQueries: ["거제 바다낚시", "거제 낚시터", "거제 낚시공원"],
       }),
+      replacementQuerySuggester: async ({ attempt }) => {
+        replacementAttempts.push(attempt);
+        return attempt === 1 ? "거제 낚시공원" : "거제 방파제 낚시";
+      },
     },
   );
 
-  assert.equal(isPlanmeClarificationResponse(response), true);
+  assertReadyRecommendation(response);
+  const renderedPayload = JSON.stringify(response.itinerary);
 
-  if (!isPlanmeClarificationResponse(response)) {
-    throw new Error("Expected PlanME clarification response");
-  }
-
-  assert.equal("pageUrl" in response, false);
-  assert.deepEqual(response.unresolvedStops, ["거제도 바다 낚시터"]);
-  assert.equal(response.clarificationContext.round, 1);
-  assert.ok(response.questions.length <= 2);
+  assert.deepEqual(replacementAttempts, [1, 2]);
+  assert.doesNotMatch(renderedPayload, /거제도 바다 낚시터/);
+  assert.equal(
+    response.resolutionLogs?.some(
+      (log) => log.originalName === "거제도 바다 낚시터" && log.decisionStatus === "rejected",
+    ),
+    true,
+  );
 }
 
 /**
@@ -1912,7 +2039,7 @@ async function assertSingleClarificationAnswerContract(): Promise<void> {
         unresolvedPlaces: ["거제도 바다 낚시터"],
       },
       destination: "거제",
-      durationDays: 2,
+      durationDays: 2, transportMode: "drive",
       origin: "강원도 양양",
       preferences: ["낚시"],
     },
@@ -1979,7 +2106,7 @@ async function assertFinalClarificationDecisionContract(): Promise<void> {
         unresolvedPlaces: ["거제도 바다 낚시터"],
       },
       destination: "거제",
-      durationDays: 2,
+      durationDays: 2, transportMode: "drive",
       origin: "강원도 양양",
       preferences: ["낚시"],
     },
@@ -2029,7 +2156,7 @@ async function assertFinalClarificationDecisionContract(): Promise<void> {
             coordinate: { lat: 34.8123, lng: 128.7021 },
             placeId: "places/geoje-final-fishing",
             query: "거제 방파제 낚시",
-            source: "google_text_search",
+            source: "naver_local",
             sourceRef:
               "google_text_search:places/geoje-final-fishing:거제 방파제 낚시:34.812300:128.702100",
             types: ["point_of_interest"],
@@ -2070,7 +2197,7 @@ async function assertFinalClarificationWithoutCandidateContract(): Promise<void>
         unresolvedPlaces: ["존재하지 않는 낚시터"],
       },
       destination: "거제",
-      durationDays: 2,
+      durationDays: 2, transportMode: "drive",
       origin: "강원도 양양",
       preferences: ["낚시"],
     },
@@ -2118,14 +2245,14 @@ async function assertFinalClarificationWithoutCandidateContract(): Promise<void>
 }
 
 /**
- * Verifies coordinate-only stops fail closed when no placeId or source reference exists.
+ * Verifies coordinate-only intermediate stops are excluded when no source reference exists.
  */
-async function assertCoordinateOnlyStopHardGateContract(): Promise<void> {
+async function assertCoordinateOnlyIntermediateExclusionContract(): Promise<void> {
   const response = await createAiRecommendedItineraryResponse(
     "http://localhost:3000/api/gpt/itineraries/recommend",
     {
       destination: "거제",
-      durationDays: 2,
+      durationDays: 2, transportMode: "drive",
       origin: "강원도 양양",
       title: "좌표만 있는 장소 차단 테스트",
       days: [
@@ -2153,17 +2280,27 @@ async function assertCoordinateOnlyStopHardGateContract(): Promise<void> {
     },
     {
       accommodationCandidateSearcher: async () => [],
+      placeCandidateSearcher: async ({ stop }) => ({
+        candidates: [],
+        searchedQueries: [stop.name],
+      }),
+      replacementQuerySuggester: async () => null,
     },
   );
 
-  assert.equal(isPlanmeClarificationResponse(response), true);
-
-  if (!isPlanmeClarificationResponse(response)) {
-    throw new Error("Expected hard gate clarification response");
-  }
-
-  assert.equal("pageUrl" in response, false);
-  assert.equal(response.validationIssues[0]?.code, "place_source_missing");
+  assertReadyRecommendation(response);
+  const firstDay = response.itinerary.days[0];
+  assert.equal(
+    firstDay?.standard.stops.some((stop) => stop.label === "좌표만 있는 장소"),
+    false,
+  );
+  assert.doesNotMatch(JSON.stringify(firstDay?.timeline), /좌표만 있는 장소/);
+  assert.equal(
+    response.resolutionLogs?.some(
+      (log) => log.originalName === "좌표만 있는 장소" && log.decisionStatus === "rejected",
+    ),
+    true,
+  );
 }
 
 /**
@@ -2171,6 +2308,7 @@ async function assertCoordinateOnlyStopHardGateContract(): Promise<void> {
  */
 function assertDraftGeoPathRequiresCompleteCoordinates(): void {
   const preview = createPlanmeDraftPreview({
+    transportMode: "drive",
     title: "거제 좌표 누락 테스트",
     region: "거제",
     duration: "1박 2일",
@@ -2210,6 +2348,7 @@ function assertDraftGeoPathRequiresCompleteCoordinates(): void {
  */
 function assertDraftPreviewSlugContract(): void {
   const preview = createPlanmeDraftPreview({
+    transportMode: "drive",
     title: "남해 2일 가족 여행",
     region: "경상남도 남해",
     duration: "2일",
@@ -2250,6 +2389,7 @@ function assertDraftPreviewSlugContract(): void {
  */
 function assertStationLuggageGuardrail(): void {
   const problematicDraft = createPlanmeDraftPreview({
+    transportMode: "transit",
     title: "부산 가족 여행 1박 2일 초안",
     region: "부산",
     duration: "1박 2일",
@@ -2316,7 +2456,7 @@ function assertStationLuggageGuardrail(): void {
 
   const generatedBusan = createGeneratedItinerary({
     destination: "부산",
-    durationDays: 2,
+    durationDays: 2, transportMode: "drive",
     origin: "서울역",
     preferences: ["감천문화마을"],
   });
@@ -2344,7 +2484,7 @@ async function assertPreviewStoreHandoffFailsClosed(): Promise<void> {
         persistItineraryForDetailPage(
           createGeneratedItinerary({
             destination: "여수",
-            durationDays: 2,
+            durationDays: 2, transportMode: "drive",
             origin: "서울",
           }),
         ),
@@ -2402,12 +2542,12 @@ async function assertUsageCounterContract(): Promise<void> {
     url: "https://example-upstash.test",
   });
 
-  await upstashRecorder("google_places_request", 4);
+  await upstashRecorder("naver_local_search_request", 4);
 
   assert.equal(capturedUrl, "https://example-upstash.test/pipeline");
   assert.equal(capturedAuthorization, "Bearer test-upstash-token");
   assert.match(capturedBody, /INCRBY/);
-  assert.match(capturedBody, /planme:usage:2026-07-09:google_places_request/);
+  assert.match(capturedBody, /planme:usage:2026-07-09:naver_local_search_request/);
   assert.match(capturedBody, /EXPIRE/);
   assert.doesNotMatch(capturedBody, /test-upstash-token/);
 }
@@ -2457,15 +2597,16 @@ async function assertGptsActionsRestFacade(): Promise<void> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         destination: "여수",
-        durationDays: 2,
+        durationDays: 2, transportMode: "drive",
         origin: "서울",
       }),
     });
     const recommendationText = await recommendationResponse.text();
 
-    // Without OPENAI_API_KEY, the REST facade should fail closed instead of returning a fake URL.
-    assert.equal(recommendationResponse.status, 500);
-    assert.match(recommendationText, /OPENAI_API_KEY_REQUIRED/);
+    // Required anchors fail closed before AI generation when provider coordinates are unavailable.
+    assert.equal(recommendationResponse.status, 200);
+    assert.match(recommendationText, /needs_clarification/);
+    assert.match(recommendationText, /출발지|목적지/);
     assert.doesNotMatch(recommendationText, /\/itinerary\//);
   } finally {
     server.close();
@@ -2511,16 +2652,13 @@ async function main(): Promise<void> {
   await assertAccommodationCandidateContract();
   await assertAiRecommendationCoordinateResolutionContract();
   await assertProviderAddressLabelDoesNotReplacePlaceName();
-  await assertNaverOnlyVisitRequiresCandidateContract();
+  await assertNaverGeocodedVisitHardGateContract();
   await assertThreeDayAiDraftContract();
-  await assertGoogleMapsKeyFallbackContract();
+  await assertNaverAccommodationSearchContract();
   await assertPlaceCandidateSearchContract();
   await assertAiRecommendationPlaceCandidateDecisionContract();
-  await assertAiRecommendationClarificationContract();
-  await assertSingleClarificationAnswerContract();
-  await assertFinalClarificationDecisionContract();
-  await assertFinalClarificationWithoutCandidateContract();
-  await assertCoordinateOnlyStopHardGateContract();
+  await assertIntermediatePlaceExclusionContract();
+  await assertCoordinateOnlyIntermediateExclusionContract();
   assertDraftPreviewSlugContract();
   assertDraftGeoPathRequiresCompleteCoordinates();
   assertStationLuggageGuardrail();
@@ -2578,7 +2716,7 @@ async function main(): Promise<void> {
       name: "start_planme_planning",
       arguments: {
         destination: "여수",
-        durationDays: 2,
+        durationDays: 2, transportMode: "drive",
         origin: "서울",
       },
     });
@@ -2593,15 +2731,16 @@ async function main(): Promise<void> {
       name: "recommend_planme_itinerary",
       arguments: {
         destination: "남해 아이 동반 가족여행",
-        durationDays: 2,
+        durationDays: 2, transportMode: "drive",
         travelerCount: 4,
         luggageCount: 2,
       },
     });
     const missingAiGeneratorPayload = JSON.stringify(missingAiGeneratorRecommendation);
 
-    assert.equal(missingAiGeneratorRecommendation.isError, true);
-    assert.match(missingAiGeneratorPayload, /OPENAI_API_KEY/);
+    assert.equal(missingAiGeneratorRecommendation.isError, undefined);
+    assert.match(missingAiGeneratorPayload, /needs_clarification/);
+    assert.match(missingAiGeneratorPayload, /출발지/);
     assert.doesNotMatch(missingAiGeneratorPayload, /인천공항/);
     assert.doesNotMatch(missingAiGeneratorPayload, /여수 베네치아 호텔/);
     assert.doesNotMatch(missingAiGeneratorPayload, /부산 공연장/);
