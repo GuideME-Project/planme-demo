@@ -413,7 +413,7 @@ export function createPlanmeMcpServer(): McpServer {
     {
       title: "Recommend PlanME itinerary",
       description:
-        "Generate a PlanME itinerary server-side and render the widget. Do not pass ChatGPT-authored days or timeline events; this MCP server calls OpenAI internally and then saves the generated itinerary for the detail page. CarryME luggage handoff points must be lodging, hotels, or explicit pickup points, not plain train/subway stations, terminals, or airports.",
+        "Generate and save a PlanME itinerary server-side. Do not render a widget from this tool. If the response status is needs_clarification, ask the returned question in chat. If the response status is ready, call get_planme_itinerary exactly once with the returned itineraryId to render the widget. Do not pass ChatGPT-authored days or timeline events; this MCP server calls OpenAI internally and then saves the generated itinerary for the detail page. CarryME luggage handoff points must be lodging, hotels, or explicit pickup points, not plain train/subway stations, terminals, or airports.",
       inputSchema: {
         destination: z
           .string()
@@ -444,10 +444,6 @@ export function createPlanmeMcpServer(): McpServer {
       },
       outputSchema: itinerarySummarySchema,
       _meta: {
-        ui: {
-          resourceUri: PLANME_WIDGET_URI,
-        },
-        "openai/outputTemplate": PLANME_WIDGET_URI,
         "openai/toolInvocation/invoking": "PlanME 일정을 구성하는 중입니다.",
         "openai/toolInvocation/invoked": "PlanME 일정이 준비됐습니다.",
       },
@@ -536,16 +532,15 @@ export function createPlanmeMcpServer(): McpServer {
 
       const structuredContent = toItinerarySummary(response);
 
-      // Return a concise text fallback for clients that do not render the widget.
+      // The model calls the widget-only lookup tool after this server-side generation succeeds.
       return {
         structuredContent,
         content: [
           {
             type: "text" as const,
-            text: `${response.title}: CarryME 이용 시 ${response.summary}. 상세 일정은 ${response.pageUrl}에서 확인할 수 있습니다.`,
+            text: `${response.title} 일정 생성과 저장이 완료됐습니다. get_planme_itinerary를 itineraryId ${response.itineraryId}로 한 번 호출해 일정 위젯을 표시하세요.`,
           },
         ],
-        _meta: toWidgetMeta(response.itinerary, response.pageUrl),
       };
     },
   );
@@ -555,7 +550,8 @@ export function createPlanmeMcpServer(): McpServer {
     "get_planme_itinerary",
     {
       title: "Get PlanME itinerary",
-      description: "Get a PlanME itinerary by id and render the timeline widget.",
+      description:
+        "Render a ready PlanME itinerary in the timeline widget. Call exactly once after recommend_planme_itinerary returns status ready.",
       inputSchema: {
         itineraryId: z.string().min(1),
       },
