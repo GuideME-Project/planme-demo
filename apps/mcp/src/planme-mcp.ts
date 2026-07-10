@@ -61,6 +61,36 @@ const planningQuestionSchema = z.object({
   examples: z.array(z.string()),
 });
 
+const appTransportModeSchema = z
+  .enum(["drive", "transit", "자동차", "대중교통"])
+  .describe(
+    "일정 전체 이동 수단입니다. 사용자가 자동차를 선택하면 자동차 또는 drive, 대중교통을 선택하면 대중교통 또는 transit으로 전달하세요.",
+  );
+
+type AppTransportMode = z.infer<typeof appTransportModeSchema>;
+type AppPlanmePlanningRequest = Omit<PlanmePlanningRequest, "transportMode"> & {
+  transportMode?: AppTransportMode;
+};
+type AppRecommendItineraryRequest = Omit<RecommendItineraryRequest, "transportMode"> & {
+  transportMode: AppTransportMode;
+};
+
+/**
+ * Converts Apps tool choices into the internal itinerary transport-mode values.
+ */
+function normalizeAppTransportMode(value: AppTransportMode): RecommendItineraryRequest["transportMode"] {
+  // Apps can repeat Korean choices, while the itinerary generator requires internal values.
+  if (value === "자동차") {
+    return "drive";
+  }
+
+  if (value === "대중교통") {
+    return "transit";
+  }
+
+  return value;
+}
+
 const itinerarySummarySchema = {
   clarificationContext: z
     .object({
@@ -341,7 +371,7 @@ export function createPlanmeMcpServer(): McpServer {
         travelerCount: z.number().int().min(1).max(20).optional(),
         luggageCount: z.number().int().min(0).max(20).optional(),
         preferences: z.array(z.string()).optional(),
-        transportMode: z.enum(["drive", "transit"]).optional(),
+        transportMode: appTransportModeSchema.optional(),
         theme: z.enum(["light", "dark"]).optional(),
       },
       outputSchema: planningAssessmentSchema,
@@ -350,8 +380,14 @@ export function createPlanmeMcpServer(): McpServer {
         "openai/toolInvocation/invoked": "PlanME 일정 질문이 준비됐습니다.",
       },
     },
-    async (input: PlanmePlanningRequest) => {
-      const assessment = assessPlanmePlanningInput(input);
+    async (input: AppPlanmePlanningRequest) => {
+      const normalizedInput: PlanmePlanningRequest = {
+        ...input,
+        transportMode: input.transportMode
+          ? normalizeAppTransportMode(input.transportMode)
+          : undefined,
+      };
+      const assessment = assessPlanmePlanningInput(normalizedInput);
 
       // This preflight tool does not render the widget; it tells ChatGPT what to ask next.
       return {
@@ -394,9 +430,7 @@ export function createPlanmeMcpServer(): McpServer {
           .array(z.string())
           .optional()
           .describe("User preferences like 아이 동반 or 바다 전망."),
-        transportMode: z
-          .enum(["drive", "transit"])
-          .describe("One itinerary-wide mode selected by the user."),
+        transportMode: appTransportModeSchema,
         clarificationAnswers: z.union([z.string(), z.array(z.string())]).optional(),
         clarificationContext: z
           .object({
@@ -418,13 +452,17 @@ export function createPlanmeMcpServer(): McpServer {
         "openai/toolInvocation/invoked": "PlanME 일정이 준비됐습니다.",
       },
     },
-    async (input: RecommendItineraryRequest) => {
+    async (input: AppRecommendItineraryRequest) => {
+      const normalizedInput: RecommendItineraryRequest = {
+        ...input,
+        transportMode: normalizeAppTransportMode(input.transportMode),
+      };
       let response: PlanmeRecommendationResponse;
 
       try {
         response = await createAiRecommendedItineraryResponse(
           getPlanmeWebRequestUrl(),
-          input,
+          normalizedInput,
           {
             draftGeocoder: hasNaverGeocoderRuntimeConfig()
               ? createNaverGeocoder({ usageRecorder })
