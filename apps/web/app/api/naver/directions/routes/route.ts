@@ -67,7 +67,7 @@ const routeCache = new Map<string, CachedRoute>();
 const routeCacheTtlMs = 10 * 60 * 1000;
 
 /**
- * Returns the key id used by Naver Maps REST APIs.
+ * Reuses the browser-safe Naver Maps key id when a dedicated server alias is absent.
  */
 function getNaverMapsKeyId() {
   return (
