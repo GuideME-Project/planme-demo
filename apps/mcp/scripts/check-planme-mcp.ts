@@ -2743,11 +2743,20 @@ async function main(): Promise<void> {
 
     const recommendTool = tools.tools.find((tool) => tool.name === "recommend_planme_itinerary");
     const recommendInputSchema = recommendTool?.inputSchema as
-      | { properties?: Record<string, object> }
+      | {
+          properties?: Record<string, { enum?: string[]; description?: string }>;
+        }
       | undefined;
 
     assert.ok(recommendInputSchema?.properties);
     assert.equal("days" in recommendInputSchema.properties, false);
+    assert.deepEqual(recommendInputSchema.properties.transportMode?.enum, [
+      "drive",
+      "transit",
+      "자동차",
+      "대중교통",
+    ]);
+    assert.match(recommendInputSchema.properties.transportMode?.description ?? "", /자동차.*drive/);
 
     const planningDraft = await client.callTool({
       name: "start_planme_planning",
@@ -2781,6 +2790,20 @@ async function main(): Promise<void> {
     assert.equal(readyPlanningContent?.status, "ready");
     assert.equal(readyPlanningContent?.nextAction, "recommend_planme_itinerary");
     assert.deepEqual(readyPlanningContent?.missingSlots, []);
+
+    const koreanPlanning = await client.callTool({
+      name: "start_planme_planning",
+      arguments: {
+        destination: "여수",
+        durationDays: 2,
+        transportMode: "대중교통",
+        origin: "서울",
+      },
+    });
+    const koreanPlanningContent = koreanPlanning.structuredContent as PlanningContent | undefined;
+
+    assert.equal(koreanPlanning.isError, undefined);
+    assert.equal(koreanPlanningContent?.normalizedInput?.transportMode, "transit");
 
     const missingAiGeneratorRecommendation = await client.callTool({
       name: "recommend_planme_itinerary",
@@ -2872,6 +2895,8 @@ async function main(): Promise<void> {
       assert.match(firstResource.text, /toolOutput/);
       assert.match(firstResource.text, /openai:set_globals/);
       assert.match(firstResource.text, /ui\/notifications\/tool-result/);
+      assert.match(firstResource.text, /needs_clarification/);
+      assert.match(firstResource.text, /일정 생성 전 확인 필요/);
       assert.doesNotMatch(firstResource.text, /부산 1박 2일/);
       assert.doesNotMatch(firstResource.text, /인천공항 도착/);
       assert.doesNotMatch(firstResource.text, /planme-route-preview/);

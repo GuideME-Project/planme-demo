@@ -237,7 +237,7 @@ export function createPlanmeWidgetHtml(): string {
     <script type="application/json" id="planme-fallback">${serializeForScript(emptyItinerary)}</script>
     <script>
       const fallbackItinerary = JSON.parse(document.getElementById("planme-fallback").textContent);
-      let latestToolResultItinerary = null;
+      let latestToolResult = null;
 
 	      function escapeText(value) {
 	        return String(value ?? "")
@@ -271,13 +271,30 @@ export function createPlanmeWidgetHtml(): string {
 	        );
 	      }
 
-	      function getWidgetItinerary() {
-	        const bridge = window.openai;
-	        const metadataItinerary = pickItinerary(bridge?.toolResponseMetadata);
-	        const outputItinerary = pickItinerary(bridge?.toolOutput);
+	      function getStructuredContent(value) {
+	        if (!value || typeof value !== "object") {
+	          return null;
+	        }
 
-	        // ChatGPT can deliver tool output after iframe load, so cache the latest bridge result.
-	        return latestToolResultItinerary || metadataItinerary || outputItinerary || fallbackItinerary;
+	        return value.structuredContent || value;
+	      }
+
+	      function getWidgetResult() {
+	        const bridge = window.openai;
+	        const results = [latestToolResult, bridge?.toolOutput, bridge?.toolResponseMetadata];
+
+	        // Prefer a result containing itinerary data or a clarification over empty bridge metadata.
+	        return results.find((result) => pickItinerary(result) || getClarification(result)) || null;
+	      }
+
+	      function getWidgetItinerary(result) {
+	        return pickItinerary(result) || fallbackItinerary;
+	      }
+
+	      function getClarification(result) {
+	        const content = getStructuredContent(result);
+
+	        return content?.status === "needs_clarification" ? content : null;
 	      }
 
 	      function renderTimeline(timeline) {
@@ -299,10 +316,36 @@ export function createPlanmeWidgetHtml(): string {
 	      }
 
 	      function renderPlanmeWidget() {
-	        const itinerary = getWidgetItinerary();
+	        const result = getWidgetResult();
+	        const clarification = getClarification(result);
+	        const itinerary = getWidgetItinerary(result);
 	        const firstDay = itinerary.days?.[0] || fallbackItinerary.days[0];
 	        const standard = firstDay.standard || fallbackItinerary.days[0].standard;
 	        const carryme = firstDay.carryme || fallbackItinerary.days[0].carryme;
+	        const link = document.querySelector("[data-planme-link]");
+
+	        if (clarification) {
+	          const question = clarification.questions?.[0] || clarification.message || "장소를 다시 알려주세요.";
+
+	          setText("[data-planme-title]", "일정 생성 전 확인 필요");
+	          setText("[data-planme-saving]", "추가 정보 필요");
+	          setText("[data-planme-standard]", "장소 확인이 필요합니다.");
+	          setText("[data-planme-carryme]", "답변을 받으면 일정을 이어서 만들 수 있습니다.");
+	          setText("[data-planme-carryme-duration]", "확인 필요");
+
+	          if (link) {
+	            link.hidden = true;
+	          }
+
+	          renderTimeline([
+	            {
+	              time: "확인",
+	              title: clarification.message || "장소 확인이 필요합니다.",
+	              description: question,
+	            },
+	          ]);
+	          return;
+	        }
 
 	        setText("[data-planme-title]", String(itinerary.region ?? "") + " " + String(itinerary.duration ?? ""));
 	        setText("[data-planme-saving]", itinerary.savedDurationLabel);
@@ -310,9 +353,8 @@ export function createPlanmeWidgetHtml(): string {
 	        setText("[data-planme-carryme]", String(carryme.routeText ?? "") + " · " + String(carryme.durationLabel ?? ""));
         setText("[data-planme-carryme-duration]", carryme.durationLabel);
 
-        const link = document.querySelector("[data-planme-link]");
-
         if (link) {
+          link.hidden = false;
           link.href = String(itinerary.detailUrl ?? fallbackItinerary.detailUrl);
         }
 
@@ -330,7 +372,7 @@ export function createPlanmeWidgetHtml(): string {
 	          return;
 	        }
 
-	        latestToolResultItinerary = pickItinerary(message.params) || latestToolResultItinerary;
+	        latestToolResult = message.params || latestToolResult;
 	        renderPlanmeWidget();
 	      }
 
