@@ -1,9 +1,11 @@
 import type { RecommendItineraryRequest } from "./gpt-actions.js";
+import type { PlanmeTransportMode } from "./mock-data.js";
 
 export type PlanmePlanningSlot =
   | "destination"
   | "origin"
   | "durationDays"
+  | "transportMode"
   | "hotelName"
   | "preferences";
 
@@ -25,11 +27,12 @@ export type PlanmePlanningAssessment = {
     durationDays: number | null;
     hotelName: string | null;
     preferences: string[];
+    transportMode: PlanmeTransportMode | null;
   };
   nextAction: "ask_user" | "recommend_planme_itinerary";
 };
 
-export type PlanmePlanningRequest = RecommendItineraryRequest & {
+export type PlanmePlanningRequest = Partial<RecommendItineraryRequest> & {
   message?: string;
 };
 
@@ -46,6 +49,7 @@ export function assessPlanmePlanningInput(
     hotelName: normalizeOptionalText(input.hotelName),
     origin: normalizeOptionalText(input.origin),
     preferences: normalizePreferences(input.preferences),
+    transportMode: normalizeTransportMode(input.transportMode),
   };
   const missingSlots = getMissingRequiredSlots(normalizedInput);
   const requiredQuestions = missingSlots.map(createRequiredQuestion);
@@ -96,6 +100,13 @@ function normalizePreferences(preferences: string[] | undefined) {
 }
 
 /**
+ * Keeps only the two user-facing itinerary transport modes.
+ */
+function normalizeTransportMode(value: PlanmeTransportMode | undefined) {
+  return value === "drive" || value === "transit" ? value : null;
+}
+
+/**
  * Finds missing required slots without treating a known arrival airport as missing origin.
  */
 function getMissingRequiredSlots(
@@ -113,6 +124,10 @@ function getMissingRequiredSlots(
 
   if (!normalizedInput.durationDays) {
     missingSlots.push("durationDays");
+  }
+
+  if (!normalizedInput.transportMode) {
+    missingSlots.push("transportMode");
   }
 
   return missingSlots;
@@ -137,6 +152,15 @@ function createRequiredQuestion(slot: PlanmePlanningSlot): PlanmePlanningQuestio
       text: "일정은 당일인가요, 1박 2일인가요?",
       required: true,
       examples: ["당일", "1박 2일", "2박 3일"],
+    };
+  }
+
+  if (slot === "transportMode") {
+    return {
+      slot,
+      text: "일정 안내는 자동차와 대중교통만 지원합니다. 어떤 이동 수단으로 안내할까요?",
+      required: true,
+      examples: ["자동차", "대중교통"],
     };
   }
 

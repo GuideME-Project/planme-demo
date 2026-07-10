@@ -5,6 +5,7 @@ import type {
   MapPoint,
   PlanmeItinerary,
   PlanmeRowMode,
+  PlanmeTransportMode,
   PlanmeStopRole,
   RoutePlan,
   RouteStop,
@@ -21,6 +22,8 @@ export type PlanmeDraftStop = {
   placeId?: string;
   placeSource?: PlanmePlaceCandidateSource;
   placeSourceRef?: string;
+  mode?: PlanmeRowMode;
+  requiredPlaceKind?: "origin" | "destination";
 };
 
 export type PlanmeDraftRouteStop = {
@@ -33,6 +36,7 @@ export type PlanmeDraftRouteStop = {
   placeSource?: PlanmePlaceCandidateSource;
   placeSourceRef?: string;
   role?: PlanmeStopRole;
+  requiredPlaceKind?: "origin" | "destination";
 };
 
 export type PlanmeDraftTimelineEvent = {
@@ -69,6 +73,7 @@ export type PlanmeDraftPreviewRequest = {
   origin?: string;
   assumptions?: string[];
   savedMinutes?: number;
+  transportMode: PlanmeTransportMode;
   days: PlanmeDraftDay[];
 };
 
@@ -339,6 +344,7 @@ function buildDraftItinerary(
     carrymeSaving: formatCarrymeSavingLabel(savedMinutes),
     totalDurationLabel: `${firstDay.standard.durationLabel} → ${firstDay.carryme.durationLabel}`,
     savedDurationLabel: formatCarrymeSavingLabel(savedMinutes),
+    transportMode: input.transportMode,
     days,
     benefits: createDraftBenefits(region, input.assumptions ?? []),
   };

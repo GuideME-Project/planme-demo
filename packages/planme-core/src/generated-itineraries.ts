@@ -4,6 +4,7 @@ import {
   type ItineraryDay,
   type MapCoordinate,
   type PlanmeItinerary,
+  type PlanmeTransportMode,
   type RouteStop,
   type TimelineEvent,
 } from "./mock-data.js";
@@ -19,6 +20,7 @@ export type GeneratedItineraryRequest = {
   travelerCount?: number;
   luggageCount?: number;
   preferences?: string[];
+  transportMode: PlanmeTransportMode;
 };
 
 type DestinationTemplate = {
@@ -58,6 +60,7 @@ type NormalizedGeneratedItineraryRequest = {
   travelerCount: number;
   luggageCount: number;
   preferences: string[];
+  transportMode: PlanmeTransportMode;
 };
 
 const generatedItineraryStore = new Map<string, PlanmeItinerary>();
@@ -206,6 +209,7 @@ export function createGeneratedItinerary(input: GeneratedItineraryRequest): Plan
     carrymeSaving: `약 ${savingMinutes}분 절약 예상`,
     totalDurationLabel: `${formatMinutes(standardMinutes)} → ${formatMinutes(carrymeMinutes)}`,
     savedDurationLabel: `약 ${savingMinutes}분 절약`,
+    transportMode: normalizedInput.transportMode,
     days: normalizedInput.durationDays > 1 ? [dayOne, dayTwo] : [dayOne],
     benefits: createGeneratedBenefits({
       destinationLabel: destinationTemplate.destinationLabel,
@@ -272,7 +276,7 @@ export function getPlanmeItineraryById(id: string): PlanmeItinerary | null {
     return generatedItinerary;
   }
 
-  return getItineraryById(itineraryId) ?? createFallbackGeneratedItineraryFromId(itineraryId);
+  return getItineraryById(itineraryId);
 }
 
 /**
@@ -299,6 +303,7 @@ function normalizeGeneratedItineraryRequest(
     mainEventNameOverride: routeDestination?.mainEventName,
     origin,
     preferences: preferenceHints.preferences,
+    transportMode: input.transportMode,
     travelerCount: clampInteger(input.travelerCount ?? 1, 1, 20),
   };
 }
@@ -1243,31 +1248,4 @@ function decodeItineraryId(id: string) {
     // Malformed encoded ids should fall through to the normal not-found behavior.
     return id;
   }
-}
-
-/**
- * Recreates a minimal generated itinerary from a generated id after process memory is lost.
- */
-function createFallbackGeneratedItineraryFromId(id: string) {
-  const match = /^generated-(.+)-(\d+)d-[a-z0-9]+$/.exec(id);
-
-  if (!match) {
-    return null;
-  }
-
-  const slugParts = match[1].split("-");
-  const durationDays = Number(match[2]);
-  const destination = slugParts[0] ?? "부산";
-  const remainingSlugParts = slugParts.slice(1);
-  const originIndex = remainingSlugParts.findIndex(isKnownOrigin);
-  const origin = originIndex >= 0 ? remainingSlugParts[originIndex] : undefined;
-  const preference =
-    remainingSlugParts.filter((_, index) => index !== originIndex).join(" ") || undefined;
-
-  return createGeneratedItinerary({
-    destination,
-    durationDays,
-    origin,
-    preferences: preference ? [preference] : undefined,
-  });
 }

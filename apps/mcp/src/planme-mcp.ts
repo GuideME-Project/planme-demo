@@ -49,6 +49,7 @@ const planningSlotSchema = z.enum([
   "destination",
   "origin",
   "durationDays",
+  "transportMode",
   "hotelName",
   "preferences",
 ]);
@@ -81,7 +82,6 @@ const itinerarySummarySchema = {
         decisionStatus: z.string(),
         originalName: z.string(),
         query: z.string().optional(),
-        radiusMeters: z.number().optional(),
         reason: z.string(),
         resolvedName: z.string().optional(),
         source: z.string(),
@@ -90,6 +90,7 @@ const itinerarySummarySchema = {
     .optional(),
   savedMinutes: z.number().optional(),
   standardTotalMinutes: z.number().optional(),
+  transportMode: z.enum(["drive", "transit"]).optional(),
   status: z.enum(["ready", "needs_clarification"]),
   summary: z.string().optional(),
   timeline: z.array(timelineEventSchema).optional(),
@@ -109,6 +110,7 @@ const planningAssessmentSchema = {
     durationDays: z.number().nullable(),
     hotelName: z.string().nullable(),
     preferences: z.array(z.string()),
+    transportMode: z.enum(["drive", "transit"]).nullable(),
   }),
   nextAction: z.enum(["ask_user", "recommend_planme_itinerary"]),
 };
@@ -124,6 +126,7 @@ type ItinerarySummary = {
   resolutionLogs?: PlanmeClarificationResponse["resolutionLogs"];
   savedMinutes?: number;
   standardTotalMinutes?: number;
+  transportMode?: "drive" | "transit";
   status: "ready" | "needs_clarification";
   summary?: string;
   timeline?: Array<{
@@ -153,6 +156,7 @@ function toItinerarySummary(response: GptActionItineraryResponse): ItinerarySumm
     resolutionLogs: response.resolutionLogs,
     savedMinutes: response.savedMinutes,
     standardTotalMinutes: response.standardTotalMinutes,
+    transportMode: response.itinerary.transportMode,
     status: "ready",
     summary: response.summary,
     timeline: firstDay.timeline,
@@ -337,6 +341,7 @@ export function createPlanmeMcpServer(): McpServer {
         travelerCount: z.number().int().min(1).max(20).optional(),
         luggageCount: z.number().int().min(0).max(20).optional(),
         preferences: z.array(z.string()).optional(),
+        transportMode: z.enum(["drive", "transit"]).optional(),
         theme: z.enum(["light", "dark"]).optional(),
       },
       outputSchema: planningAssessmentSchema,
@@ -376,9 +381,9 @@ export function createPlanmeMcpServer(): McpServer {
       inputSchema: {
         destination: z
           .string()
-          .optional()
-          .describe("Region or city only, such as 남해 or 여수."),
-        durationDays: z.number().int().min(1).max(14).optional(),
+          .min(1)
+          .describe("A Korean region, city, or user-selected place such as 경주월드."),
+        durationDays: z.number().int().min(1).max(14),
         arrivalAirport: z.string().optional(),
         arrivalTime: z.string().optional(),
         hotelName: z.string().optional(),
@@ -389,6 +394,9 @@ export function createPlanmeMcpServer(): McpServer {
           .array(z.string())
           .optional()
           .describe("User preferences like 아이 동반 or 바다 전망."),
+        transportMode: z
+          .enum(["drive", "transit"])
+          .describe("One itinerary-wide mode selected by the user."),
         clarificationAnswers: z.union([z.string(), z.array(z.string())]).optional(),
         clarificationContext: z
           .object({

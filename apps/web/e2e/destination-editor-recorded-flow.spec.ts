@@ -1,749 +1,209 @@
 import { expect, test, type Page } from "@playwright/test";
 
-type PlaceDetailsPayload = {
-  message?: string;
-  place?: {
+type RouteRequestBody = {
+  stops?: Array<{
     coordinate?: { lat: number; lng: number };
-    text?: string;
-  };
+    mode?: string;
+    name?: string;
+  }>;
 };
 
+const naverRouteRequests: RouteRequestBody[] = [];
 const odsayRequestUrls: string[] = [];
-const naverDriveRequestUrls: string[] = [];
-const tmapRouteRequestUrls: string[] = [];
-let forceOdsayFailure = false;
-let forceJeongeupTransitRateLimit = false;
+let failStandardNaverRoute = false;
 
-const routePath = [
-  { lat: 37.4602, lng: 126.4407 },
-  { lat: 36.35, lng: 127.38 },
-  { lat: 35.5682, lng: 126.856 },
-  { lat: 35.1796, lng: 129.0756 },
-  { lat: 35.16, lng: 129.06 },
-];
+/**
+ * Returns a drawable provider path without using an external route quota.
+ */
+function createMockPath(body: RouteRequestBody) {
+  const coordinates = (body.stops ?? [])
+    .map((stop) => stop.coordinate)
+    .filter((coordinate): coordinate is { lat: number; lng: number } => Boolean(coordinate));
 
-const localDrivingPlaces = {
-  arisuRoad: {
-    coordinate: { lat: 37.5457, lng: 127.1781 },
-    mainText: "아리수로50길",
-    placeId: "place-arisu-road",
-    secondaryText: "경기도 하남시 아리수로50길",
-    text: "아리수로50길",
-  },
-  dongtanLakePark: {
-    coordinate: { lat: 37.1729, lng: 127.1059 },
-    mainText: "동탄호수공원",
-    placeId: "place-dongtan-lake-park",
-    secondaryText: "경기도 화성시 동탄순환대로",
-    text: "동탄호수공원",
-  },
-  yeosuHotelHaven: {
-    coordinate: { lat: 34.7369, lng: 127.7434 },
-    mainText: "여수호텔헤이븐",
-    placeId: "place-yeosu-hotel-haven",
-    secondaryText: "전라남도 여수시 돌산읍 진두해안길",
-    text: "여수호텔헤이븐",
-  },
-};
+  if (coordinates.length > 2) {
+    return coordinates;
+  }
 
-const busanToJeongeupTransitPath = {
-  result: {
-    path: [
+  if (coordinates.length === 2) {
+    return [
+      coordinates[0],
       {
-        info: {
-          totalDistance: 427600,
-          totalPayment: 57700,
-          totalTime: 145,
-          transitCount: 2,
-        },
-        subPath: [
-          {
-            distance: 294300,
-            endName: "오송",
-            endX: 127.327583,
-            endY: 36.620099,
-            sectionTime: 99,
-            startName: "부산",
-            startX: 129.042217,
-            startY: 35.115209,
-            trafficType: 4,
-            trainType: 8,
-          },
-          {
-            distance: 133300,
-            endName: "정읍",
-            endX: 126.842395,
-            endY: 35.575529,
-            sectionTime: 46,
-            startName: "오송",
-            startX: 127.327583,
-            startY: 36.620099,
-            trafficType: 4,
-            trainType: 1,
-          },
-        ],
+        lat: (coordinates[0].lat + coordinates[1].lat) / 2,
+        lng: (coordinates[0].lng + coordinates[1].lng) / 2,
       },
-    ],
-  },
-};
-
-/**
- * Waits until the mocked ODsay request list stops changing.
- */
-async function waitForOdsayRequestsToSettle(minimumCount = 1) {
-  let previousCount = -1;
-  let stableSampleCount = 0;
-
-  await expect
-    .poll(
-      () => {
-        const currentCount = odsayRequestUrls.length;
-
-        // Route computations are queued; require several stable samples before reloading.
-        if (currentCount === previousCount) {
-          stableSampleCount += 1;
-        } else {
-          previousCount = currentCount;
-          stableSampleCount = 0;
-        }
-
-        return currentCount >= minimumCount && stableSampleCount >= 4;
-      },
-      {
-        intervals: [250, 250, 250, 500, 500, 500, 1_000, 1_000, 1_000],
-        timeout: 12_000,
-      },
-    )
-    .toBe(true);
-}
-
-/**
- * Checks whether a browser request is trying to use a TMAP route, SDK, or transit endpoint.
- */
-function isTmapRequestUrl(requestUrl: string) {
-  const url = new URL(requestUrl);
-
-  return (
-    url.pathname.startsWith("/api/tmap/") ||
-    url.hostname.includes("tmap") ||
-    url.hostname === "apis.openapi.sk.com" ||
-    url.hostname === "transit.tmapmobility.com"
-  );
-}
-
-/**
- * Ensures mocked route geometry is drawable by the map layer.
- */
-function createDrawableMockPath(path: Array<{ lat: number; lng: number }>) {
-  if (path.length !== 2) {
-    return path;
+      coordinates[1],
+    ];
   }
 
   return [
-    path[0],
-    {
-      lat: (path[0].lat + path[1].lat) / 2,
-      lng: (path[0].lng + path[1].lng) / 2,
-    },
-    path[1],
+    { lat: 37.2, lng: 127.09 },
+    { lat: 36.2, lng: 127.8 },
+    { lat: 35.84, lng: 129.28 },
   ];
 }
 
 /**
- * Mocks Google Places for the local route-editing scenario without using external quota.
+ * Installs provider-neutral Naver place and route mocks for editor regression tests.
  */
-async function mockLocalDrivingPlaces(page: Page) {
-  await page.route("**/api/places/autocomplete", async (route) => {
-    const body = route.request().postDataJSON() as { input?: string };
-    const input = body.input ?? "";
-    const place = input.includes("아리수로")
-      ? localDrivingPlaces.arisuRoad
-      : input.includes("여수")
-        ? localDrivingPlaces.yeosuHotelHaven
-        : localDrivingPlaces.dongtanLakePark;
+async function installProviderMocks(page: Page) {
+  await page.route("**/api/places/search", async (route) => {
+    const body = route.request().postDataJSON() as { query?: string };
+    const query = body.query?.trim() || "동탄호수공원";
 
     await route.fulfill({
       contentType: "application/json",
       json: {
         candidates: [
           {
-            mainText: place.mainText,
-            placeId: place.placeId,
-            secondaryText: place.secondaryText,
-            text: place.text,
+            address: "경기도 화성시 동탄순환대로 69",
+            candidateId: "naver_local:dongtan-lake-park:37.172900:127.105900",
+            coordinate: { lat: 37.1729, lng: 127.1059 },
+            id: "dongtan-lake-park",
+            name: query.includes("호수") ? "동탄호수공원" : query,
+            placeSource: "naver_local",
+            placeSourceRef: "naver_local:dongtan-lake-park:37.172900:127.105900",
           },
         ],
       },
     });
   });
 
-  await page.route("**/api/places/details", async (route) => {
-    const body = route.request().postDataJSON() as { placeId?: string };
-    const place =
-      body.placeId === localDrivingPlaces.arisuRoad.placeId
-        ? localDrivingPlaces.arisuRoad
-        : body.placeId === localDrivingPlaces.yeosuHotelHaven.placeId
-          ? localDrivingPlaces.yeosuHotelHaven
-          : localDrivingPlaces.dongtanLakePark;
-
-    await route.fulfill({
-      contentType: "application/json",
-      json: {
-        place: {
-          coordinate: place.coordinate,
-          placeId: place.placeId,
-          secondaryText: place.secondaryText,
-          text: place.text,
-        },
-      },
-    });
-  });
-}
-
-test.beforeEach(async ({ page }) => {
-  odsayRequestUrls.length = 0;
-  naverDriveRequestUrls.length = 0;
-  tmapRouteRequestUrls.length = 0;
-  forceOdsayFailure = false;
-  forceJeongeupTransitRateLimit = false;
-
-  await page.addInitScript(() => {
-    const resetMarkerKey = "planme:e2e:odsay-cache-cleared";
-
-    if (sessionStorage.getItem(resetMarkerKey)) {
-      return;
-    }
-
-    // Each test starts with an empty persistent cache, but page reloads keep it.
-    Object.keys(localStorage)
-      .filter(
-        (key) =>
-          key.startsWith("planme:odsay-cache:") ||
-          key.startsWith("planme:naver-route-cache:"),
-      )
-      .forEach((key) => localStorage.removeItem(key));
-    sessionStorage.setItem(resetMarkerKey, "true");
-  });
-
-  page.on("request", (request) => {
-    const requestUrl = request.url();
-
-    // E2E must use Naver for car routing and ODsay for transit, never TMAP.
-    if (isTmapRequestUrl(requestUrl)) {
-      tmapRouteRequestUrls.push(requestUrl);
-    }
-  });
-
   await page.route("**/api/naver/directions/routes", async (route) => {
-    naverDriveRequestUrls.push(route.request().url());
+    const body = route.request().postDataJSON() as RouteRequestBody;
+    naverRouteRequests.push(body);
 
-    const body = route.request().postDataJSON() as {
-      stops?: Array<{ coordinate?: { lat: number; lng: number }; mode?: string }>;
-    };
-    const stops = body.stops ?? [];
-
-    if (stops.slice(0, -1).some((stop) => stop.mode !== "drive")) {
+    if (failStandardNaverRoute && body.stops?.[1]?.name === "서면 호텔") {
       await route.fulfill({
         contentType: "application/json",
-        json: {
-          message:
-            "Naver Directions 자동차 경로 API는 자동차 구간만 처리합니다. 대중교통은 ODsay 경로를 사용합니다.",
-          ok: false,
-        },
-        status: 400,
+        json: { message: "강제 실패", ok: false },
+        status: 502,
       });
       return;
     }
 
-    const path = stops
-      .map((stop) => stop.coordinate)
-      .filter((coordinate): coordinate is { lat: number; lng: number } => Boolean(coordinate));
-    const drawablePath = createDrawableMockPath(path.length > 1 ? path : routePath);
-
+    const path = createMockPath(body);
     await route.fulfill({
       contentType: "application/json",
       json: {
         ok: true,
-        path: drawablePath,
+        path,
         segments: [
           {
-            distanceMeters: 12000,
-            durationSeconds: 1800,
-            mode: stops[0]?.mode ?? "drive",
-            path: drawablePath,
-            paths: [drawablePath],
+            distanceMeters: 12_000,
+            durationSeconds: 1_800,
+            mode: "drive",
+            path,
+            paths: [path],
           },
         ],
-        totalDistanceMeters: 12000,
+        totalDistanceMeters: 12_000,
         totalDurationLabel: "약 30분",
-        totalDurationSeconds: 1800,
+        totalDurationSeconds: 1_800,
       },
     });
   });
 
   await page.route("https://api.odsay.com/v1/api/**", async (route) => {
-    const url = new URL(route.request().url());
-    const endpoint = url.pathname.split("/").pop();
-
     odsayRequestUrls.push(route.request().url());
-
-    if (forceOdsayFailure) {
-      await route.fulfill({
-        contentType: "application/json",
-        json: { error: { code: "500", message: "Forced ODsay failure" } },
-      });
-      return;
-    }
-
-    if (endpoint === "trainTerminals") {
-      const terminalName = url.searchParams.get("terminalName") ?? "정읍";
-      const stations: Record<string, { stationID: number; stationName: string; x: number; y: number }> = {
-        부산: { stationID: 2, stationName: "부산", x: 129.0423, y: 35.1152 },
-        서울: { stationID: 1, stationName: "서울", x: 126.9707, y: 37.5547 },
-        정읍: { stationID: 3, stationName: "정읍", x: 126.856, y: 35.5682 },
-      };
-
-      await route.fulfill({
-        contentType: "application/json",
-        json: { result: stations[terminalName] ?? stations.정읍 },
-      });
-      return;
-    }
-
-    if (endpoint === "searchTrainPath") {
-      await route.fulfill({
-        contentType: "application/json",
-        json: {
-          result: {
-            path: [
-              {
-                info: { trainTravelDistance: 320000, trainTravelTime: 160 },
-                subPath: [
-                  {
-                    distance: 320000,
-                    sectionTime: 160,
-                    vertices: [
-                      { x: 126.9707, y: 37.5547 },
-                      { x: 127.3845, y: 36.3504 },
-                      { x: 126.856, y: 35.5682 },
-                      { x: 129.0423, y: 35.1152 },
-                    ],
-                  },
-                ],
-              },
-            ],
-          },
-        },
-      });
-      return;
-    }
-
-    if (endpoint === "searchPubTransPathT") {
-      const endLng = Number(url.searchParams.get("EX"));
-      const endLat = Number(url.searchParams.get("EY"));
-      const isJeongeupDestination =
-        Number.isFinite(endLng) &&
-        Number.isFinite(endLat) &&
-        Math.abs(endLng - 126.84265) < 0.02 &&
-        Math.abs(endLat - 35.57546) < 0.02;
-
-      if (isJeongeupDestination) {
-        if (forceJeongeupTransitRateLimit) {
-          await route.fulfill({
-            contentType: "application/json",
-            json: { error: { code: "429", message: "Too Many Requests" } },
-          });
-          return;
-        }
-
-        await route.fulfill({
-          contentType: "application/json",
-          json: busanToJeongeupTransitPath,
-        });
-        return;
-      }
-
-      await route.fulfill({
-        contentType: "application/json",
-        json: {
-          result: {
-            path: [
-              {
-                info: { mapObj: "mock-lane", totalDistance: 450000, totalTime: 280 },
-                subPath: [
-                  {
-                    distance: 450000,
-                    endX: 129.0756,
-                    endY: 35.1796,
-                    sectionTime: 280,
-                    startX: 126.4407,
-                    startY: 37.4602,
-                    trafficType: 1,
-                  },
-                ],
-              },
-            ],
-          },
-        },
-      });
-      return;
-    }
-
-    if (endpoint === "loadLane") {
-      await route.fulfill({
-        contentType: "application/json",
-        json: {
-          result: {
-            lane: [
-              {
-                section: [
-                  {
-                    graphPos: [
-                      { x: 126.4407, y: 37.4602 },
-                      { x: 127.3845, y: 36.3504 },
-                      { x: 126.8438, y: 35.5752 },
-                      { x: 129.0756, y: 35.1796 },
-                    ],
-                  },
-                ],
-              },
-            ],
-          },
-        },
-      });
-      return;
-    }
-
     await route.fulfill({
       contentType: "application/json",
-      json: {
-        result: {
-          path: [
-            {
-              recommend: {
-                routes: [
-                  {
-                    coordinate: [
-                      { x: 129.06, y: 35.16 },
-                      { x: 129.07, y: 35.17 },
-                      { x: 129.0756, y: 35.1796 },
-                    ],
-                    distance: 900,
-                    duration: 720,
-                  },
-                ],
-                summary: { distance: 900, duration: 720 },
-              },
-            },
-          ],
-        },
-      },
+      json: { error: { code: "500", message: "이 테스트에서는 대중교통을 계산하지 않습니다." } },
     });
   });
-});
+}
 
-test.afterEach(() => {
-  expect(tmapRouteRequestUrls).toEqual([]);
-});
+/**
+ * Re-selects every editable row so each one owns provider coordinates and a source reference.
+ */
+async function selectAllEditablePlaces(page: Page, secondPlace?: string) {
+  const inputs = page.locator('input[aria-label$="행선지"]');
+  const count = await inputs.count();
 
-test("reuses persisted ODsay cache after page reload without calling the provider again", async ({
-  page,
-}) => {
-  await page.goto("http://localhost:3000/");
-  await expect(page.getByText(/총 이동 시간\(예상\)/).first()).toBeVisible();
+  for (let index = 0; index < count; index += 1) {
+    const input = inputs.nth(index);
+    const currentName = index === 1 && secondPlace ? secondPlace : await input.inputValue();
 
-  await waitForOdsayRequestsToSettle();
-  const initialLoadRequestCount = odsayRequestUrls.length;
+    await input.fill("");
+    await input.fill(currentName);
+    const suggestion = page.getByTestId("destination-suggestion-option").first();
+    await expect(suggestion).toContainText(currentName);
+    await suggestion.click();
+    await expect(input).toHaveValue(currentName);
+  }
+}
 
-  expect(initialLoadRequestCount).toBeGreaterThan(0);
-
+test.beforeEach(async ({ page }) => {
+  naverRouteRequests.length = 0;
   odsayRequestUrls.length = 0;
-  await page.reload();
-  await expect(page.getByText(/총 이동 시간\(예상\)/).first()).toBeVisible();
-  await page.waitForTimeout(3_000);
-
-  const firstReloadRequestCount = odsayRequestUrls.length;
-
-  expect(odsayRequestUrls).toEqual([]);
-
-  await page.reload();
-  await expect(page.getByText(/총 이동 시간\(예상\)/).first()).toBeVisible();
-  await page.waitForTimeout(3_000);
-
-  const secondReloadRequestCount = odsayRequestUrls.length;
-
-  console.info(
-    `[odsay-cache-counts] initial=${initialLoadRequestCount}, firstReload=${firstReloadRequestCount}, secondReload=${secondReloadRequestCount}`,
-  );
-  expect(odsayRequestUrls).toEqual([]);
+  failStandardNaverRoute = false;
+  await installProviderMocks(page);
 });
 
-test("updates the header and benefit copy after recalculating an edited local car route", async ({
+test("uses one itinerary-wide mode and a coordinate-bearing Naver place selection", async ({
   page,
 }) => {
-  await mockLocalDrivingPlaces(page);
-  await page.goto("http://localhost:3000/");
+  await page.goto("/itinerary/busan-bts-1d1n");
+  await expect(page.getByTestId("destination-editor")).toBeVisible();
 
-  await test.step("replace the demo route with a local two-point car route", async () => {
-    await page.getByRole("button", { name: "삭제" }).nth(2).click();
+  await expect(page.getByTestId("itinerary-transport-mode")).toHaveCount(1);
+  await expect(page.getByText("도보", { exact: true })).toHaveCount(0);
 
-    const departureInput = page.getByRole("textbox", { name: "출발지 행선지" });
-    await departureInput.fill("동탄호수공원");
-    await page.getByRole("button", { name: /동탄호수공원/ }).first().click();
-
-    const arrivalInput = page.getByRole("textbox", { name: "도착지 행선지" });
-    await arrivalInput.fill("아리수로50길");
-    await page.getByRole("button", { name: /아리수로50길/ }).first().click();
-
-    const modeSelects = page.getByRole("combobox");
-    await modeSelects.first().click();
-    await page.getByRole("option", { name: "자동차" }).click();
-  });
-
-  await test.step("recalculate and sync every visible summary surface", async () => {
-    await page.getByRole("button", { name: "경로 다시 계산" }).click();
-
-    await expect(page.getByText(/경로 체크 완료/)).toBeVisible();
-    await expect(
-      page.getByRole("heading", {
-        name: "동탄호수공원 → 아리수로50길 추천 일정",
-      }),
-    ).toBeVisible();
-    await expect(page.getByText("부산 BTS 공연 1박 2일 추천 일정")).toHaveCount(0);
-    await expect(
-      page.getByText("동탄호수공원에서 아리수로50길(으)로 이동하는 CarryME 동선을 확인하세요."),
-    ).toBeVisible();
-    await expect(
-      page.getByText("수하물은 안전하게 보관하고 목적지까지 배송됩니다."),
-    ).toBeVisible();
-    await expect(page.getByText("동탄호수공원에서 아리수로50길까지 안전하게 배송")).toHaveCount(
-      0,
-    );
-    await expect(page.getByText("인천공항에서 부산 호텔까지 안전하게 배송")).toHaveCount(0);
-  });
-});
-
-test("recalculates an airport to local waypoint to hotel car route without leaking hidden walk modes", async ({
-  page,
-}) => {
-  forceOdsayFailure = true;
-  await mockLocalDrivingPlaces(page);
-  await page.goto("http://localhost:3000/");
-
-  await test.step("set the reproduced three-point car-only route", async () => {
-    const visitInput = page.getByRole("textbox", { name: "방문지 행선지" }).first();
-    await visitInput.fill("동탄호수공원");
-    await page.getByRole("button", { name: /동탄호수공원/ }).first().click();
-
-    const arrivalInput = page.getByRole("textbox", { name: "도착지 행선지" });
-    await arrivalInput.fill("여수호텔헤이븐");
-    await page.getByRole("button", { name: /여수호텔헤이븐/ }).first().click();
-
-    const modeSelects = page.getByRole("combobox");
-    await modeSelects.first().click();
-    await page.getByRole("option", { name: "자동차" }).click();
-    await modeSelects.nth(1).click();
-    await page.getByRole("option", { name: "자동차" }).click();
-
-    await expect(page.getByText("인천공항 → 동탄호수공원")).toBeVisible();
-    await expect(page.getByText("동탄호수공원 → 여수호텔헤이븐")).toBeVisible();
-    await expect(modeSelects.first()).toContainText("자동차");
-    await expect(modeSelects.nth(1)).toContainText("자동차");
-  });
-
-  await test.step("recalculate without sending non-drive rows to the car API", async () => {
-    await page.getByRole("button", { name: "경로 다시 계산" }).click();
-
-    await expect(page.getByText(/경로 체크 완료/)).toBeVisible();
-    await expect(page.getByText(/자동차 경로 API는 자동차 구간만 처리합니다/)).toHaveCount(
-      0,
-    );
-  });
-});
-
-test("recorded destination editing flow keeps selected waypoint coordinates during recalculation", async ({
-  page,
-}) => {
-  await page.goto("http://localhost:3000/");
-  let selectedPlace: PlaceDetailsPayload["place"];
-
-  await test.step("add Jeongeup Station through the recorded autocomplete flow", async () => {
-    await page.getByRole("button", { name: "경유지 추가" }).click();
-
-    const visitInputs = page.getByRole("textbox", { name: "방문지 행선지" });
-    await visitInputs.nth(1).fill("정읍역");
-    await expect(page.getByRole("button", { name: /정읍역/ }).first()).toBeVisible();
-
-    const detailsResponsePromise = page.waitForResponse("**/api/places/details");
-    await page.getByRole("button", { name: /정읍역/ }).first().click();
-    const detailsResponse = await detailsResponsePromise;
-    const detailsPayload = (await detailsResponse.json()) as PlaceDetailsPayload;
-    selectedPlace = detailsPayload.place;
-
-    expect(detailsResponse.ok(), detailsPayload.message).toBe(true);
-    expect(selectedPlace?.coordinate).toEqual(
-      expect.objectContaining({
-        lat: expect.any(Number),
-        lng: expect.any(Number),
-      }),
-    );
-    await expect(visitInputs.nth(1)).toHaveValue(/정읍역/);
-  });
-
-  await test.step("recalculate the edited route without losing the selected coordinate", async () => {
-    expect(selectedPlace?.coordinate).toBeTruthy();
-    await page.getByRole("button", { name: "경로 다시 계산" }).click();
-
-    await expect(page.getByText(/좌표가 없는 행선지가 있습니다/)).toHaveCount(0);
-    await expect(page.getByText(/경로 체크 완료/)).toBeVisible();
-    await expect(page.getByText(/총 이동 시간\(예상\)/).first()).toBeVisible();
-    await expect(page.getByText(/약 \d+시간 \d+분 → 약 \d+시간 \d+분/)).toBeVisible();
-  });
-});
-
-test("recalculates Busan concert to Jeongeup transit and Jeongeup to Seomyeon drive without the long-distance coordinate error", async ({
-  page,
-}) => {
-  await page.goto("http://localhost:3000/");
-
-  await test.step("set the reproduced destination order and transport modes", async () => {
-    await page.getByRole("button", { name: "경유지 추가" }).click();
-
-    const visitInputs = page.getByRole("textbox", { name: "방문지 행선지" });
-    await visitInputs.nth(1).fill("정읍역");
-    await expect(
-      page.getByRole("button", {
-        name: "정읍역 대한민국 전북특별자치도 정읍시 특별자치도 서부산업도로",
-      }),
-    ).toBeVisible();
-
-    const detailsResponsePromise = page.waitForResponse("**/api/places/details");
-    await page
-      .getByRole("button", {
-        name: "정읍역 대한민국 전북특별자치도 정읍시 특별자치도 서부산업도로",
-      })
-      .click();
-    const detailsPayload = (await (await detailsResponsePromise).json()) as PlaceDetailsPayload;
-
-    expect(detailsPayload.place?.coordinate).toEqual(
-      expect.objectContaining({
-        lat: expect.any(Number),
-        lng: expect.any(Number),
-      }),
-    );
-
-    const modeSelects = page.getByRole("combobox");
-    await modeSelects.nth(1).click();
-    await page.getByRole("option", { name: "대중교통" }).click();
-    await modeSelects.nth(2).click();
-    await page.getByRole("option", { name: "자동차" }).click();
-
-    await expect(page.getByText("부산 공연장 → 정읍역")).toBeVisible();
-    await expect(page.getByText("정읍역 → 서면 호텔")).toBeVisible();
-    await expect(modeSelects.nth(1)).toContainText("대중교통");
-    await expect(modeSelects.nth(2)).toContainText("자동차");
-  });
-
-  await test.step("recalculate without showing the reproduced long-distance transit error", async () => {
-    await page.getByRole("button", { name: "경로 다시 계산" }).click();
-
-    await expect(
-      page.getByText(/지도에 표시할 장거리 대중교통 경로 좌표를 확인하지 못했습니다/),
-    ).toHaveCount(0);
-    await expect(page.getByText(/일부 구간 확인 필요/)).toBeVisible();
-    await expect(page.getByTestId("transit-marker-boarding").first()).toContainText("탑승: 부산");
-    await expect(page.getByTestId("transit-marker-alighting").first()).toContainText("하차: 정읍");
-    const firstNaverDriveRequestCount = naverDriveRequestUrls.length;
-
-    expect(firstNaverDriveRequestCount).toBe(1);
-    expect(tmapRouteRequestUrls.length).toBe(0);
-
-    naverDriveRequestUrls.length = 0;
-    await page.getByRole("button", { name: "경로 다시 계산" }).click();
-    await page.waitForTimeout(300);
-
-    console.info(
-      `[naver-cache-counts] first=${firstNaverDriveRequestCount}, second=${naverDriveRequestUrls.length}`,
-    );
-    expect(naverDriveRequestUrls).toEqual([]);
-  });
-});
-
-test("shows ODsay rate-limit errors instead of hiding them behind long-distance geometry errors", async ({
-  page,
-}) => {
-  forceJeongeupTransitRateLimit = true;
-  const warningMessages: string[] = [];
-
-  page.on("console", (message) => {
-    if (message.type() === "warning") {
-      warningMessages.push(message.text());
-    }
-  });
-
-  await page.goto("http://localhost:3000/");
-  await page.getByRole("button", { name: "경유지 추가" }).click();
-
-  const visitInputs = page.getByRole("textbox", { name: "방문지 행선지" });
-  await visitInputs.nth(1).fill("정읍역");
-  await page
-    .getByRole("button", {
-      name: "정읍역 대한민국 전북특별자치도 정읍시 특별자치도 서부산업도로",
-    })
-    .click();
-
-  const modeSelects = page.getByRole("combobox");
-  await modeSelects.nth(1).click();
-  await page.getByRole("option", { name: "대중교통" }).click();
-
-  await page.getByRole("button", { name: "경로 다시 계산" }).click();
-
-  await expect(page.getByText(/ODsay 호출 제한/)).toBeVisible();
-  await expect(
-    page.getByText(/지도에 표시할 장거리 대중교통 경로 좌표를 확인하지 못했습니다/),
-  ).toHaveCount(0);
-  expect(warningMessages.some((message) => message.includes("ODsay API error"))).toBe(true);
-});
-
-test("deduplicates identical Standard and CarryME recalculation requests to reduce ODsay calls", async ({
-  page,
-}) => {
-  await page.goto("http://localhost:3000/");
-  await page.getByRole("button", { name: "경유지 추가" }).click();
-
-  const visitInputs = page.getByRole("textbox", { name: "방문지 행선지" });
-  await visitInputs.nth(1).fill("정읍역");
-  await page
-    .getByRole("button", {
-      name: "정읍역 대한민국 전북특별자치도 정읍시 특별자치도 서부산업도로",
-    })
-    .click();
-
-  const modeSelects = page.getByRole("combobox");
-  await modeSelects.nth(1).click();
-  await page.getByRole("option", { name: "대중교통" }).click();
-
+  await page.waitForTimeout(500);
+  naverRouteRequests.length = 0;
   odsayRequestUrls.length = 0;
+
+  const modeSelect = page.getByTestId("itinerary-transport-mode").getByRole("combobox");
+  await modeSelect.click();
+  await page.getByRole("option", { name: "대중교통" }).click();
+  await page.waitForTimeout(400);
+
+  expect(naverRouteRequests).toHaveLength(0);
+  expect(odsayRequestUrls).toHaveLength(0);
+
+  await modeSelect.click();
+  await page.getByRole("option", { name: "자동차" }).click();
+
+  await selectAllEditablePlaces(page, "동탄호수공원");
+
+  naverRouteRequests.length = 0;
   await page.getByRole("button", { name: "경로 다시 계산" }).click();
-  await expect(page.getByText(/일부 구간 확인 필요/)).toBeVisible();
+  await expect(page.getByText("Standard와 CarryME 경로를 계산했습니다.")).toBeVisible();
+  await expect.poll(() => naverRouteRequests.length).toBeGreaterThanOrEqual(1);
 
-  const jeongeupTransitRequestCount = odsayRequestUrls.filter((requestUrl) => {
-    const url = new URL(requestUrl);
+  for (const request of naverRouteRequests) {
+    expect(request.stops?.every((stop) => stop.mode === "drive")).toBe(true);
+  }
+  expect(odsayRequestUrls).toHaveLength(0);
+});
 
-    return (
-      url.pathname.endsWith("/searchPubTransPathT") &&
-      Math.abs(Number(url.searchParams.get("EX")) - 126.84265) < 0.02 &&
-      Math.abs(Number(url.searchParams.get("EY")) - 35.57546) < 0.02
-    );
-  }).length;
+test("keeps Standard and CarryME results independent when one provider request fails", async ({
+  page,
+}) => {
+  await page.goto("/itinerary/busan-bts-1d1n");
+  await expect(page.getByTestId("destination-editor")).toBeVisible();
+  await page.waitForTimeout(500);
 
-  expect(jeongeupTransitRequestCount).toBe(1);
+  const modeSelect = page.getByTestId("itinerary-transport-mode").getByRole("combobox");
+  await modeSelect.click();
+  await page.getByRole("option", { name: "자동차" }).click();
+  await selectAllEditablePlaces(page);
 
-  const firstRecalculationOdsayCount = odsayRequestUrls.length;
-
+  naverRouteRequests.length = 0;
+  failStandardNaverRoute = true;
   await page.getByRole("button", { name: "경로 다시 계산" }).click();
-  await expect(page.getByText(/일부 구간 확인 필요/)).toBeVisible();
-  await page.waitForTimeout(300);
 
-  expect(odsayRequestUrls.length).toBe(firstRecalculationOdsayCount);
+  await expect(page.getByText(/경로를 확인하지 못했습니다/)).toBeVisible();
+  await expect.poll(() => naverRouteRequests.length).toBeGreaterThanOrEqual(2);
+  await expect(page.getByText(/Standard|CarryME/).first()).toBeVisible();
+});
+
+test("rejects free text that was not selected from place search", async ({ page }) => {
+  await page.goto("/itinerary/busan-bts-1d1n");
+  await expect(page.getByTestId("destination-editor")).toBeVisible();
+
+  const intermediateInput = page.locator('input[aria-label$="행선지"]').nth(1);
+  await intermediateInput.fill("선택하지 않은 장소");
+  await page.getByRole("button", { name: "경로 다시 계산" }).click();
+
+  await expect(page.getByText("장소를 선택해 주세요")).toBeVisible();
 });

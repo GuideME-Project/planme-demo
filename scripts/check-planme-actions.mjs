@@ -10,6 +10,7 @@ const requiredFiles = [
   "app/api/gpt/itineraries/[itineraryId]/share/route.ts",
   "app/api/gpt/itineraries/preview-store/route.ts",
   "app/api/gpt/openapi/route.ts",
+  "app/api/places/search/route.ts",
   "app/og/itinerary/[itineraryId]/route.tsx",
 ];
 
@@ -23,6 +24,8 @@ const forbiddenOpenApiPaths = ["/api/gpt/itineraries/recommend"];
 const forbiddenFiles = [
   "apps/web/app/api/gpt/itineraries/recommend/route.ts",
   "apps/web/app/itinerary/preview/page.tsx",
+  "apps/web/app/api/places/autocomplete/route.ts",
+  "apps/web/app/api/places/details/route.ts",
   "packages/planme-core/src/preview-payload.ts",
 ];
 
@@ -84,6 +87,14 @@ if (existsSync(itineraryDashboardFile)) {
   if (itineraryDashboardSource.includes("paths: longDistancePath.length > 2 ? [longDistancePath] : []")) {
     failures.push("ODsay long-distance transit must not draw straight boundary-point fallback paths.");
   }
+
+  if (itineraryDashboardSource.includes("/api/places/autocomplete") || itineraryDashboardSource.includes("/api/places/details")) {
+    failures.push("Destination editing must use the single Naver-backed /api/places/search route.");
+  }
+
+  if (itineraryDashboardSource.includes("handleDestinationModeChange")) {
+    failures.push("Destination rows must not expose per-segment transport mode changes.");
+  }
 }
 
 const gptActionsFile = join(root, "packages/planme-core/src/gpt-actions.ts");
@@ -100,9 +111,23 @@ if (existsSync(gptActionsFile)) {
   }
 }
 
+const openAiGeneratorFile = join(root, "packages/planme-core/src/openai-itinerary-generator.ts");
+
+if (existsSync(openAiGeneratorFile)) {
+  const openAiGeneratorSource = readFileSync(openAiGeneratorFile, "utf8");
+
+  if (!openAiGeneratorSource.includes('name: "search_naver_places"')) {
+    failures.push("OpenAI generation must expose search_naver_places.");
+  }
+
+  if (openAiGeneratorSource.includes("search_places_nearby") || openAiGeneratorSource.includes("radiusMeters")) {
+    failures.push("OpenAI place tools must not expose nearby or radius contracts.");
+  }
+}
+
 for (const file of forbiddenFiles) {
   if (existsSync(join(root, file))) {
-    failures.push(`Legacy compressed preview URL file must be removed: ${file}`);
+    failures.push(`Forbidden legacy file must be removed: ${file}`);
   }
 }
 

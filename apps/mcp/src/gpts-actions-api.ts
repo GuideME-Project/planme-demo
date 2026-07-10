@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { z } from "zod";
 import {
   assessPlanmePlanningInput,
   createAiRecommendedItineraryResponse,
@@ -21,6 +22,48 @@ import { createPlanmeUsageRecorder } from "./usage-counters.js";
 type BodyRequest = IncomingMessage & {
   body?: object | string | Buffer;
 };
+
+const transportModeSchema = z.enum(["drive", "transit"]);
+const planningRequestSchema = z.object({
+  message: z.string().optional(),
+  destination: z.string().optional(),
+  durationDays: z.number().int().min(1).max(14).optional(),
+  arrivalAirport: z.string().optional(),
+  arrivalTime: z.string().optional(),
+  hotelName: z.string().optional(),
+  origin: z.string().optional(),
+  travelerCount: z.number().int().min(1).max(20).optional(),
+  luggageCount: z.number().int().min(0).max(20).optional(),
+  preferences: z.array(z.string()).optional(),
+  theme: z.enum(["light", "dark"]).optional(),
+  transportMode: transportModeSchema.optional(),
+});
+const recommendationRequestSchema = z
+  .object({
+    destination: z.string().min(1),
+    durationDays: z.number().int().min(1).max(14),
+    arrivalAirport: z.string().optional(),
+    arrivalTime: z.string().optional(),
+    hotelName: z.string().optional(),
+    origin: z.string().optional(),
+    travelerCount: z.number().int().min(1).max(20).optional(),
+    luggageCount: z.number().int().min(0).max(20).optional(),
+    preferences: z.array(z.string()).optional(),
+    clarificationAnswers: z.union([z.string(), z.array(z.string())]).optional(),
+    clarificationContext: z
+      .object({
+        previousAnswers: z.array(z.string()),
+        previousQuestions: z.array(z.string()),
+        round: z.number().int().min(0).max(2),
+        unresolvedPlaces: z.array(z.string()),
+      })
+      .optional(),
+    theme: z.enum(["light", "dark"]).optional(),
+    transportMode: transportModeSchema,
+  })
+  .refine((input) => Boolean(input.origin?.trim() || input.arrivalAirport?.trim()), {
+    message: "origin or arrivalAirport is required",
+  });
 
 /**
  * Serves the OpenAPI schema used by GPTs Actions.
@@ -62,10 +105,15 @@ export async function handleGptsPlanningStartRequest(
     return;
   }
 
-  const input = (await readJsonBody(request)) as PlanmePlanningRequest;
+  const parsed = planningRequestSchema.safeParse(await readJsonBody(request));
+
+  if (!parsed.success) {
+    writeJson(response, 400, { error: "INVALID_PLANME_PLANNING_REQUEST" });
+    return;
+  }
 
   // Keep the same readiness rules as the Apps SDK MCP tool.
-  writeJson(response, 200, assessPlanmePlanningInput(input));
+  writeJson(response, 200, assessPlanmePlanningInput(parsed.data));
 }
 
 /**
@@ -87,7 +135,14 @@ export async function handleGptsRecommendItineraryRequest(
   }
 
   try {
-    const input = (await readJsonBody(request)) as RecommendItineraryRequest;
+    const parsed = recommendationRequestSchema.safeParse(await readJsonBody(request));
+
+    if (!parsed.success) {
+      writeJson(response, 400, { error: "INVALID_PLANME_RECOMMENDATION_REQUEST" });
+      return;
+    }
+
+    const input: RecommendItineraryRequest = parsed.data;
     const usageRecorder = createPlanmeUsageRecorder();
     const generated = await createAiRecommendedItineraryResponse(
       `${getPlanmeWebOrigin()}/api/gpt/itineraries/recommend`,
@@ -218,6 +273,7 @@ function toRestRecommendationResponse(response: PlanmeRecommendationResponse) {
     highlights: response.highlights,
     resolutionLogs: response.resolutionLogs,
     itinerary: response.itinerary,
+    transportMode: response.itinerary.transportMode,
     status: "ready",
     validationIssues: response.validationIssues?.map((issue) => issue.message),
   };
@@ -324,6 +380,7 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             luggageCount: { type: "integer", minimum: 0, maximum: 20 },
             preferences: { type: "array", items: { type: "string" } },
             theme: { type: "string", enum: ["light", "dark"] },
+            transportMode: { type: "string", enum: ["drive", "transit"] },
           },
         },
         PlanmePlanningAssessment: {
@@ -335,7 +392,14 @@ function buildGptsOpenApiSchema(serverUrl: string) {
               type: "array",
               items: {
                 type: "string",
-                enum: ["destination", "origin", "durationDays", "hotelName", "preferences"],
+                enum: [
+                  "destination",
+                  "origin",
+                  "durationDays",
+                  "transportMode",
+                  "hotelName",
+                  "preferences",
+                ],
               },
             },
             questions: {
@@ -352,7 +416,14 @@ function buildGptsOpenApiSchema(serverUrl: string) {
           properties: {
             slot: {
               type: "string",
-              enum: ["destination", "origin", "durationDays", "hotelName", "preferences"],
+              enum: [
+                "destination",
+                "origin",
+                "durationDays",
+                "transportMode",
+                "hotelName",
+                "preferences",
+              ],
             },
             text: { type: "string" },
             required: { type: "boolean" },
@@ -368,6 +439,7 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             "durationDays",
             "hotelName",
             "preferences",
+            "transportMode",
           ],
           properties: {
             destination: { type: ["string", "null"] },
@@ -376,12 +448,21 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             durationDays: { type: ["integer", "null"] },
             hotelName: { type: ["string", "null"] },
             preferences: { type: "array", items: { type: "string" } },
+            transportMode: {
+              type: ["string", "null"],
+              enum: ["drive", "transit", null],
+            },
           },
         },
         RecommendItineraryRequest: {
           type: "object",
+          required: ["destination", "durationDays", "transportMode"],
+          anyOf: [{ required: ["origin"] }, { required: ["arrivalAirport"] }],
           properties: {
-            destination: { type: "string", description: "Region or city only, such as 남해 or 여수." },
+            destination: {
+              type: "string",
+              description: "A Korean region, city, or user-selected place such as 경주월드.",
+            },
             durationDays: { type: "integer", minimum: 1, maximum: 14 },
             arrivalAirport: { type: "string" },
             arrivalTime: { type: "string" },
@@ -401,6 +482,7 @@ function buildGptsOpenApiSchema(serverUrl: string) {
               $ref: "#/components/schemas/PlanmeClarificationContext",
             },
             theme: { type: "string", enum: ["light", "dark"] },
+            transportMode: { type: "string", enum: ["drive", "transit"] },
           },
         },
         ItineraryActionResponse: {
@@ -432,6 +514,7 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             },
             status: { type: "string", enum: ["ready"] },
             validationIssues: { type: "array", items: { type: "string" } },
+            transportMode: { type: "string", enum: ["drive", "transit"] },
             itinerary: { type: "object", additionalProperties: true },
           },
         },
@@ -480,7 +563,6 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             },
             originalName: { type: "string" },
             query: { type: "string" },
-            radiusMeters: { type: "integer" },
             reason: { type: "string" },
             resolvedName: { type: "string" },
             source: { type: "string" },
