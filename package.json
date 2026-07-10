@@ -14,6 +14,7 @@
     "test:actions": "node scripts/check-planme-actions.mjs",
     "test:design": "node scripts/check-planme-design.mjs",
     "test:mcp": "npm --workspace @planme/mcp run test:mcp",
+    "test:route-normalization": "npm --workspace @planme/core run build && node scripts/check-planme-route-normalization.mjs",
     "smoke:external": "npm --workspace @planme/mcp run smoke:external"
   },
   "devDependencies": {
