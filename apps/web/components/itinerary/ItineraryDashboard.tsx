@@ -2081,6 +2081,8 @@ export function ItineraryDashboard({
     value: number | null,
   ) => {
     if (value) {
+      // Hide the previous day's provider geometry until the selected day finishes routing.
+      setComputedRoutes({});
       setSelectedDay(value);
     }
   };
@@ -2106,6 +2108,8 @@ export function ItineraryDashboard({
         uiId: `local-day-${Date.now()}-${nextDayNumber}`,
       },
     ]);
+    // A cloned day must also start with markers only until its route is recalculated.
+    setComputedRoutes({});
     setSelectedDay(nextDayNumber);
   };
 

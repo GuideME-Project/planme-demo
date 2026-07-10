@@ -363,15 +363,11 @@ function NaverRouteMap({
           color: string,
           routeStyle: RouteLineStyle,
         ) => {
+          // Draw only provider-returned segments; stop-only geoPath remains markers-only.
           const segments = route.geoSegments?.filter((segment) => segment.length > 2);
 
           if (segments?.length) {
             segments.forEach((segment) => addRouteSegment(segment, color, routeStyle));
-            return;
-          }
-
-          if (route.geoPath?.length) {
-            addRouteSegment(route.geoPath, color, routeStyle);
           }
         };
 

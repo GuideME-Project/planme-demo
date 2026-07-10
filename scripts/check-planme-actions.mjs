@@ -76,8 +76,12 @@ if (existsSync(openApiFile)) {
 if (existsSync(routeMapFile)) {
   const routeMapSource = readFileSync(routeMapFile, "utf8");
 
-  if (!routeMapSource.includes("addRouteSegment(route.geoPath, color, routeStyle);")) {
-    failures.push("RouteMap must render route.geoPath when geoSegments are unavailable");
+  if (routeMapSource.includes("addRouteSegment(route.geoPath, color, routeStyle);")) {
+    failures.push("RouteMap must keep stop-only geoPath markers-only until provider geoSegments exist");
+  }
+
+  if (!routeMapSource.includes("route.geoSegments?.filter")) {
+    failures.push("RouteMap must render only provider geoSegments as route lines");
   }
 }
 
