@@ -90,7 +90,7 @@ const NAVER_LOCAL_COORDINATE_SCALE = 10_000_000;
  */
 export class PlanmePlaceSearchConfigurationError extends Error {
   constructor() {
-    super("NAVER_MAPS_CLIENT_ID and NAVER_MAPS_CLIENT_SECRET are required.");
+    super("NAVER_SEARCH_CLIENT_ID and NAVER_SEARCH_CLIENT_SECRET are required.");
     this.name = "PlanmePlaceSearchConfigurationError";
   }
 }
@@ -122,9 +122,9 @@ export async function searchPlanmePlaceCandidates(
     };
   }
 
-  const clientId = options.clientId?.trim() || readRuntimeEnv("NAVER_MAPS_CLIENT_ID");
+  const clientId = options.clientId?.trim() || readRuntimeEnv("NAVER_SEARCH_CLIENT_ID");
   const clientSecret =
-    options.clientSecret?.trim() || readRuntimeEnv("NAVER_MAPS_CLIENT_SECRET");
+    options.clientSecret?.trim() || readRuntimeEnv("NAVER_SEARCH_CLIENT_SECRET");
 
   if (!clientId || !clientSecret) {
     if (sourceCandidate) {

@@ -104,6 +104,8 @@ function assertRequiredRuntime(): void {
     hasAnyRuntimeValue(["NAVER_MAPS_CLIENT_SECRET", "NCP_MAPS_CLIENT_SECRET"])
       ? ""
       : "NAVER_MAPS_CLIENT_SECRET 또는 NCP_MAPS_CLIENT_SECRET",
+    hasRuntimeValue("NAVER_SEARCH_CLIENT_ID") ? "" : "NAVER_SEARCH_CLIENT_ID",
+    hasRuntimeValue("NAVER_SEARCH_CLIENT_SECRET") ? "" : "NAVER_SEARCH_CLIENT_SECRET",
     hasRuntimeValue("NEXT_PUBLIC_ODSAY_API_KEY") ? "" : "NEXT_PUBLIC_ODSAY_API_KEY",
     hasRuntimeValue("PLANME_WEB_ORIGIN") ? "" : "PLANME_WEB_ORIGIN",
     hasRuntimeValue("UPSTASH_REDIS_REST_URL") ? "" : "UPSTASH_REDIS_REST_URL",
