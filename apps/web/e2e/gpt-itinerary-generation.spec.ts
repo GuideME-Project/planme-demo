@@ -43,6 +43,31 @@ test("does not expose web generation operations in OpenAPI schemas", async ({
   expect(legacyOpenApi.paths).not.toHaveProperty("/api/plan");
 });
 
+test("rejects preview finalization without the internal bearer token", async ({
+  request,
+}) => {
+  const response = await request.post("/api/gpt/itineraries/preview-store", {
+    data: { itinerary: {} },
+  });
+
+  expect(response.status()).toBe(401);
+  expect(await response.json()).toEqual({ error: "UNAUTHORIZED_INTERNAL_REQUEST" });
+});
+
+test("rejects browser route finalization with an invalid revision token", async ({
+  request,
+}) => {
+  const response = await request.post(
+    "/api/gpt/itineraries/generated-invalid-token/routes/finalize",
+    {
+      data: { baseRevision: 0, token: "invalid-token" },
+    },
+  );
+
+  expect(response.status()).toBe(401);
+  expect(await response.json()).toEqual({ error: "INVALID_FINALIZATION_TOKEN" });
+});
+
 test("opens a stored generated itinerary without needing a web OpenAI key", async ({
   page,
   request,
@@ -50,6 +75,9 @@ test("opens a stored generated itinerary without needing a web OpenAI key", asyn
   const itinerary = createStoredGeneratedItinerary("generated-e2e-mcp-only-stored");
   const storeResponse = await request.post("/api/gpt/itineraries/preview-store", {
     data: { itinerary },
+    headers: {
+      Authorization: `Bearer ${process.env.PLANME_INTERNAL_API_TOKEN}`,
+    },
   });
 
   expect(storeResponse.ok()).toBeTruthy();
@@ -59,7 +87,9 @@ test("opens a stored generated itinerary without needing a web OpenAI key", asyn
 
   await page.goto(`${pageUrl.pathname}${pageUrl.search}`);
 
-  await expect(page.getByRole("heading", { name: itinerary.title })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "여수 MCP 저장 테스트 일정" }),
+  ).toBeVisible();
   await expect(page.getByText("여수 MCP 저장 테스트 코스").first()).toBeVisible();
   await expect(page.getByText("방문지").first()).toBeVisible();
   await expect(page.getByText("숙소").first()).toBeVisible();
@@ -87,6 +117,7 @@ function createStoredGeneratedItinerary(id: string) {
     carrymeSaving: "약 40분 절약",
     totalDurationLabel: "약 5시간 30분",
     savedDurationLabel: "약 40분 절약",
+    transportMode: "drive",
     days: [
       {
         day: 1,
@@ -106,7 +137,7 @@ function createStoredGeneratedItinerary(id: string) {
               caption: "출발",
               coordinate: { lat: 37.5547, lng: 126.9706 },
               icon: "station",
-              mode: "transit",
+              mode: "drive",
               role: "출발지",
             },
             {
@@ -114,7 +145,7 @@ function createStoredGeneratedItinerary(id: string) {
               caption: "짐 보관",
               coordinate: { lat: 34.7392, lng: 127.7444 },
               icon: "hotel",
-              mode: "transit",
+              mode: "drive",
               role: "숙소",
             },
             {
@@ -122,7 +153,7 @@ function createStoredGeneratedItinerary(id: string) {
               caption: "방문",
               coordinate: { lat: 34.744, lng: 127.752 },
               icon: "event",
-              mode: "transit",
+              mode: "drive",
               role: "방문지",
             },
           ],
@@ -151,7 +182,7 @@ function createStoredGeneratedItinerary(id: string) {
               caption: "출발",
               coordinate: { lat: 37.5547, lng: 126.9706 },
               icon: "station",
-              mode: "transit",
+              mode: "drive",
               role: "출발지",
             },
             {
@@ -159,7 +190,7 @@ function createStoredGeneratedItinerary(id: string) {
               caption: "방문",
               coordinate: { lat: 34.744, lng: 127.752 },
               icon: "event",
-              mode: "transit",
+              mode: "drive",
               role: "방문지",
             },
             {
@@ -167,7 +198,7 @@ function createStoredGeneratedItinerary(id: string) {
               caption: "짐 도착",
               coordinate: { lat: 34.7392, lng: 127.7444 },
               icon: "hotel",
-              mode: "transit",
+              mode: "drive",
               role: "숙소",
             },
           ],

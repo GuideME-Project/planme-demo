@@ -228,7 +228,7 @@ export function createPlanmeWidgetHtml(): string {
       </section>
       <section class="footer">
         <div>
-          <div>CarryME 총 이동 시간(예상)</div>
+          <div>CarryME 총 이동 시간</div>
           <strong data-planme-carryme-duration>확인 중</strong>
         </div>
         <a class="link" data-planme-link href="https://planme-demo.vercel.app" target="_blank" rel="noreferrer">상세 일정 열기</a>

@@ -246,14 +246,14 @@ export function TimelinePanel({
       >
         <RouteTimelineColumn
           durationLabel={standardDurationLabel}
-          durationTitle="Standard 총 이동 시간(예상)"
+          durationTitle="Standard 총 이동 시간"
           events={standardEvents}
           isDark={isDark}
           savingLabel={savingLabel}
         />
         <RouteTimelineColumn
           durationLabel={carrymeDurationLabel}
-          durationTitle="CarryME 총 이동 시간(예상)"
+          durationTitle="CarryME 총 이동 시간"
           events={carrymeEvents}
           isCarryme
           isDark={isDark}

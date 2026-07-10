@@ -8,7 +8,6 @@ import {
   assessPlanmePlanningInput,
   createAiRecommendedItineraryResponse,
   formatPlanmeAiGenerationError,
-  getGptActionItineraryResponse,
   isPlanmeClarificationResponse,
   PlanmeAiConfigurationError,
   toGptActionItineraryResponse,
@@ -31,6 +30,19 @@ export const PLANME_WIDGET_URI = "ui://planme/itinerary-widget-v2.html";
 const PLANME_LEGACY_WIDGET_URI = "ui://planme/itinerary-widget.html";
 const PLANME_WEB_ORIGIN = "https://planme-demo.vercel.app";
 const PLANME_MCP_ORIGIN = "https://planme-demo-mcp.vercel.app";
+// Web finalization owns a 40-second deadline; MCP allows transport and JSON overhead beyond it.
+const PLANME_WEB_FINALIZATION_TIMEOUT_MS = 43_000;
+const PLANME_WEB_LOOKUP_TIMEOUT_MS = 8_000;
+
+type PersistedFinalizedItineraryResponse = {
+  expiresAt: string;
+  itinerary: PlanmeItinerary;
+  itineraryId: string;
+  ogImageUrl: string;
+  pageUrl: string;
+  revision: number;
+  status: "ready";
+};
 
 const timelineEventSchema = z.object({
   time: z.string(),
@@ -231,18 +243,18 @@ function toWidgetMeta(itinerary: PlanmeItinerary, pageUrl: string) {
 /**
  * Persists an MCP-produced itinerary through the web app so short detail links can reopen it.
  */
-export async function persistItineraryForDetailPage(itinerary: PlanmeItinerary): Promise<void> {
-  if (process.env.VERCEL !== "1" && !process.env.PLANME_WEB_ORIGIN?.trim()) {
-    return;
-  }
-
+export async function persistItineraryForDetailPage(
+  itinerary: PlanmeItinerary,
+): Promise<PersistedFinalizedItineraryResponse> {
+  const internalToken = getPlanmeInternalApiToken();
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 2500);
+  const timeout = setTimeout(() => controller.abort(), PLANME_WEB_FINALIZATION_TIMEOUT_MS);
 
   try {
     const response = await fetch(buildPlanmeWebUrl("/api/gpt/itineraries/preview-store"), {
       method: "POST",
       headers: {
+        Authorization: `Bearer ${internalToken}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ itinerary }),
@@ -253,6 +265,8 @@ export async function persistItineraryForDetailPage(itinerary: PlanmeItinerary):
       // Do not log the itinerary payload; status is enough to diagnose handoff failures.
       throw new Error(`PlanME preview store handoff failed with status ${response.status}`);
     }
+
+    return (await response.json()) as PersistedFinalizedItineraryResponse;
   } catch (error) {
     const safeMessage = error instanceof Error ? error.message : "unknown error";
 
@@ -260,6 +274,38 @@ export async function persistItineraryForDetailPage(itinerary: PlanmeItinerary):
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/** Reads one finalized version 2 itinerary from the web store for widget rendering. */
+async function fetchFinalizedItineraryForWidget(itineraryId: string) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), PLANME_WEB_LOOKUP_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(
+      buildPlanmeWebUrl(`/api/gpt/itineraries/${encodeURIComponent(itineraryId)}`),
+      { signal: controller.signal },
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return (await response.json()) as GptActionItineraryResponse;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/** Reads the server-only handoff token required by both Vercel projects. */
+function getPlanmeInternalApiToken() {
+  const token = process.env.PLANME_INTERNAL_API_TOKEN?.trim();
+
+  if (!token) {
+    throw new Error("PLANME_INTERNAL_API_TOKEN is required.");
+  }
+
+  return token;
 }
 
 /**
@@ -512,7 +558,12 @@ export function createPlanmeMcpServer(): McpServer {
       }
 
       try {
-        await persistItineraryForDetailPage(response.itinerary);
+        const persisted = await persistItineraryForDetailPage(response.itinerary);
+        response = {
+          ...toGptActionItineraryResponse(persisted.itinerary, getPlanmeWebRequestUrl()),
+          resolutionLogs: response.resolutionLogs,
+          validationIssues: response.validationIssues,
+        };
       } catch (error) {
         const safeMessage = error instanceof Error ? error.message : "unknown error";
 
@@ -566,7 +617,7 @@ export function createPlanmeMcpServer(): McpServer {
       },
     },
     async ({ itineraryId }: { itineraryId: string }) => {
-      const response = getGptActionItineraryResponse(itineraryId, getPlanmeWebRequestUrl());
+      const response = await fetchFinalizedItineraryForWidget(itineraryId);
 
       if (!response) {
         // MCP clients surface tool errors better when the result is explicitly marked as an error.
