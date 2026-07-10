@@ -14,6 +14,10 @@ test("expands the map-only detail view after hiding itinerary editing panels", a
   await expect(page.getByText("행선지 편집")).toHaveCount(0);
 
   const mapBox = await page.getByTestId("route-map-viewport").boundingBox();
+  const mapSurfaceBox = await page
+    .getByTestId("route-map-surface")
+    .boundingBox();
 
   expect(mapBox?.height).toBeGreaterThanOrEqual(560);
+  expect(mapSurfaceBox?.height).toBe(mapBox?.height);
 });

@@ -444,7 +444,13 @@ function NaverRouteMap({
   ]);
 
   return (
-    <Box sx={{ minHeight: { xs: 320, md: 360 }, position: "relative" }}>
+    <Box
+      sx={{
+        height: "100%",
+        minHeight: { xs: 320, md: 360 },
+        position: "relative",
+      }}
+    >
       <Box sx={{ inset: 0, position: "absolute" }}>
         <Box ref={mapElementRef} sx={{ height: "100%", width: "100%" }} />
       </Box>
@@ -741,23 +747,27 @@ export function RouteMap({
         data-testid="route-map-viewport"
         sx={{
           background: mapBackground,
-          minHeight: mapMinHeight,
+          height: mapMinHeight,
           overflow: "hidden",
           position: "relative",
         }}
       >
-        {canUseNaver ? (
-        <NaverRouteMap
-          carrymeColor={carrymeColor}
-          carrymeRoute={carrymeRoute}
-          onLoadFailed={handleNaverLoadFailed}
-          showCarryme={showCarryme}
-          showStandard={showStandard}
-          standardColor={standardColor}
-          standardRoute={standardRoute}
-        />
-      ) : (
-        <>
+        <Box
+          data-testid="route-map-surface"
+          sx={{ height: "100%", position: "relative" }}
+        >
+          {canUseNaver ? (
+            <NaverRouteMap
+              carrymeColor={carrymeColor}
+              carrymeRoute={carrymeRoute}
+              onLoadFailed={handleNaverLoadFailed}
+              showCarryme={showCarryme}
+              showStandard={showStandard}
+              standardColor={standardColor}
+              standardRoute={standardRoute}
+            />
+          ) : (
+            <>
       <Box
         sx={{
           backgroundImage: isDark
@@ -956,9 +966,14 @@ export function RouteMap({
         <LegendRow color={standardColor} label="Standard 경로" />
         <LegendRow color={carrymeColor} label="짐 없이 바로 이동하는 경로" />
       </Stack>
-        </>
-      )}
-        <RollerGuidance content={rollerGuidance} isDark={isDark} show={showCarryme} />
+            </>
+          )}
+        </Box>
+        <RollerGuidance
+          content={rollerGuidance}
+          isDark={isDark}
+          show={showCarryme}
+        />
       </Box>
 
       <Stack
