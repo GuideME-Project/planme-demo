@@ -23,7 +23,20 @@ type BodyRequest = IncomingMessage & {
   body?: object | string | Buffer;
 };
 
-const transportModeSchema = z.enum(["drive", "transit"]);
+const gptsTransportModeSchema = z
+  .enum(["drive", "transit", "자동차", "대중교통"])
+  .transform((value) => {
+    // GPTs can repeat the user's Korean choice even when the internal contract uses English values.
+    if (value === "자동차") {
+      return "drive" as const;
+    }
+
+    if (value === "대중교통") {
+      return "transit" as const;
+    }
+
+    return value;
+  });
 const planningRequestSchema = z.object({
   message: z.string().optional(),
   destination: z.string().optional(),
@@ -36,7 +49,7 @@ const planningRequestSchema = z.object({
   luggageCount: z.number().int().min(0).max(20).optional(),
   preferences: z.array(z.string()).optional(),
   theme: z.enum(["light", "dark"]).optional(),
-  transportMode: transportModeSchema.optional(),
+  transportMode: gptsTransportModeSchema.optional(),
 });
 const recommendationRequestSchema = z
   .object({
@@ -59,7 +72,7 @@ const recommendationRequestSchema = z
       })
       .optional(),
     theme: z.enum(["light", "dark"]).optional(),
-    transportMode: transportModeSchema,
+    transportMode: gptsTransportModeSchema,
   })
   .refine((input) => Boolean(input.origin?.trim() || input.arrivalAirport?.trim()), {
     message: "origin or arrivalAirport is required",
@@ -108,7 +121,10 @@ export async function handleGptsPlanningStartRequest(
   const parsed = planningRequestSchema.safeParse(await readJsonBody(request));
 
   if (!parsed.success) {
-    writeJson(response, 400, { error: "INVALID_PLANME_PLANNING_REQUEST" });
+    writeJson(response, 400, {
+      error: "INVALID_PLANME_PLANNING_REQUEST",
+      validationIssues: createGptsValidationIssues(parsed.error),
+    });
     return;
   }
 
@@ -138,7 +154,10 @@ export async function handleGptsRecommendItineraryRequest(
     const parsed = recommendationRequestSchema.safeParse(await readJsonBody(request));
 
     if (!parsed.success) {
-      writeJson(response, 400, { error: "INVALID_PLANME_RECOMMENDATION_REQUEST" });
+      writeJson(response, 400, {
+        error: "INVALID_PLANME_RECOMMENDATION_REQUEST",
+        validationIssues: createGptsValidationIssues(parsed.error),
+      });
       return;
     }
 
@@ -232,6 +251,16 @@ function handleOptionsRequest(request: IncomingMessage, response: ServerResponse
   response.writeHead(204);
   response.end();
   return true;
+}
+
+/**
+ * Returns field-level request errors without echoing user input or provider credentials.
+ */
+function createGptsValidationIssues(error: z.ZodError) {
+  return error.issues.map((issue) => ({
+    message: issue.message,
+    path: issue.path.join(".") || "request",
+  }));
 }
 
 /**
@@ -330,6 +359,14 @@ function buildGptsOpenApiSchema(serverUrl: string) {
                 },
               },
             },
+            "400": {
+              description: "Invalid planning request with field-level validation issues",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/InvalidRequestResponse" },
+                },
+              },
+            },
           },
         },
       },
@@ -360,6 +397,14 @@ function buildGptsOpenApiSchema(serverUrl: string) {
               },
             },
             "500": { description: "AI generation or web handoff failed" },
+            "400": {
+              description: "Invalid recommendation request with field-level validation issues",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/InvalidRequestResponse" },
+                },
+              },
+            },
           },
         },
       },
@@ -380,7 +425,12 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             luggageCount: { type: "integer", minimum: 0, maximum: 20 },
             preferences: { type: "array", items: { type: "string" } },
             theme: { type: "string", enum: ["light", "dark"] },
-            transportMode: { type: "string", enum: ["drive", "transit"] },
+            transportMode: {
+              type: "string",
+              enum: ["drive", "transit", "자동차", "대중교통"],
+              description:
+                "Use drive or 자동차 for car guidance; use transit or 대중교통 for public transit guidance.",
+            },
           },
         },
         PlanmePlanningAssessment: {
@@ -482,7 +532,12 @@ function buildGptsOpenApiSchema(serverUrl: string) {
               $ref: "#/components/schemas/PlanmeClarificationContext",
             },
             theme: { type: "string", enum: ["light", "dark"] },
-            transportMode: { type: "string", enum: ["drive", "transit"] },
+            transportMode: {
+              type: "string",
+              enum: ["drive", "transit", "자동차", "대중교통"],
+              description:
+                "Use drive or 자동차 for car guidance; use transit or 대중교통 for public transit guidance. The response is normalized to drive or transit.",
+            },
           },
         },
         ItineraryActionResponse: {
@@ -526,6 +581,24 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             previousQuestions: { type: "array", items: { type: "string" } },
             round: { type: "integer", minimum: 0, maximum: 2 },
             unresolvedPlaces: { type: "array", items: { type: "string" } },
+          },
+        },
+        InvalidRequestResponse: {
+          type: "object",
+          required: ["error", "validationIssues"],
+          properties: {
+            error: { type: "string" },
+            validationIssues: {
+              type: "array",
+              items: {
+                type: "object",
+                required: ["path", "message"],
+                properties: {
+                  path: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
           },
         },
         PlanmeClarificationResponse: {

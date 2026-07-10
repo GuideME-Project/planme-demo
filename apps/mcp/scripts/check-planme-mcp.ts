@@ -52,6 +52,9 @@ type PlanningContent = {
   status?: "needs_input" | "ready";
   missingSlots?: string[];
   nextAction?: "ask_user" | "recommend_planme_itinerary";
+  normalizedInput?: {
+    transportMode?: "drive" | "transit" | null;
+  };
   questions?: Array<{
     slot?: string;
     text?: string;
@@ -2579,6 +2582,15 @@ async function assertGptsActionsRestFacade(): Promise<void> {
       openApiPayload.components.schemas.RecommendItineraryRequest.properties
         .clarificationContext,
     );
+    assert.deepEqual(
+      openApiPayload.components.schemas.RecommendItineraryRequest.properties.transportMode.enum,
+      ["drive", "transit", "자동차", "대중교통"],
+    );
+    assert.match(
+      openApiPayload.components.schemas.RecommendItineraryRequest.properties.transportMode
+        .description,
+      /자동차.*drive|drive.*자동차/,
+    );
 
     const planningResponse = await fetch(`${origin}/api/gpt/planning/start`, {
       method: "POST",
@@ -2592,12 +2604,55 @@ async function assertGptsActionsRestFacade(): Promise<void> {
     assert.equal(planningPayload.nextAction, "ask_user");
     assert.ok(planningPayload.missingSlots?.includes("origin"));
 
+    const koreanPlanningResponse = await fetch(`${origin}/api/gpt/planning/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        destination: "부산",
+        durationDays: 2,
+        origin: "용산역",
+        transportMode: "대중교통",
+      }),
+    });
+    const koreanPlanningPayload = (await koreanPlanningResponse.json()) as PlanningContent;
+
+    assert.equal(koreanPlanningResponse.status, 200);
+    assert.equal(koreanPlanningPayload.status, "ready");
+    assert.equal(koreanPlanningPayload.normalizedInput?.transportMode, "transit");
+
+    const invalidRecommendationResponse = await fetch(
+      `${origin}/api/gpt/itineraries/recommend`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          destination: "부산",
+          durationDays: 2,
+          origin: "용산역",
+          transportMode: "도보",
+        }),
+      },
+    );
+    const invalidRecommendationPayload = (await invalidRecommendationResponse.json()) as {
+      error?: string;
+      validationIssues?: Array<{ message?: string; path?: string }>;
+    };
+
+    assert.equal(invalidRecommendationResponse.status, 400);
+    assert.equal(invalidRecommendationPayload.error, "INVALID_PLANME_RECOMMENDATION_REQUEST");
+    assert.ok(
+      invalidRecommendationPayload.validationIssues?.some(
+        (issue) => issue.path === "transportMode",
+      ),
+    );
+
     const recommendationResponse = await fetch(`${origin}/api/gpt/itineraries/recommend`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         destination: "여수",
-        durationDays: 2, transportMode: "drive",
+        durationDays: 2,
+        transportMode: "자동차",
         origin: "서울",
       }),
     });
