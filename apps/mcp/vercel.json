@@ -1,4 +1,12 @@
 {
+  "functions": {
+    "api/gpt/itineraries/recommend.ts": {
+      "maxDuration": 60
+    },
+    "api/mcp.ts": {
+      "maxDuration": 60
+    }
+  },
   "rewrites": [
     {
       "source": "/mcp",

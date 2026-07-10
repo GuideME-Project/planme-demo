@@ -56,6 +56,18 @@ import { usePlanmeColorMode } from "@/theme/ThemeRegistry";
 type ItineraryDashboardProps = {
   itinerary: PlanmeItinerary;
   compact: boolean;
+  finalizationToken?: string;
+  routeFinalized?: boolean;
+  routeRevision?: number;
+};
+
+type FinalizationApiResponse = {
+  error?: string;
+  itinerary?: PlanmeItinerary;
+  message?: string;
+  revision?: number;
+  status?: "ready";
+  token?: string;
 };
 
 type EditableDayPlan = Omit<PlanmeItinerary["days"][number], "day"> & {
@@ -148,6 +160,11 @@ type ComputedRouteState = Partial<
 >;
 
 type RouteComputationPayload = ComputedRouteState;
+
+type EditedItineraryFinalizationResult = {
+  message: string;
+  ok: boolean;
+};
 
 type DisplayHeaderCopy = {
   summary: string;
@@ -2049,12 +2066,26 @@ function getTimelineCategoryForRole(role: PlanmeStopRole | undefined): TimelineE
   return "event";
 }
 
+/** Hides non-final provider values while retaining AI places and map markers. */
+function createPendingRoute(route: RoutePlan, durationLabel: string): RoutePlan {
+  return {
+    ...route,
+    durationLabel,
+    geoPath: undefined,
+    geoSegments: undefined,
+    transitMarkers: undefined,
+  };
+}
+
 /**
  * Renders the PlanME itinerary detail surface shown after the ChatGPT handoff.
  */
 export function ItineraryDashboard({
   itinerary,
   compact,
+  finalizationToken,
+  routeFinalized = false,
+  routeRevision = 0,
 }: ItineraryDashboardProps) {
   const theme = useTheme();
   const { mode, toggleMode } = usePlanmeColorMode();
@@ -2071,6 +2102,13 @@ export function ItineraryDashboard({
   const [transportMode, setTransportMode] = useState<PlanmeTransportMode>(
     itinerary.transportMode,
   );
+  const [routesFinalized, setRoutesFinalized] = useState(routeFinalized);
+  const [activeFinalizationToken, setActiveFinalizationToken] = useState(finalizationToken);
+  const [activeRouteRevision, setActiveRouteRevision] = useState(routeRevision);
+  const [finalizationStatus, setFinalizationStatus] = useState<AsyncStatus>(
+    routeFinalized ? "success" : finalizationToken ? "loading" : "idle",
+  );
+  const [finalizationMessage, setFinalizationMessage] = useState<string | null>(null);
 
   const isDark = mode === "dark";
   const selectedDayPlan = useMemo(
@@ -2101,8 +2139,84 @@ export function ItineraryDashboard({
     standardRoute.durationMinutes,
     carrymeRoute.durationMinutes,
   );
+  const shouldHideProviderResult = Boolean(activeFinalizationToken) && !routesFinalized;
+  const hiddenDurationLabel = finalizationStatus === "error" ? "계산 실패" : "계산 중";
+  const displayStandardRoute = shouldHideProviderResult
+    ? createPendingRoute(standardRoute, hiddenDurationLabel)
+    : standardRoute;
+  const displayCarrymeRoute = shouldHideProviderResult
+    ? createPendingRoute(carrymeRoute, hiddenDurationLabel)
+    : carrymeRoute;
+  const displaySavingLabel = shouldHideProviderResult ? hiddenDurationLabel : savingLabel;
 
   useEffect(() => {
+    if (routesFinalized || !activeFinalizationToken) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function finalizeStoredItinerary() {
+      try {
+        const response = await fetch(
+          `/api/gpt/itineraries/${encodeURIComponent(itinerary.id)}/routes/finalize`,
+          {
+            body: JSON.stringify({
+              baseRevision: activeRouteRevision,
+              token: activeFinalizationToken,
+            }),
+            headers: { "Content-Type": "application/json" },
+            method: "POST",
+          },
+        );
+        const payload = (await response.json()) as FinalizationApiResponse;
+
+        if (!response.ok || payload.status !== "ready" || !payload.itinerary) {
+          throw new Error(payload.message ?? "일정을 완성하지 못했습니다. 다시 요청해주세요.");
+        }
+
+        if (cancelled) {
+          return;
+        }
+
+        // Replace every day only after the server has atomically finalized the entire itinerary.
+        setEditableDays(createEditableDays(payload.itinerary.days));
+        setTransportMode(payload.itinerary.transportMode);
+        setActiveRouteRevision(payload.revision ?? activeRouteRevision + 1);
+        setActiveFinalizationToken(payload.token);
+        setComputedRoutes({});
+        setRoutesFinalized(true);
+        setFinalizationStatus("success");
+        setFinalizationMessage(null);
+      } catch (error) {
+        if (!cancelled) {
+          setFinalizationStatus("error");
+          setFinalizationMessage(
+            error instanceof Error
+              ? error.message
+              : "일정을 완성하지 못했습니다. 다시 요청해주세요.",
+          );
+        }
+      }
+    }
+
+    void finalizeStoredItinerary();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeFinalizationToken,
+    activeRouteRevision,
+    itinerary.id,
+    routesFinalized,
+  ]);
+
+  useEffect(() => {
+    if (routesFinalized || activeFinalizationToken) {
+      return;
+    }
+
     let cancelled = false;
     const standardRows = createRouteRequestRows(selectedDayPlan.standard);
     const carrymeRows = createRouteRequestRows(selectedDayPlan.carryme);
@@ -2158,13 +2272,86 @@ export function ItineraryDashboard({
     return () => {
       cancelled = true;
     };
-  }, [itinerary.savedDurationLabel, selectedDayPlan]);
+  }, [
+    activeFinalizationToken,
+    itinerary.savedDurationLabel,
+    routesFinalized,
+    selectedDayPlan,
+  ]);
 
   /**
    * Applies a successful CarryME recalculation as committed display state.
    */
   const handleRoutesComputed = (payload: RouteComputationPayload) => {
     setComputedRoutes(payload);
+  };
+
+  /** Finalizes an edited day on the server and commits it only after every route succeeds. */
+  const handleFinalizeEditedItinerary = async (
+    carrymeRows: DestinationRow[],
+  ): Promise<EditedItineraryFinalizationResult> => {
+    if (!activeFinalizationToken) {
+      return { message: "서버 저장 일정이 아니어서 기존 경로 계산을 사용합니다.", ok: false };
+    }
+
+    const days = editableDays.map((day) => {
+      const { uiId: _uiId, ...storedDay } = day;
+
+      if (day.day !== selectedDayPlan.day) {
+        return storedDay;
+      }
+
+      return {
+        ...storedDay,
+        carryme: {
+          ...storedDay.carryme,
+          routeText: carrymeRows.map((row) => row.name).join(" → "),
+          stops: createRouteStopsFromRows(
+            carrymeRows.map((row) => ({ ...row, mode: transportMode })),
+          ),
+        },
+      };
+    });
+    const candidate: PlanmeItinerary = {
+      ...itinerary,
+      days,
+      transportMode,
+    };
+
+    try {
+      const response = await fetch(
+        `/api/gpt/itineraries/${encodeURIComponent(itinerary.id)}/routes/finalize`,
+        {
+          body: JSON.stringify({
+            baseRevision: activeRouteRevision,
+            itinerary: candidate,
+            token: activeFinalizationToken,
+          }),
+          headers: { "Content-Type": "application/json" },
+          method: "POST",
+        },
+      );
+      const payload = (await response.json()) as FinalizationApiResponse;
+
+      if (!response.ok || payload.status !== "ready" || !payload.itinerary) {
+        return {
+          message: payload.message ?? "변경한 일정의 경로를 계산하지 못했습니다.",
+          ok: false,
+        };
+      }
+
+      // The previous successful itinerary remains visible until this full replacement succeeds.
+      setEditableDays(createEditableDays(payload.itinerary.days));
+      setTransportMode(payload.itinerary.transportMode);
+      setActiveRouteRevision(payload.revision ?? activeRouteRevision + 1);
+      setActiveFinalizationToken(payload.token);
+      setComputedRoutes({});
+      setRoutesFinalized(true);
+
+      return { message: "변경한 일정과 경로를 저장했습니다.", ok: true };
+    } catch {
+      return { message: "변경한 일정의 경로를 계산하지 못했습니다.", ok: false };
+    }
   };
 
   /**
@@ -2286,15 +2473,15 @@ export function ItineraryDashboard({
           >
             <MetricCard
               icon={<AccessTimeRoundedIcon />}
-              label="총 이동 시간(예상)"
+              label="총 이동 시간"
               tone="primary"
-              value={totalDurationLabel}
+              value={shouldHideProviderResult ? hiddenDurationLabel : totalDurationLabel}
             />
             <MetricCard
               icon={<WbSunnyRoundedIcon />}
-              label="절약 시간(예상)"
+              label="절약 시간"
               tone="error"
-              value={savingLabel}
+              value={displaySavingLabel}
             />
           </Stack>
         </Box>
@@ -2411,6 +2598,20 @@ export function ItineraryDashboard({
               p: { xs: 1.5, md: 2 },
             }}
           >
+            {finalizationMessage ? (
+              <Box
+                role="alert"
+                sx={{
+                  borderBottom: "1px solid",
+                  borderColor: "error.light",
+                  color: "error.main",
+                  px: 2,
+                  py: 1.5,
+                }}
+              >
+                {finalizationMessage}
+              </Box>
+            ) : null}
             <Stack spacing={1.5}>
               <Box
                 sx={{
@@ -2425,12 +2626,12 @@ export function ItineraryDashboard({
               >
                 <RouteComparisonCard
                   position="left"
-                  route={standardRoute}
+                  route={displayStandardRoute}
                   tone="primary"
                 />
                 <RouteComparisonCard
                   position="right"
-                  route={carrymeRoute}
+                  route={displayCarrymeRoute}
                   tone="secondary"
                 />
               </Box>
@@ -2438,15 +2639,15 @@ export function ItineraryDashboard({
               {activeView === "compare" ? (
                 <>
                   <TimelinePanel
-                    carrymeDurationLabel={carrymeRoute.durationLabel}
+                    carrymeDurationLabel={displayCarrymeRoute.durationLabel}
                     carrymeEvents={
                       selectedDayPlan.carrymeTimeline ??
                       computedRoutes.carryme?.timeline ??
                       selectedDayPlan.timeline
                     }
                     mode={mode}
-                    savingLabel={savingLabel}
-                    standardDurationLabel={standardRoute.durationLabel}
+                    savingLabel={displaySavingLabel}
+                    standardDurationLabel={displayStandardRoute.durationLabel}
                     standardEvents={
                       computedRoutes.standard?.timeline ??
                       selectedDayPlan.standardTimeline ??
@@ -2454,27 +2655,38 @@ export function ItineraryDashboard({
                     }
                   />
 
-                  <DestinationEditor
-                    key={selectedDayPlan.uiId}
-                    initialRows={createDestinationRows(carrymeRoute)}
-                    mode={mode}
-                    onRoutesComputed={handleRoutesComputed}
-                    savingLabel={savingLabel}
-                    standardRoute={selectedDayPlan.standard}
-                    carrymeTimeline={selectedDayPlan.carrymeTimeline ?? selectedDayPlan.timeline}
-                    transportMode={transportMode}
-                    onTransportModeChange={handleTransportModeChange}
-                  />
+                  <Box
+                    aria-busy={finalizationStatus === "loading"}
+                    sx={{
+                      opacity: finalizationStatus === "loading" ? 0.55 : 1,
+                      pointerEvents: finalizationStatus === "loading" ? "none" : "auto",
+                    }}
+                  >
+                    <DestinationEditor
+                      key={selectedDayPlan.uiId}
+                      initialRows={createDestinationRows(carrymeRoute)}
+                      mode={mode}
+                      onRoutesComputed={handleRoutesComputed}
+                      onFinalizeItinerary={
+                        activeFinalizationToken ? handleFinalizeEditedItinerary : undefined
+                      }
+                      savingLabel={displaySavingLabel}
+                      standardRoute={selectedDayPlan.standard}
+                      carrymeTimeline={selectedDayPlan.carrymeTimeline ?? selectedDayPlan.timeline}
+                      transportMode={transportMode}
+                      onTransportModeChange={handleTransportModeChange}
+                    />
+                  </Box>
                 </>
               ) : null}
 
               <RouteMap
-                carrymeRoute={carrymeRoute}
+                carrymeRoute={displayCarrymeRoute}
                 expanded={activeView === "map"}
-                savingLabel={savingLabel}
+                savingLabel={displaySavingLabel}
                 showCarryme={visibleRoutes.carryme}
                 showStandard={visibleRoutes.standard}
-                standardRoute={standardRoute}
+                standardRoute={displayStandardRoute}
                 attachedToComparison={activeView === "compare"}
                 themeMode={mode}
               />
@@ -2672,6 +2884,9 @@ type DestinationEditorProps = {
   initialRows: DestinationRow[];
   mode: "light" | "dark";
   onRoutesComputed: (payload: RouteComputationPayload) => void;
+  onFinalizeItinerary?: (
+    carrymeRows: DestinationRow[],
+  ) => Promise<EditedItineraryFinalizationResult>;
   savingLabel: string;
   standardRoute: RoutePlan;
   transportMode: PlanmeTransportMode;
@@ -2686,6 +2901,7 @@ function DestinationEditor({
   initialRows,
   mode,
   onRoutesComputed,
+  onFinalizeItinerary,
   savingLabel,
   standardRoute,
   transportMode,
@@ -3022,6 +3238,14 @@ function DestinationEditor({
 
     setRouteStatus("loading");
     setRouteMessage("경로를 확인하는 중입니다.");
+
+    if (onFinalizeItinerary) {
+      const finalized = await onFinalizeItinerary(rows);
+
+      setRouteStatus(finalized.ok ? "success" : "error");
+      setRouteMessage(finalized.message);
+      return;
+    }
 
     const [standardSettled, carrymeSettled] = await Promise.allSettled([
       requestRouteCheck(standardRows, transportMode),

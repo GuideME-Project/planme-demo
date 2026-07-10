@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ItineraryDashboard } from "@/components/itinerary/ItineraryDashboard";
-import { findPlanmeItineraryForDetailPage } from "@/lib/preview-itinerary-store";
+import { createRouteFinalizationToken } from "@/lib/route-finalization-token";
+import {
+  findPlanmeItineraryForDetailPage,
+  getPreviewItineraryRecordById,
+} from "@/lib/preview-itinerary-store";
 
 type ItineraryPageProps = {
   params: Promise<{
@@ -40,16 +44,28 @@ export async function generateMetadata({
  */
 export default async function ItineraryPage({ params }: ItineraryPageProps) {
   const { id } = await params;
-  const itinerary = await findPlanmeItineraryForDetailPage(id);
+  const record = await getPreviewItineraryRecordById(id);
+  const itinerary = record?.itinerary ?? (await findPlanmeItineraryForDetailPage(id));
 
   if (!itinerary) {
     notFound();
   }
 
+  const finalizationToken =
+    record
+      ? createRouteFinalizationToken(record.itinerary.id, record.revision)
+      : undefined;
+
   return (
     <main className="min-h-screen">
       <div className="mx-auto w-full max-w-[1920px] px-5 py-6 lg:px-8">
-        <ItineraryDashboard itinerary={itinerary} compact />
+        <ItineraryDashboard
+          itinerary={itinerary}
+          compact
+          finalizationToken={finalizationToken}
+          routeFinalized={record?.routeFinalized ?? false}
+          routeRevision={record?.revision ?? 0}
+        />
       </div>
     </main>
   );

@@ -11,9 +11,11 @@ import {
   decidePlanmePlaceCandidateWithOpenAi,
   generatePlanmeDraftWithOpenAi,
   isPlanmeClarificationResponse,
+  getPlanmeItineraryById,
   resolvePlanmeDraftCoordinates,
   searchAccommodationCandidates,
   searchPlanmePlaceCandidates,
+  toGptActionItineraryResponse,
   type GptActionItineraryResponse,
   type AiRecommendedItineraryOptions,
   type PlanmeDraftGeocoder,
@@ -2475,11 +2477,13 @@ function assertStationLuggageGuardrail(): void {
 async function assertPreviewStoreHandoffFailsClosed(): Promise<void> {
   const originalVercel = process.env.VERCEL;
   const originalWebOrigin = process.env.PLANME_WEB_ORIGIN;
+  const originalInternalToken = process.env.PLANME_INTERNAL_API_TOKEN;
   const originalFetch = globalThis.fetch;
 
   try {
     process.env.VERCEL = "1";
     process.env.PLANME_WEB_ORIGIN = "https://planme-demo.test";
+    process.env.PLANME_INTERNAL_API_TOKEN = "mcp-contract-internal-token";
     globalThis.fetch = async () => new Response("store unavailable", { status: 500 });
 
     await assert.rejects(
@@ -2504,6 +2508,12 @@ async function assertPreviewStoreHandoffFailsClosed(): Promise<void> {
       delete process.env.PLANME_WEB_ORIGIN;
     } else {
       process.env.PLANME_WEB_ORIGIN = originalWebOrigin;
+    }
+
+    if (originalInternalToken === undefined) {
+      delete process.env.PLANME_INTERNAL_API_TOKEN;
+    } else {
+      process.env.PLANME_INTERNAL_API_TOKEN = originalInternalToken;
     }
 
     globalThis.fetch = originalFetch;
@@ -2827,8 +2837,26 @@ async function main(): Promise<void> {
     assert.doesNotMatch(missingAiGeneratorPayload, /부산 공연장/);
 
     const originalClientWebOrigin = process.env.PLANME_WEB_ORIGIN;
+    const originalClientFetch = globalThis.fetch;
     try {
       process.env.PLANME_WEB_ORIGIN = "http://localhost:3000";
+      const demoItinerary = getPlanmeItineraryById("busan-bts-1d1n");
+      assert.ok(demoItinerary);
+      globalThis.fetch = async (input, init) => {
+        if (String(input).includes("/api/gpt/itineraries/busan-bts-1d1n")) {
+          return new Response(
+            JSON.stringify(
+              toGptActionItineraryResponse(
+                demoItinerary,
+                "http://localhost:3000/api/gpt/itineraries/busan-bts-1d1n",
+              ),
+            ),
+            { headers: { "Content-Type": "application/json" }, status: 200 },
+          );
+        }
+
+        return originalClientFetch(input, init);
+      };
 
       const demoLookup = await client.callTool({
         name: "get_planme_itinerary",
@@ -2847,6 +2875,8 @@ async function main(): Promise<void> {
       } else {
         process.env.PLANME_WEB_ORIGIN = originalClientWebOrigin;
       }
+
+      globalThis.fetch = originalClientFetch;
     }
 
     const originalResourceWebOrigin = process.env.PLANME_WEB_ORIGIN;

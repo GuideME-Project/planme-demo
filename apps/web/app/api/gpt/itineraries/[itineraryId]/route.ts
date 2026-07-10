@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { toGptActionItineraryResponse } from "@planme/core";
-import { findPlanmeItineraryForDetailPage } from "@/lib/preview-itinerary-store";
+import { getPreviewItineraryRecordById } from "@/lib/preview-itinerary-store";
 
 type ItineraryRouteContext = {
   params: Promise<{
@@ -13,12 +13,23 @@ type ItineraryRouteContext = {
  */
 export async function GET(request: Request, context: ItineraryRouteContext) {
   const { itineraryId } = await context.params;
-  const itinerary = await findPlanmeItineraryForDetailPage(itineraryId);
+  const record = await getPreviewItineraryRecordById(itineraryId);
 
-  if (!itinerary) {
+  if (!record) {
     // Missing ids use a compact JSON error because GPT Actions handles HTTP status directly.
     return NextResponse.json({ error: "ITINERARY_NOT_FOUND" }, { status: 404 });
   }
 
-  return NextResponse.json(toGptActionItineraryResponse(itinerary, request.url));
+  if (!record.routeFinalized) {
+    return NextResponse.json(
+      { error: "ROUTE_FINALIZATION_REQUIRED" },
+      { status: 409 },
+    );
+  }
+
+  return NextResponse.json({
+    ...toGptActionItineraryResponse(record.itinerary, request.url),
+    revision: record.revision,
+    status: "ready",
+  });
 }

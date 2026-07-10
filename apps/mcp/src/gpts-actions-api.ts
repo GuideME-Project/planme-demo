@@ -6,6 +6,7 @@ import {
   formatPlanmeAiGenerationError,
   isPlanmeClarificationResponse,
   PlanmeAiConfigurationError,
+  toGptActionItineraryResponse,
   type PlanmeClarificationResponse,
   type PlanmePlanningRequest,
   type PlanmeRecommendationResponse,
@@ -181,9 +182,17 @@ export async function handleGptsRecommendItineraryRequest(
     }
 
     // Do not return a usable detail URL unless the web handoff store accepted the itinerary.
-    await persistItineraryForDetailPage(generated.itinerary);
+    const persisted = await persistItineraryForDetailPage(generated.itinerary);
+    const finalized = {
+      ...toGptActionItineraryResponse(
+        persisted.itinerary,
+        `${getPlanmeWebOrigin()}/api/gpt/itineraries/recommend`,
+      ),
+      resolutionLogs: generated.resolutionLogs,
+      validationIssues: generated.validationIssues,
+    };
 
-    writeJson(response, 200, toRestRecommendationResponse(generated));
+    writeJson(response, 200, toRestRecommendationResponse(finalized));
   } catch (error) {
     if (error instanceof PlanmeAiConfigurationError) {
       writeJson(response, 500, {

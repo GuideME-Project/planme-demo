@@ -1,4 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
+import * as nextEnv from "@next/env";
+
+const { loadEnvConfig } = nextEnv;
+loadEnvConfig("apps/web");
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3000";
 const baseUrl = new URL(baseURL);
