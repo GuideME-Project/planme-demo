@@ -49,7 +49,6 @@ Standard 시간표에서 CarryME 배송 사건을 제거하고 기존 짐 보관
 
 ## 남은 작업
 
-- GitHub PR 생성과 병합.
-- Vercel 자동 배포 성공 확인.
-- 운영 기존 일정과 ChatGPT 신규 일정 생성 검증.
-
+- Microsoft Edge에서 ChatGPT 신규 일정 생성과 최종 위젯 1회 표시 확인.
+- 신규 일정의 1·2일차와 상세 지도 운영 확인.
+- 최종 운영 검증 문서 PR 병합.
