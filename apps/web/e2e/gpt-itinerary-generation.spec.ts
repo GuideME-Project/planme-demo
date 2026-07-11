@@ -97,6 +97,77 @@ test("opens a stored generated itinerary without needing a web OpenAI key", asyn
   await expect(page.getByText("짐 숙소 도착").first()).toBeVisible();
 });
 
+test("separates Standard check-in from CarryME delivery and removes row emphasis", async ({
+  page,
+  request,
+}) => {
+  const itinerary = createTimelineDisplayItinerary(
+    `generated-e2e-timeline-display-${Date.now()}`,
+  );
+  const storeResponse = await request.post("/api/gpt/itineraries/preview-store", {
+    data: { itinerary },
+    headers: {
+      Authorization: `Bearer ${process.env.PLANME_INTERNAL_API_TOKEN}`,
+    },
+  });
+
+  expect(storeResponse.ok()).toBeTruthy();
+  const stored = await storeResponse.json();
+  const pageUrl = new URL(stored.pageUrl);
+
+  await page.goto(`${pageUrl.pathname}${pageUrl.search}`);
+
+  for (const dayLabel of ["1일차", "2일차"]) {
+    await page.getByRole("button", { name: dayLabel }).click();
+
+    const standardColumn = page.getByTestId("timeline-column-standard");
+    const carrymeColumn = page.getByTestId("timeline-column-carryme");
+    const rowContents = page.getByTestId("timeline-event-content");
+    const deliveryIcon = carrymeColumn.locator('[data-delivery-event="true"]');
+
+    await expect(standardColumn.getByText("짐 여수 숙소 도착", { exact: true })).toHaveCount(0);
+    await expect(standardColumn.getByText("여수 숙소 체크인", { exact: true })).toBeVisible();
+    await expect(
+      standardColumn.getByText("호텔에 체크인한 뒤 다음 일정으로 이동합니다.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(standardColumn.getByText("여수 숙소 복귀", { exact: true })).toBeVisible();
+    await expect(carrymeColumn.getByText("짐 여수 숙소 도착", { exact: true })).toBeVisible();
+    await expect(deliveryIcon).toHaveCount(1);
+    await expect(deliveryIcon.getByTestId("LocalShippingRoundedIcon")).toBeVisible();
+    expect(await deliveryIcon.evaluate((element) => getComputedStyle(element).boxShadow)).not.toBe(
+      "none",
+    );
+    await expect(rowContents.filter({ hasText: "약 40분 절약" })).toHaveCount(0);
+    await expect(standardColumn.getByTestId("CheckRoundedIcon")).toHaveCount(0);
+    await expect(carrymeColumn.getByTestId("CheckRoundedIcon")).toHaveCount(0);
+    await expect(carrymeColumn.getByTestId("carryme-duration-saving-chip")).toBeVisible();
+
+    const rowCount = await rowContents.count();
+    for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
+      await expect(rowContents.nth(rowIndex)).toHaveCSS(
+        "background-color",
+        "rgba(0, 0, 0, 0)",
+      );
+      await expect(rowContents.nth(rowIndex)).toHaveCSS("border-top-width", "0px");
+    }
+  }
+
+  await page.getByRole("button", { name: "테마 버전 Light" }).click();
+  await expect(page.getByRole("button", { name: "테마 버전 Dark" })).toBeVisible();
+
+  const darkRowContents = page.getByTestId("timeline-event-content");
+  const darkRowCount = await darkRowContents.count();
+  for (let rowIndex = 0; rowIndex < darkRowCount; rowIndex += 1) {
+    await expect(darkRowContents.nth(rowIndex)).toHaveCSS(
+      "background-color",
+      "rgba(0, 0, 0, 0)",
+    );
+    await expect(darkRowContents.nth(rowIndex)).toHaveCSS("border-top-width", "0px");
+  }
+});
+
 test("does not fall back to demo data for missing generated itinerary ids", async ({
   page,
 }) => {
@@ -259,5 +330,100 @@ function createStoredGeneratedItinerary(id: string) {
         icon: "phone",
       },
     ],
+  };
+}
+
+/**
+ * Creates a two-day stored itinerary containing the legacy Standard/CarryME overlap.
+ */
+function createTimelineDisplayItinerary(id: string) {
+  const base = createStoredGeneratedItinerary(id);
+  const baseDay = base.days[0];
+
+  return {
+    ...base,
+    days: [1, 2].map((day) => ({
+      ...baseDay,
+      day,
+      label: `Day ${day}`,
+      standardTimeline: [
+        {
+          time: "09:00",
+          title: "서울역 출발",
+          description: "부산으로 출발합니다.",
+          category: "arrival" as const,
+          highlight: true,
+          savingLabel: "약 40분 절약",
+        },
+        {
+          time: "13:30",
+          title: "여수 숙소 체크인 전 짐 보관",
+          description: "숙소에 들러 짐을 맡기고 관광을 시작합니다.",
+          category: "hotel" as const,
+          highlight: true,
+          savingLabel: "약 40분 절약",
+        },
+        {
+          time: "17:00",
+          title: "여수 MCP 저장 테스트 코스 방문",
+          description: "관광 일정을 진행합니다.",
+          category: "event" as const,
+          highlight: true,
+          savingLabel: "약 40분 절약",
+        },
+        {
+          time: "18:00",
+          title: "여수 숙소 복귀",
+          description: "관광 후 숙소로 돌아옵니다.",
+          category: "hotel" as const,
+          highlight: true,
+          savingLabel: "약 40분 절약",
+        },
+        {
+          time: "18:00",
+          title: "짐 여수 숙소 도착",
+          description: "짐이 숙소에 먼저 도착한 것으로 처리합니다.",
+          category: "hotel" as const,
+          highlight: true,
+          savingLabel: "약 40분 절약",
+        },
+      ],
+      carrymeTimeline: [
+        {
+          time: "09:00",
+          title: "서울역 출발",
+          description: "부산으로 출발합니다.",
+          category: "arrival" as const,
+          highlight: true,
+          savingLabel: "약 40분 절약",
+        },
+        {
+          time: "13:30",
+          title: "짐 여수 숙소 도착",
+          description: "짐이 숙소에 먼저 도착한 것으로 처리합니다.",
+          category: "hotel" as const,
+          highlight: true,
+          savingLabel: "약 40분 절약",
+        },
+        {
+          time: "17:00",
+          title: "여수 MCP 저장 테스트 코스 방문",
+          description: "짐 없이 관광 일정을 진행합니다.",
+          category: "event" as const,
+          highlight: true,
+          savingLabel: "약 40분 절약",
+        },
+        {
+          time: "18:00",
+          title: "여수 숙소 도착",
+          description: "관광 후 숙소로 이동합니다.",
+          category: "hotel" as const,
+          highlight: true,
+          savingLabel: "약 40분 절약",
+        },
+      ],
+    })),
+    detailUrl: `/itinerary/${id}`,
+    id,
   };
 }

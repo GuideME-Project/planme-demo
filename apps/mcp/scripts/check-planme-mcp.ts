@@ -375,6 +375,9 @@ async function assertOpenAiGeneratorContract(): Promise<void> {
   assert.match(capturedBody, /drive/);
   assert.doesNotMatch(capturedBody, /luggageDestination/);
   assert.match(capturedBody, /carrymeTimeline/);
+  assert.match(capturedBody, /중간 방문하여 체크인하는 경로/);
+  assert.match(capturedBody, /category는 반드시 carryme/);
+  assert.match(capturedBody, /category에 carryme를 사용하지 마세요/);
   assert.match(capturedBody, /펜션 사랑가/);
   assert.match(capturedBody, /아래 숙소 후보 중 하나/);
   assert.match(capturedBody, /PLANME_OPENAI_MODEL|test-model/);
@@ -2472,6 +2475,118 @@ function assertStationLuggageGuardrail(): void {
 }
 
 /**
+ * Verifies Standard traveler events and CarryME parcel events are normalized before validation.
+ */
+function assertRouteSpecificTimelineNormalization(): void {
+  const input = {
+    transportMode: "drive" as const,
+    title: "부산 시간표 의미 정규화 테스트",
+    region: "부산",
+    duration: "1박 2일",
+    summary: "Standard 체크인과 CarryME 배송 사건을 구분합니다.",
+    days: [
+      {
+        day: 1,
+        label: "Day 1",
+        standardStops: [
+          { name: "동탄역", caption: "출발", mode: "drive" as const, role: "출발지" as const },
+          { name: "파라다이스 호텔 부산", caption: "체크인", mode: "drive" as const, role: "숙소" as const },
+          { name: "동백섬", caption: "관광", mode: "drive" as const, role: "방문지" as const },
+        ],
+        carrymeStops: [
+          { name: "동탄역", caption: "출발", mode: "drive" as const, role: "출발지" as const },
+          { name: "동백섬", caption: "관광", mode: "drive" as const, role: "방문지" as const },
+          { name: "파라다이스 호텔 부산", caption: "도착", mode: "drive" as const, role: "숙소" as const },
+        ],
+        standardTimeline: [
+          {
+            time: "07:00",
+            title: "동탄역 출발",
+            description: "부산으로 출발합니다.",
+            category: "arrival" as const,
+          },
+          {
+            time: "13:00",
+            title: "파라다이스 호텔 부산 체크인 전 짐 보관",
+            description: "호텔에 들러 짐을 맡깁니다.",
+            category: "hotel" as const,
+          },
+          {
+            time: "18:00",
+            title: "파라다이스 호텔 부산 도착",
+            description: "관광 후 호텔로 돌아옵니다.",
+            category: "hotel" as const,
+          },
+          {
+            time: "18:00",
+            title: "짐 파라다이스 호텔 부산 도착",
+            description: "짐이 호텔에 먼저 도착한 것으로 처리합니다.",
+            category: "hotel" as const,
+          },
+        ],
+        carrymeTimeline: [
+          {
+            time: "07:00",
+            title: "동탄역 출발",
+            description: "부산으로 출발합니다.",
+            category: "arrival" as const,
+          },
+          {
+            time: "13:00",
+            title: "짐 파라다이스 호텔 부산 도착",
+            description: "짐이 호텔에 먼저 도착한 것으로 처리합니다.",
+            category: "hotel" as const,
+          },
+          {
+            time: "18:00",
+            title: "파라다이스 호텔 부산 도착",
+            description: "관광 후 호텔로 이동합니다.",
+            category: "hotel" as const,
+          },
+        ],
+      },
+    ],
+  };
+  const inputSnapshot = JSON.stringify(input);
+  const preview = createPlanmeDraftPreview(input);
+  const day = preview.itinerary.days[0];
+  const standardPayload = JSON.stringify(day?.standardTimeline);
+  const carrymeDelivery = day?.carrymeTimeline?.find((event) =>
+    event.title.startsWith("짐 파라다이스 호텔 부산 도착"),
+  );
+
+  assert.equal(preview.status, "preview_ready");
+  assert.match(standardPayload, /파라다이스 호텔 부산 체크인/);
+  assert.match(standardPayload, /호텔에 체크인한 뒤 다음 일정으로 이동합니다/);
+  assert.match(standardPayload, /파라다이스 호텔 부산 도착/);
+  assert.doesNotMatch(standardPayload, /짐 파라다이스 호텔 부산 도착/);
+  assert.equal(carrymeDelivery?.category, "carryme");
+  assert.equal(JSON.stringify(input), inputSnapshot);
+
+  const invalidPreview = createPlanmeDraftPreview({
+    ...input,
+    previewId: "generated-standard-delivery-only",
+    days: input.days.map((inputDay) => ({
+      ...inputDay,
+      standardTimeline: [
+        {
+          time: "13:00",
+          title: "짐 파라다이스 호텔 부산 도착",
+          description: "짐이 호텔에 도착했습니다.",
+          category: "carryme" as const,
+        },
+      ],
+    })),
+  });
+
+  assert.equal(invalidPreview.status, "needs_revision");
+  assert.equal(
+    invalidPreview.validationIssues.some((issue) => issue.code === "missing_timeline"),
+    true,
+  );
+}
+
+/**
  * Verifies MCP does not return a usable detail URL when the web handoff store fails.
  */
 async function assertPreviewStoreHandoffFailsClosed(): Promise<void> {
@@ -2727,6 +2842,7 @@ async function main(): Promise<void> {
   assertDraftPreviewSlugContract();
   assertDraftGeoPathRequiresCompleteCoordinates();
   assertStationLuggageGuardrail();
+  assertRouteSpecificTimelineNormalization();
   await assertPreviewStoreHandoffFailsClosed();
   await assertUsageCounterContract();
   await assertGptsActionsRestFacade();

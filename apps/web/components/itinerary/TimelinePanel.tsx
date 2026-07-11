@@ -1,4 +1,3 @@
-import CheckRoundedIcon from "@mui/icons-material/CheckRounded";
 import AttractionsRoundedIcon from "@mui/icons-material/AttractionsRounded";
 import FlightTakeoffRoundedIcon from "@mui/icons-material/FlightTakeoffRounded";
 import HotelRoundedIcon from "@mui/icons-material/HotelRounded";
@@ -10,6 +9,10 @@ import { alpha, Box, Button, Chip, Stack, Typography, useTheme } from "@mui/mate
 import type { ReactNode } from "react";
 import type { TimelineEvent } from "@planme/core";
 import type { PlanmeThemeMode } from "@/theme/theme";
+import {
+  createStandardTimelineForWeb,
+  isCarrymeDeliveryEventForWeb,
+} from "@/lib/itinerary-timeline-display";
 
 type TimelinePanelProps = {
   carrymeDurationLabel: string;
@@ -51,6 +54,7 @@ function RouteTimelineColumn({
 }: RouteTimelineColumnProps) {
   const theme = useTheme();
   const tone = isCarryme ? "secondary" : "primary";
+  const visibleEvents = isCarryme ? events : createStandardTimelineForWeb(events);
 
   return (
     <Stack
@@ -68,109 +72,89 @@ function RouteTimelineColumn({
       </Typography>
 
       <Stack spacing={0}>
-        {events.map((event, index) => (
-          <Box
-            key={`${event.time}-${event.title}`}
-            sx={{
-              display: "grid",
-              gridTemplateColumns: "58px 40px 1fr",
-              minHeight: 86,
-            }}
-          >
-            <Typography
-              color="text.secondary"
-              sx={{ fontSize: 14, fontWeight: 800, pt: 0.7 }}
+        {visibleEvents.map((event, index) => {
+          const isCarrymeDelivery =
+            isCarryme && isCarrymeDeliveryEventForWeb(event);
+
+          return (
+            <Box
+              key={`${event.time}-${event.title}-${index}`}
+              sx={{
+                display: "grid",
+                gridTemplateColumns: "58px 40px 1fr",
+                minHeight: 86,
+              }}
             >
-              {event.time}
-            </Typography>
-            <Stack sx={{ alignItems: "center", position: "relative" }}>
-              <Box
-                sx={{
-                  alignItems: "center",
-                  bgcolor:
-                    event.category === "carryme"
+              <Typography
+                color="text.secondary"
+                sx={{ fontSize: 14, fontWeight: 800, pt: 0.7 }}
+              >
+                {event.time}
+              </Typography>
+              <Stack sx={{ alignItems: "center", position: "relative" }}>
+                <Box
+                  data-delivery-event={isCarrymeDelivery ? "true" : "false"}
+                  data-event-category={event.category}
+                  data-route-kind={isCarryme ? "carryme" : "standard"}
+                  data-testid="timeline-event-icon"
+                  sx={{
+                    alignItems: "center",
+                    bgcolor: isCarrymeDelivery
                       ? "primary.main"
                       : isDark
                         ? "#1f2937"
                         : "#344054",
-                  border: "3px solid",
-                  borderColor: isDark ? "#0f1720" : "#fff",
-                  borderRadius: "999px",
-                  boxShadow: event.highlight
-                    ? `0 0 28px ${alpha(theme.palette.primary.main, 0.72)}`
-                    : "0 8px 20px rgba(15, 23, 42, 0.16)",
-                  color: "#fff",
-                  display: "flex",
-                  height: 38,
-                  justifyContent: "center",
-                  width: 38,
-                  zIndex: 1,
-                }}
-              >
-                {categoryIcons[event.category]}
-              </Box>
-              {index < events.length - 1 ? (
-                <Box
-                  sx={{
-                    bgcolor: "secondary.main",
-                    bottom: 0,
-                    opacity: 0.9,
-                    position: "absolute",
-                    top: 38,
-                    width: 2,
+                    border: "3px solid",
+                    borderColor: isDark ? "#0f1720" : "#fff",
+                    borderRadius: "999px",
+                    boxShadow: isCarrymeDelivery
+                      ? `0 0 28px ${alpha(theme.palette.primary.main, 0.72)}`
+                      : "0 8px 20px rgba(15, 23, 42, 0.16)",
+                    color: "#fff",
+                    display: "flex",
+                    height: 38,
+                    justifyContent: "center",
+                    width: 38,
+                    zIndex: 1,
                   }}
-                />
-              ) : null}
-            </Stack>
-            <Box
-              sx={{
-                bgcolor: event.highlight
-                  ? alpha(theme.palette.secondary.main, isDark ? 0.12 : 0.1)
-                  : "transparent",
-                border: event.highlight ? "1px solid" : 0,
-                borderColor: alpha(theme.palette.secondary.main, 0.22),
-                borderRadius: 1.5,
-                mb: 1.2,
-                ml: 1,
-                minWidth: 0,
-                px: event.highlight ? 1.5 : 0,
-                py: event.highlight ? 1.2 : 0.4,
-              }}
-            >
-              <Stack direction="row" sx={{ alignItems: "center", gap: 1, minWidth: 0 }}>
-                <Typography sx={{ fontWeight: 900 }}>{event.title}</Typography>
-                {event.savingLabel ? (
-                  <Chip
-                    color="error"
-                    label={savingLabel}
-                    size="small"
-                    sx={{ height: 24 }}
-                  />
-                ) : null}
-                {event.highlight ? (
+                >
+                  {isCarrymeDelivery
+                    ? categoryIcons.carryme
+                    : categoryIcons[event.category]}
+                </Box>
+                {index < visibleEvents.length - 1 ? (
                   <Box
                     sx={{
-                      alignItems: "center",
                       bgcolor: "secondary.main",
-                      borderRadius: "999px",
-                      color: "#fff",
-                      display: "flex",
-                      height: 24,
-                      justifyContent: "center",
-                      ml: "auto",
-                      width: 24,
+                      bottom: 0,
+                      opacity: 0.9,
+                      position: "absolute",
+                      top: 38,
+                      width: 2,
                     }}
-                  >
-                    <CheckRoundedIcon sx={{ fontSize: 17 }} />
-                  </Box>
+                  />
                 ) : null}
               </Stack>
-              <Typography color="text.secondary" sx={{ fontSize: 14, mt: 0.2 }}>
-                {event.description}
-              </Typography>
+              <Box
+                data-testid="timeline-event-content"
+                sx={{
+                  bgcolor: "transparent",
+                  border: 0,
+                  mb: 1.2,
+                  ml: 1,
+                  minWidth: 0,
+                  px: 0,
+                  py: 0.4,
+                }}
+              >
+                <Typography sx={{ fontWeight: 900 }}>{event.title}</Typography>
+                <Typography color="text.secondary" sx={{ fontSize: 14, mt: 0.2 }}>
+                  {event.description}
+                </Typography>
+              </Box>
             </Box>
-          </Box>
-        ))}
+          );
+        })}
       </Stack>
 
       <Box
@@ -196,7 +180,13 @@ function RouteTimelineColumn({
             {durationLabel}
           </Typography>
         </Box>
-        {isCarryme ? <Chip color="error" label={savingLabel} /> : null}
+        {isCarryme ? (
+          <Chip
+            color="error"
+            data-testid="carryme-duration-saving-chip"
+            label={savingLabel}
+          />
+        ) : null}
       </Box>
 
       {isCarryme ? (

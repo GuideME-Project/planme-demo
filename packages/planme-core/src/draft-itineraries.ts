@@ -125,6 +125,16 @@ const DRAFT_PLACE_ALIAS_REPLACEMENTS: Array<{ pattern: RegExp; replacement: stri
   { pattern: /House\s+N\s+Garden/gi, replacement: "원예예술촌" },
   { pattern: /Sangju\s+Silver\s+Sand\s+Beach/gi, replacement: "상주은모래비치" },
 ];
+const BAGGAGE_DELIVERY_EVENT_PATTERN =
+  /(?:(?:짐|수하물)\s*(?:은|는|이|가|도|만)?\s*.{0,24}?(?:배송|도착)|(?:배송|도착)(?:한|된|할)?\s*(?:짐|수하물))/;
+const LEGACY_STANDARD_CHECKIN_PATTERN =
+  /^(.*?)\s*체크인\s*전\s*(?:짐|수하물)\s*(?:보관|맡기(?:기)?|맡김)\s*$/;
+
+type TimelineEventLike = {
+  category?: TimelineEvent["category"];
+  description: string;
+  title: string;
+};
 
 /**
  * Converts a ChatGPT-authored PlanME draft into a widget-ready itinerary preview.
@@ -133,14 +143,15 @@ export function createPlanmeDraftPreview(
   input: PlanmeDraftPreviewRequest,
   options: CreatePlanmeDraftPreviewOptions = {},
 ): PlanmeDraftPreviewResult {
-  const previewId = input.previewId?.trim() || createDraftPreviewId(input);
+  const normalizedInput = normalizeDraftPreviewTimelines(input);
+  const previewId = normalizedInput.previewId?.trim() || createDraftPreviewId(normalizedInput);
   const validationIssues = [
-    ...validateDraftPreviewInput(input),
+    ...validateDraftPreviewInput(normalizedInput),
     ...(options.extraValidationIssues ?? []),
   ];
   const existingRecord = draftPreviewStore.get(previewId);
   const version = existingRecord ? existingRecord.version + 1 : 1;
-  const itinerary = buildDraftItinerary(input, previewId, validationIssues);
+  const itinerary = buildDraftItinerary(normalizedInput, previewId, validationIssues);
   const status = validationIssues.some((issue) => issue.severity === "error")
     ? "needs_revision"
     : "preview_ready";
@@ -156,6 +167,84 @@ export function createPlanmeDraftPreview(
   draftPreviewStore.set(previewId, record);
 
   return record;
+}
+
+/**
+ * Detects a CarryME parcel-delivery event without treating generic saving copy as delivery.
+ */
+export function isCarrymeDeliveryEvent(event: TimelineEventLike) {
+  if (event.category === "carryme") {
+    return true;
+  }
+
+  const eventText = `${event.title} ${event.description}`.replace(/\s+/g, " ").trim();
+
+  return BAGGAGE_DELIVERY_EVENT_PATTERN.test(eventText);
+}
+
+/**
+ * Keeps only Standard traveler events and normalizes the approved legacy check-in wording.
+ */
+export function normalizeStandardTimelineEvents<T extends TimelineEventLike>(
+  events: readonly T[],
+): T[] {
+  return events
+    .filter((event) => !isCarrymeDeliveryEvent(event))
+    .map((event) => {
+      const checkinMatch = LEGACY_STANDARD_CHECKIN_PATTERN.exec(event.title.trim());
+
+      if (!checkinMatch?.[1]?.trim()) {
+        return event;
+      }
+
+      // Only the explicitly approved legacy check-in phrase is rewritten.
+      return {
+        ...event,
+        description: "호텔에 체크인한 뒤 다음 일정으로 이동합니다.",
+        title: `${checkinMatch[1].trim()} 체크인`,
+      };
+    });
+}
+
+/**
+ * Gives explicit CarryME parcel events the stable category used by the delivery icon.
+ */
+export function normalizeCarrymeTimelineEvents<T extends TimelineEventLike>(
+  events: readonly T[],
+): T[] {
+  return events.map((event) => {
+    if (!isCarrymeDeliveryEvent(event) || event.category === "carryme") {
+      return event;
+    }
+
+    // Preserve the authored copy while stabilizing only the semantic category.
+    return { ...event, category: "carryme" };
+  });
+}
+
+/**
+ * Normalizes all route-specific timelines before the same draft is validated and rendered.
+ */
+function normalizeDraftPreviewTimelines(
+  input: PlanmeDraftPreviewRequest,
+): PlanmeDraftPreviewRequest {
+  return {
+    ...input,
+    days: input.days.map((day) => {
+      const standardTimeline = day.standardTimeline ?? day.timeline;
+      const carrymeTimeline = day.carrymeTimeline ?? day.timeline;
+
+      return {
+        ...day,
+        ...(standardTimeline
+          ? { standardTimeline: normalizeStandardTimelineEvents(standardTimeline) }
+          : {}),
+        ...(carrymeTimeline
+          ? { carrymeTimeline: normalizeCarrymeTimelineEvents(carrymeTimeline) }
+          : {}),
+      };
+    }),
+  };
 }
 
 /**
