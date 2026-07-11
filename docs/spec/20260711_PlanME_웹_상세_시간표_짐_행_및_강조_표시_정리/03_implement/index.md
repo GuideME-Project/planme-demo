@@ -12,7 +12,7 @@ Standard 호텔 체크인과 CarryME 배송 사건의 경계를 새 일정과 �
 | [validation-and-rollout.md](validation-and-rollout.md) | 자동·수동 검증, 브랜치·PR·배포와 롤백 절차 | 승인됨 |
 | [consensus-review.md](consensus-review.md) | Planner·RALPLAN-DR·Architect·Critic 실행 합의 | 승인됨 |
 | [implementation-result.md](implementation-result.md) | 실제 코드 변경과 설계 대비 결과 | 구현 완료 |
-| [verification-log.md](verification-log.md) | 자동 검사와 브라우저 수동 확인 기록 | 운영 기존 일정 검증 완료·신규 ChatGPT 검증 대기 |
+| [verification-log.md](verification-log.md) | 자동 검사와 브라우저 수동 확인 기록 | 운영 신규·기존 일정 검증 완료 |
 
 ## 관련 근거
 
@@ -35,11 +35,11 @@ Standard 호텔 체크인과 CarryME 배송 사건의 경계를 새 일정과 �
 - PR #40을 `main`에 병합하고 Vercel 자동 배포를 완료함.
 - 운영 웹 상세 일정과 MCP `/health`의 HTTP 200을 확인함.
 - 운영 기존 부산 2일 일정의 1·2일차, Light·Dark, 상세 지도를 확인함.
-- Mac 잠금으로 Microsoft Edge의 신규 ChatGPT 일정 생성 검증만 남음.
+- Microsoft Edge의 ChatGPT Chat에서 신규 일정을 생성하고 최종 위젯 1회 표시를 확인함.
+- 신규 일정의 1·2일차, Light·Dark, 상세 지도 수용 기준을 모두 확인함.
 - 전용 Linear MCP가 현재 세션에 노출되지 않아 관련 이슈·댓글 검색은 미확인.
 
-## 다음 액션
+## 완료 상태
 
-- Mac 잠금을 해제한 뒤 Microsoft Edge의 ChatGPT Chat 탭에서 신규 일정을 생성한다.
-- 최종 위젯 1회 표시와 신규 일정의 1·2일차 수용 기준을 확인한다.
-- 결과를 [verification-log.md](verification-log.md)에 최종 갱신하고 후속 문서 PR을 병합한다.
+- 구현·자동 검사·로컬 확인·운영 기존 일정 확인·운영 신규 ChatGPT 일정 확인을 완료했다.
+- 최종 결과는 [verification-log.md](verification-log.md)와 [implementation-result.md](implementation-result.md)에 기록했다.
