@@ -129,11 +129,18 @@ const BAGGAGE_DELIVERY_EVENT_PATTERN =
   /(?:(?:짐|수하물)\s*(?:은|는|이|가|도|만)?\s*.{0,24}?(?:배송|도착)|(?:배송|도착)(?:한|된|할)?\s*(?:짐|수하물))/;
 const LEGACY_STANDARD_CHECKIN_PATTERN =
   /^(.*?)\s*체크인\s*전\s*(?:짐|수하물)\s*(?:보관|맡기(?:기)?|맡김)\s*$/;
+const FINAL_DAY_LODGING_RETURN_PATTERN = /(?:^|\s)(?:복귀|숙박|도착)(?:\s|$)/;
 
 type TimelineEventLike = {
   category?: TimelineEvent["category"];
   description: string;
   title: string;
+};
+
+export type TimelineRouteStopLike = {
+  label?: string;
+  name?: string;
+  role?: string;
 };
 
 /**
@@ -223,6 +230,46 @@ export function normalizeCarrymeTimelineEvents<T extends TimelineEventLike>(
 }
 
 /**
+ * Removes a trailing-trip lodging return that conflicts with the final return destination.
+ */
+export function normalizeFinalDayTimelineEvents<T extends TimelineEventLike>(
+  events: readonly T[],
+  stops: readonly TimelineRouteStopLike[],
+): T[] {
+  const finalStop = stops.at(-1);
+
+  if (finalStop?.role !== "복귀지") {
+    return [...events];
+  }
+
+  const finalStopLabel = getTimelineStopLabel(finalStop);
+  const lodgingLabels = stops
+    .filter((stop) => stop.role === "숙소")
+    .map(getTimelineStopLabel)
+    .filter(Boolean);
+
+  return events.filter((event) => {
+    if (isCarrymeDeliveryEvent(event)) {
+      return true;
+    }
+
+    const title = event.title.replace(/\s+/g, " ").trim();
+    const referencesLodging = lodgingLabels.some((label) => title.includes(label));
+    const isLodgingReturn =
+      FINAL_DAY_LODGING_RETURN_PATTERN.test(title) &&
+      (event.category === "hotel" || referencesLodging);
+
+    // Preserve an explicitly selected hotel destination even when it uses return wording.
+    return !isLodgingReturn || Boolean(finalStopLabel && title.includes(finalStopLabel));
+  });
+}
+
+/** Returns the display name shared by draft stops and stored route stops. */
+function getTimelineStopLabel(stop: TimelineRouteStopLike) {
+  return stop.name?.trim() || stop.label?.trim() || "";
+}
+
+/**
  * Normalizes all route-specific timelines before the same draft is validated and rendered.
  */
 function normalizeDraftPreviewTimelines(
@@ -230,17 +277,34 @@ function normalizeDraftPreviewTimelines(
 ): PlanmeDraftPreviewRequest {
   return {
     ...input,
-    days: input.days.map((day) => {
+    days: input.days.map((day, dayIndex) => {
       const standardTimeline = day.standardTimeline ?? day.timeline;
       const carrymeTimeline = day.carrymeTimeline ?? day.timeline;
+      const isFinalDay = dayIndex === input.days.length - 1;
+      const standardStops = day.standardStops ?? day.stops ?? [];
+      const carrymeStops = day.carrymeStops ?? day.standardStops ?? day.stops ?? [];
+      const normalizedStandardTimeline = standardTimeline
+        ? normalizeStandardTimelineEvents(standardTimeline)
+        : undefined;
+      const normalizedCarrymeTimeline = carrymeTimeline
+        ? normalizeCarrymeTimelineEvents(carrymeTimeline)
+        : undefined;
 
       return {
         ...day,
-        ...(standardTimeline
-          ? { standardTimeline: normalizeStandardTimelineEvents(standardTimeline) }
+        ...(normalizedStandardTimeline
+          ? {
+              standardTimeline: isFinalDay
+                ? normalizeFinalDayTimelineEvents(normalizedStandardTimeline, standardStops)
+                : normalizedStandardTimeline,
+            }
           : {}),
-        ...(carrymeTimeline
-          ? { carrymeTimeline: normalizeCarrymeTimelineEvents(carrymeTimeline) }
+        ...(normalizedCarrymeTimeline
+          ? {
+              carrymeTimeline: isFinalDay
+                ? normalizeFinalDayTimelineEvents(normalizedCarrymeTimeline, carrymeStops)
+                : normalizedCarrymeTimeline,
+            }
           : {}),
       };
     }),

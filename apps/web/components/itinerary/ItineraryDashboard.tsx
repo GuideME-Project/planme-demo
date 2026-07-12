@@ -2126,12 +2126,12 @@ export function ItineraryDashboard({
   const hasComputedRoute = Boolean(
     computedRoutes.standard?.segments?.length || computedRoutes.carryme?.segments?.length,
   );
-  const displayHeaderCopy = useMemo(
+  const displayTitle = useMemo(
     () =>
       hasComputedRoute
-        ? createRecalculatedHeaderCopy(carrymeRoute)
-        : { summary: itinerary.summary, title: normalizeDisplayTitle(itinerary.title) },
-    [carrymeRoute, hasComputedRoute, itinerary.summary, itinerary.title],
+        ? createRecalculatedHeaderCopy(carrymeRoute).title
+        : normalizeDisplayTitle(itinerary.title),
+    [carrymeRoute, hasComputedRoute, itinerary.title],
   );
   const displayBenefits = useMemo(() => createGenericBenefits(), []);
   const totalDurationLabel = `${standardRoute.durationLabel} → ${carrymeRoute.durationLabel}`;
@@ -2461,10 +2461,7 @@ export function ItineraryDashboard({
           }}
         >
           <Box>
-            <Typography variant="h1">{displayHeaderCopy.title}</Typography>
-            <Typography color="text.secondary" sx={{ fontSize: 18, mt: 1 }}>
-              {displayHeaderCopy.summary}
-            </Typography>
+            <Typography variant="h1">{displayTitle}</Typography>
           </Box>
           <Stack
             direction={{ xs: "column", sm: "row" }}
@@ -2645,6 +2642,10 @@ export function ItineraryDashboard({
                       computedRoutes.carryme?.timeline ??
                       selectedDayPlan.timeline
                     }
+                    carrymeStops={displayCarrymeRoute.stops}
+                    isFinalDay={
+                      selectedDayPlan.day === editableDays.at(-1)?.day
+                    }
                     mode={mode}
                     savingLabel={displaySavingLabel}
                     standardDurationLabel={displayStandardRoute.durationLabel}
@@ -2653,6 +2654,7 @@ export function ItineraryDashboard({
                       selectedDayPlan.standardTimeline ??
                       selectedDayPlan.timeline
                     }
+                    standardStops={displayStandardRoute.stops}
                   />
 
                   <Box
@@ -3803,12 +3805,6 @@ function DestinationEditor({
                         }}
                       >
                         {row.name} → {nextRow.name}
-                      </Typography>
-                      <Typography
-                        color="text.secondary"
-                        sx={{ fontSize: 12, fontWeight: 800, whiteSpace: "nowrap" }}
-                      >
-                        {transportMode === "drive" ? "자동차" : "대중교통"}
                       </Typography>
                     </Stack>
                   </Box>
