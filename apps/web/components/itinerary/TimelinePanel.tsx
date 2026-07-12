@@ -7,9 +7,10 @@ import TrainRoundedIcon from "@mui/icons-material/TrainRounded";
 import WorkRoundedIcon from "@mui/icons-material/WorkRounded";
 import { alpha, Box, Button, Chip, Stack, Typography, useTheme } from "@mui/material";
 import type { ReactNode } from "react";
-import type { TimelineEvent } from "@planme/core";
+import type { RouteStop, TimelineEvent } from "@planme/core";
 import type { PlanmeThemeMode } from "@/theme/theme";
 import {
+  createCarrymeTimelineForWeb,
   createStandardTimelineForWeb,
   isCarrymeDeliveryEventForWeb,
 } from "@/lib/itinerary-timeline-display";
@@ -17,10 +18,13 @@ import {
 type TimelinePanelProps = {
   carrymeDurationLabel: string;
   carrymeEvents: TimelineEvent[];
+  carrymeStops: RouteStop[];
+  isFinalDay: boolean;
   mode: PlanmeThemeMode;
   savingLabel: string;
   standardDurationLabel: string;
   standardEvents: TimelineEvent[];
+  standardStops: RouteStop[];
 };
 
 const categoryIcons: Record<TimelineEvent["category"], ReactNode> = {
@@ -36,8 +40,10 @@ type RouteTimelineColumnProps = {
   durationLabel: string;
   durationTitle: string;
   events: TimelineEvent[];
+  isFinalDay: boolean;
   isCarryme?: boolean;
   isDark: boolean;
+  routeStops: RouteStop[];
   savingLabel: string;
 };
 
@@ -48,13 +54,17 @@ function RouteTimelineColumn({
   durationLabel,
   durationTitle,
   events,
+  isFinalDay,
   isCarryme = false,
   isDark,
+  routeStops,
   savingLabel,
 }: RouteTimelineColumnProps) {
   const theme = useTheme();
   const tone = isCarryme ? "secondary" : "primary";
-  const visibleEvents = isCarryme ? events : createStandardTimelineForWeb(events);
+  const visibleEvents = isCarryme
+    ? createCarrymeTimelineForWeb(events, { isFinalDay, stops: routeStops })
+    : createStandardTimelineForWeb(events, { isFinalDay, stops: routeStops });
 
   return (
     <Stack
@@ -210,10 +220,13 @@ function RouteTimelineColumn({
 export function TimelinePanel({
   carrymeDurationLabel,
   carrymeEvents,
+  carrymeStops,
+  isFinalDay,
   mode,
   savingLabel,
   standardDurationLabel,
   standardEvents,
+  standardStops,
 }: TimelinePanelProps) {
   const isDark = mode === "dark";
 
@@ -238,15 +251,19 @@ export function TimelinePanel({
           durationLabel={standardDurationLabel}
           durationTitle="Standard 총 이동 시간"
           events={standardEvents}
+          isFinalDay={isFinalDay}
           isDark={isDark}
+          routeStops={standardStops}
           savingLabel={savingLabel}
         />
         <RouteTimelineColumn
           durationLabel={carrymeDurationLabel}
           durationTitle="CarryME 총 이동 시간"
           events={carrymeEvents}
+          isFinalDay={isFinalDay}
           isCarryme
           isDark={isDark}
+          routeStops={carrymeStops}
           savingLabel={savingLabel}
         />
       </Box>

@@ -378,6 +378,7 @@ async function assertOpenAiGeneratorContract(): Promise<void> {
   assert.match(capturedBody, /중간 방문하여 체크인하는 경로/);
   assert.match(capturedBody, /category는 반드시 carryme/);
   assert.match(capturedBody, /category에 carryme를 사용하지 마세요/);
+  assert.match(capturedBody, /여행 마지막 날에는 Standard와 CarryME 모두/);
   assert.match(capturedBody, /펜션 사랑가/);
   assert.match(capturedBody, /아래 숙소 후보 중 하나/);
   assert.match(capturedBody, /PLANME_OPENAI_MODEL|test-model/);
@@ -2562,6 +2563,81 @@ function assertRouteSpecificTimelineNormalization(): void {
   assert.doesNotMatch(standardPayload, /짐 파라다이스 호텔 부산 도착/);
   assert.equal(carrymeDelivery?.category, "carryme");
   assert.equal(JSON.stringify(input), inputSnapshot);
+
+  const finalDayPreview = createPlanmeDraftPreview({
+    ...input,
+    previewId: "generated-final-day-lodging-return",
+    days: [
+      input.days[0],
+      {
+        ...input.days[0],
+        day: 2,
+        standardStops: [
+          ...(input.days[0]?.standardStops ?? []),
+          { name: "동탄역", caption: "복귀", mode: "drive", role: "복귀지" },
+        ],
+        carrymeStops: [
+          ...(input.days[0]?.carrymeStops ?? []),
+          { name: "동탄역", caption: "복귀", mode: "drive", role: "복귀지" },
+        ],
+        standardTimeline: [
+          {
+            time: "16:00",
+            title: "동백섬 관광",
+            description: "마지막 관광 일정을 진행합니다.",
+            category: "event",
+          },
+          {
+            time: "18:00",
+            title: "파라다이스 호텔 부산 복귀",
+            description: "호텔로 돌아와 휴식합니다.",
+            category: "hotel",
+          },
+          {
+            time: "22:00",
+            title: "동탄역 도착",
+            description: "복귀지에서 일정을 마칩니다.",
+            category: "transit",
+          },
+        ],
+        carrymeTimeline: [
+          {
+            time: "13:00",
+            title: "짐 파라다이스 호텔 부산 도착",
+            description: "짐이 호텔에 도착했습니다.",
+            category: "hotel",
+          },
+          {
+            time: "16:00",
+            title: "동백섬 관광",
+            description: "마지막 관광 일정을 진행합니다.",
+            category: "event",
+          },
+          {
+            time: "18:00",
+            title: "파라다이스 호텔 부산 숙박",
+            description: "호텔로 이동해 휴식합니다.",
+            category: "hotel",
+          },
+          {
+            time: "22:00",
+            title: "동탄역 도착",
+            description: "복귀지에서 일정을 마칩니다.",
+            category: "transit",
+          },
+        ],
+      },
+    ],
+  });
+  const firstDay = finalDayPreview.itinerary.days[0];
+  const finalDay = finalDayPreview.itinerary.days[1];
+
+  assert.match(JSON.stringify(firstDay?.standardTimeline), /파라다이스 호텔 부산 도착/);
+  assert.doesNotMatch(JSON.stringify(finalDay?.standardTimeline), /호텔 부산 복귀/);
+  assert.doesNotMatch(JSON.stringify(finalDay?.carrymeTimeline), /호텔 부산 숙박/);
+  assert.match(JSON.stringify(finalDay?.carrymeTimeline), /짐 파라다이스 호텔 부산 도착/);
+  assert.match(JSON.stringify(finalDay?.standardTimeline), /동탄역 도착/);
+  assert.match(JSON.stringify(finalDay?.carrymeTimeline), /동탄역 도착/);
 
   const invalidPreview = createPlanmeDraftPreview({
     ...input,

@@ -90,6 +90,11 @@ test("opens a stored generated itinerary without needing a web OpenAI key", asyn
   await expect(
     page.getByRole("heading", { name: "여수 MCP 저장 테스트 일정" }),
   ).toBeVisible();
+  await expect(
+    page.getByText("MCP 서버가 저장한 generated 상세 일정 렌더링을 검증합니다.", {
+      exact: true,
+    }),
+  ).toHaveCount(0);
   await expect(page.getByText("여수 MCP 저장 테스트 코스").first()).toBeVisible();
   await expect(page.getByText("방문지").first()).toBeVisible();
   await expect(page.getByText("숙소").first()).toBeVisible();
@@ -132,7 +137,13 @@ test("separates Standard check-in from CarryME delivery and removes row emphasis
         exact: true,
       }),
     ).toBeVisible();
-    await expect(standardColumn.getByText("여수 숙소 복귀", { exact: true })).toBeVisible();
+    if (dayLabel === "1일차") {
+      await expect(standardColumn.getByText("여수 숙소 복귀", { exact: true })).toBeVisible();
+      await expect(carrymeColumn.getByText("여수 숙소 도착", { exact: true })).toBeVisible();
+    } else {
+      await expect(standardColumn.getByText("여수 숙소 복귀", { exact: true })).toHaveCount(0);
+      await expect(carrymeColumn.getByText("여수 숙소 도착", { exact: true })).toHaveCount(0);
+    }
     await expect(carrymeColumn.getByText("짐 여수 숙소 도착", { exact: true })).toBeVisible();
     await expect(deliveryIcon).toHaveCount(1);
     await expect(deliveryIcon.getByTestId("LocalShippingRoundedIcon")).toBeVisible();
@@ -143,6 +154,9 @@ test("separates Standard check-in from CarryME delivery and removes row emphasis
     await expect(standardColumn.getByTestId("CheckRoundedIcon")).toHaveCount(0);
     await expect(carrymeColumn.getByTestId("CheckRoundedIcon")).toHaveCount(0);
     await expect(carrymeColumn.getByTestId("carryme-duration-saving-chip")).toBeVisible();
+    await expect(
+      page.getByTestId("destination-editor").getByText("자동차", { exact: true }),
+    ).toHaveCount(1);
 
     const rowCount = await rowContents.count();
     for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
@@ -339,6 +353,14 @@ function createStoredGeneratedItinerary(id: string) {
 function createTimelineDisplayItinerary(id: string) {
   const base = createStoredGeneratedItinerary(id);
   const baseDay = base.days[0];
+  const returnStop = {
+    label: "서울역",
+    caption: "복귀",
+    coordinate: { lat: 37.5547, lng: 126.9706 },
+    icon: "station" as const,
+    mode: "drive" as const,
+    role: "복귀지" as const,
+  };
 
   return {
     ...base,
@@ -346,6 +368,22 @@ function createTimelineDisplayItinerary(id: string) {
       ...baseDay,
       day,
       label: `Day ${day}`,
+      standard:
+        day === 2
+          ? {
+              ...baseDay.standard,
+              routeText: `${baseDay.standard.routeText} → 서울역`,
+              stops: [...baseDay.standard.stops, returnStop],
+            }
+          : baseDay.standard,
+      carryme:
+        day === 2
+          ? {
+              ...baseDay.carryme,
+              routeText: `${baseDay.carryme.routeText} → 서울역`,
+              stops: [...baseDay.carryme.stops, returnStop],
+            }
+          : baseDay.carryme,
       standardTimeline: [
         {
           time: "09:00",
