@@ -12,11 +12,20 @@ import {
 import { validateEditedItineraryPlaces } from "../lib/edited-itinerary-validator";
 import { computeNaverDirectionsRoute } from "../lib/route-providers/naver-directions";
 import { computeOdsayTransitRoute } from "../lib/route-providers/odsay";
+import {
+  MemoryRouteProviderCallBudget,
+  MemoryRouteSegmentCache,
+  RouteProviderRuntimeError,
+  createRouteSegmentCacheKey,
+  type OdsayStationRecoveryPolicy,
+  type TransitRecoveryRuntime,
+} from "../lib/route-segment-cache";
 import type {
   RouteProviderResult,
   RouteProviderStop,
 } from "../lib/route-providers/types";
 import { RouteProviderError } from "../lib/route-providers/types";
+import { TransitAccessDecisionError } from "../lib/route-providers/types";
 
 /** Verifies concurrency, atomic failure, timeout, timeline invariance, and versioned storage. */
 async function main() {
@@ -43,6 +52,11 @@ async function main() {
 
   await assertFailedProviderLegRetriesOnce();
   await assertShortTransitLegSkipsOdsay();
+  await assertOdsayStationRecoveryAndCacheContract();
+  await assertOdsayEstimatedWalkAndPolicyLimits();
+  await assertOdsayCallBudgetFailsClosed();
+  await assertStableTimelineAdjustmentAndHiddenSavings();
+  await assertDeterministicTransitFailureSelection();
   await assertOdsayFailureIncludesSegmentContext();
   await assertMissingCoordinatesUseRepresentativeNaverCandidate();
   await assertEditedItineraryPreservesAiFields();
@@ -121,6 +135,417 @@ async function main() {
   assert.equal(await store.saveFinalizedPreviewItinerary(finalized, 0), null);
 
   console.log("PlanME finalized route contract passed");
+}
+
+/** Verifies route order is stable and operational failures outrank repair decisions. */
+async function assertDeterministicTransitFailureSelection() {
+  const itinerary = createTestItinerary();
+  itinerary.transportMode = "transit";
+  itinerary.days = itinerary.days.slice(0, 1);
+
+  await assert.rejects(
+    () => finalizeItineraryRoutes(itinerary, {
+      computeTransitRoute: async (stops) => {
+        const isStandard = stops[0]?.id.startsWith("standard");
+        await new Promise((resolve) => setTimeout(resolve, isStandard ? 15 : 1));
+        throw new TransitAccessDecisionError(
+          { ...stops[1], placeConstraint: "replaceable", stopRef: isStandard ? "a" : "b" },
+          0,
+          "destination_station_missing",
+        );
+      },
+    }),
+    (error) =>
+      error instanceof RouteFinalizationError &&
+      error.routeId === "standard" &&
+      error.stopRef === "a",
+  );
+
+  await assert.rejects(
+    () => finalizeItineraryRoutes(itinerary, {
+      computeTransitRoute: async (stops) => {
+        const isStandard = stops[0]?.id.startsWith("standard");
+
+        if (isStandard) {
+          throw new TransitAccessDecisionError(
+            { ...stops[1], placeConstraint: "replaceable", stopRef: "a" },
+            0,
+            "destination_station_missing",
+          );
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        throw new RouteProviderRuntimeError("ROUTE_PROVIDER_CONFIGURATION_ERROR");
+      },
+    }),
+    (error) =>
+      error instanceof RouteFinalizationError &&
+      error.routeId === "carryme" &&
+      error.internalCode === "ROUTE_PROVIDER_CONFIGURATION_ERROR",
+  );
+}
+
+/** Verifies stable timelines use route durations and estimated routes omit every saving label. */
+async function assertStableTimelineAdjustmentAndHiddenSavings() {
+  const itinerary = createTestItinerary();
+  itinerary.transportMode = "transit";
+  itinerary.days = itinerary.days.slice(0, 1).map((day) => {
+    const addContract = (route: RoutePlan): RoutePlan => ({
+      ...route,
+      stops: route.stops.map((stop, index) => ({
+        ...stop,
+        mode: "transit",
+        placeConstraint: index === 0 ? "fixed" : "replaceable",
+        stopRef: `day-1-stop-${index + 1}`,
+      })),
+    });
+    const timeline = [
+      {
+        category: "arrival" as const,
+        description: "출발합니다.",
+        savingLabel: "기존 절약 문구",
+        stayDurationMinutes: 30,
+        stopRef: "day-1-stop-1",
+        time: "08:00",
+        title: "출발",
+      },
+      {
+        category: "event" as const,
+        description: "방문합니다.",
+        savingLabel: "10분 절약",
+        stayDurationMinutes: 60,
+        stopRef: "day-1-stop-2",
+        time: "23:00",
+        title: "방문",
+      },
+    ];
+
+    return {
+      ...day,
+      carryme: addContract(day.carryme),
+      carrymeTimeline: timeline,
+      standard: addContract(day.standard),
+      standardTimeline: timeline,
+      timeline,
+    };
+  });
+
+  const finalized = await finalizeItineraryRoutes(itinerary, {
+    computeTransitRoute: async (stops) =>
+      createTransitProviderResult(
+        stops,
+        stops[0]?.id.startsWith("carryme") ? 900 : 600,
+        stops[0]?.id.startsWith("carryme") ? "estimated" : "provider",
+      ),
+  });
+  const day = finalized.days[0];
+
+  assert.equal(day.standardTimeline?.[1].time, "08:40");
+  assert.equal(day.carrymeTimeline?.[1].time, "08:45");
+  assert.equal(day.savingStatus, "hidden_estimated");
+  assert.equal(day.savingMinutes, undefined);
+  assert.equal(day.timeline[1].savingLabel, undefined);
+  assert.equal(finalized.carrymeSaving, undefined);
+  assert.equal(finalized.savedDurationLabel, undefined);
+
+  const boundary = structuredClone(itinerary);
+  boundary.days[0].timeline[0].time = "23:50";
+  boundary.days[0].standardTimeline![0].time = "23:50";
+  boundary.days[0].carrymeTimeline![0].time = "23:50";
+
+  await assert.rejects(
+    () => finalizeItineraryRoutes(boundary, {
+      computeTransitRoute: async (stops) =>
+        createTransitProviderResult(stops, 600, "provider"),
+    }),
+    (error) =>
+      error instanceof RouteFinalizationError &&
+      error.internalCode === "TIMELINE_DATE_BOUNDARY_EXCEEDED",
+  );
+}
+
+/** Verifies code 4 evaluates only three stations and shares the winning segment by trace. */
+async function assertOdsayStationRecoveryAndCacheContract() {
+  const originalApiKey = process.env.NEXT_PUBLIC_ODSAY_API_KEY;
+  const destination = createRecoveryDestination("replaceable");
+  const origin = createRecoveryOrigin();
+  const runtime = createTestRecoveryRuntime("00000000-0000-4000-8000-000000000101");
+  let providerCalls = 0;
+  let stationTransitCalls = 0;
+  let walkCalls = 0;
+
+  try {
+    const cacheKey = createRouteSegmentCacheKey(
+      runtime.traceId,
+      origin.coordinate!,
+      destination.coordinate!,
+      runtime.policy.policyVersion,
+    );
+    assert.doesNotMatch(cacheKey, /사용자 출발지|방문지|37\.000000|127\.000000/);
+    process.env.NEXT_PUBLIC_ODSAY_API_KEY = "test-odsay-key";
+    const fetchImpl: typeof fetch = async (input) => {
+      providerCalls += 1;
+      const url = new URL(String(input));
+
+      if (url.pathname.endsWith("/pointSearch")) {
+        return jsonResponse({
+          result: {
+            station: [
+              createStationFixture(1, 127.0105, 37.0105),
+              createStationFixture(2, 127.011, 37.011),
+              createStationFixture(3, 127.0115, 37.0115),
+              createStationFixture(4, 127.012, 37.012),
+            ],
+          },
+        });
+      }
+
+      if (url.pathname.endsWith("/searchWalkPathV2")) {
+        walkCalls += 1;
+        const stationLongitude = Number(url.searchParams.get("SX"));
+        const walkMinutes = stationLongitude === 127.011 ? 8 : stationLongitude < 127.011 ? 5 : 6;
+
+        return jsonResponse({
+          result: { path: [{ info: { totalDistance: 300, totalTime: walkMinutes } }] },
+        });
+      }
+
+      if (url.pathname.endsWith("/searchPubTransPathT")) {
+        const destinationLongitude = Number(url.searchParams.get("EX"));
+
+        if (destinationLongitude === destination.coordinate?.lng) {
+          return jsonResponse({ error: { code: "4", message: "destination station missing" } });
+        }
+
+        stationTransitCalls += 1;
+        const transitMinutes = destinationLongitude === 127.011
+          ? 10
+          : destinationLongitude < 127.011
+            ? 30
+            : 20;
+
+        return jsonResponse({
+          result: { path: [{ info: { totalDistance: 2_000, totalTime: transitMinutes } }] },
+        });
+      }
+
+      throw new Error(`Unexpected ODsay test path: ${url.pathname}`);
+    };
+    const first = await computeOdsayTransitRoute(
+      [origin, destination],
+      new AbortController().signal,
+      { fetchImpl, recoveryRuntime: runtime, skipRequestSpacing: true },
+    );
+    const firstCallCount = providerCalls;
+
+    assert.equal(stationTransitCalls, 3);
+    assert.equal(walkCalls, 3);
+    assert.equal(first.totalDurationSeconds, 18 * 60);
+    assert.equal(first.segments[0].durationSource, "provider");
+
+    const cached = await computeOdsayTransitRoute(
+      [origin, destination],
+      new AbortController().signal,
+      { fetchImpl, recoveryRuntime: runtime, skipRequestSpacing: true },
+    );
+
+    assert.equal(providerCalls, firstCallCount);
+    assert.equal(cached.totalDurationSeconds, first.totalDurationSeconds);
+  } finally {
+    restoreEnv("NEXT_PUBLIC_ODSAY_API_KEY", originalApiKey);
+  }
+}
+
+/** Verifies 411-414 estimation and the 30/90 minute fixed-place boundaries. */
+async function assertOdsayEstimatedWalkAndPolicyLimits() {
+  const originalApiKey = process.env.NEXT_PUBLIC_ODSAY_API_KEY;
+
+  try {
+    process.env.NEXT_PUBLIC_ODSAY_API_KEY = "test-odsay-key";
+    const estimatedRuntime = createTestRecoveryRuntime(
+      "00000000-0000-4000-8000-000000000102",
+    );
+    const estimatedFetch = createSingleStationRecoveryFetch({ walkErrorCode: "411" });
+    const estimated = await computeOdsayTransitRoute(
+      [createRecoveryOrigin(), createRecoveryDestination("replaceable")],
+      new AbortController().signal,
+      {
+        fetchImpl: estimatedFetch,
+        recoveryRuntime: estimatedRuntime,
+        skipRequestSpacing: true,
+      },
+    );
+
+    assert.equal(estimated.segments[0].durationSource, "estimated");
+    assert.deepEqual(estimated.segments[0].paths, []);
+
+    await assertWalkPolicyBoundary("replaceable", 30, true, 103);
+    await assertWalkPolicyBoundary("replaceable", 31, false, 104);
+    await assertWalkPolicyBoundary("fixed", 90, true, 105);
+    await assertWalkPolicyBoundary("fixed", 91, false, 106);
+  } finally {
+    restoreEnv("NEXT_PUBLIC_ODSAY_API_KEY", originalApiKey);
+  }
+}
+
+/** Verifies the shared provider counter rejects before a second network request. */
+async function assertOdsayCallBudgetFailsClosed() {
+  const originalApiKey = process.env.NEXT_PUBLIC_ODSAY_API_KEY;
+  const traceId = "00000000-0000-4000-8000-000000000107";
+  const runtime = createTestRecoveryRuntime(traceId, 1);
+  let networkCalls = 0;
+
+  try {
+    process.env.NEXT_PUBLIC_ODSAY_API_KEY = "test-odsay-key";
+    await assert.rejects(
+      () => computeOdsayTransitRoute(
+        [createRecoveryOrigin(), createRecoveryDestination("replaceable")],
+        new AbortController().signal,
+        {
+          fetchImpl: async () => {
+            networkCalls += 1;
+            return jsonResponse({ error: { code: "4", message: "missing" } });
+          },
+          recoveryRuntime: runtime,
+          skipRequestSpacing: true,
+        },
+      ),
+      (error) =>
+        error instanceof RouteProviderRuntimeError &&
+        error.code === "PROVIDER_CALL_BUDGET_EXCEEDED",
+    );
+    assert.equal(networkCalls, 1);
+  } finally {
+    restoreEnv("NEXT_PUBLIC_ODSAY_API_KEY", originalApiKey);
+  }
+}
+
+async function assertWalkPolicyBoundary(
+  constraint: "fixed" | "replaceable",
+  walkMinutes: number,
+  accessible: boolean,
+  traceSuffix: number,
+) {
+  const runtime = createTestRecoveryRuntime(
+    `00000000-0000-4000-8000-${String(traceSuffix).padStart(12, "0")}`,
+  );
+  const promise = computeOdsayTransitRoute(
+    [createRecoveryOrigin(), createRecoveryDestination(constraint)],
+    new AbortController().signal,
+    {
+      fetchImpl: createSingleStationRecoveryFetch({ walkMinutes }),
+      recoveryRuntime: runtime,
+      skipRequestSpacing: true,
+    },
+  );
+
+  if (accessible) {
+    assert.equal((await promise).segments.length, 1);
+    return;
+  }
+
+  await assert.rejects(
+    () => promise,
+    (error) =>
+      error instanceof TransitAccessDecisionError &&
+      error.reason === "walk_limit_exceeded" &&
+      error.status === (constraint === "replaceable"
+        ? "replacement_required"
+        : "confirmation_required"),
+  );
+}
+
+function createTestRecoveryRuntime(
+  traceId: string,
+  maxRequests = 100,
+): TransitRecoveryRuntime {
+  const policy: OdsayStationRecoveryPolicy = {
+    aiWalkLimitMinutes: 30,
+    fixedWalkLimitMinutes: 90,
+    maxStationCandidates: 3,
+    policyVersion: "test-v1",
+    searchRadiiMeters: [500, 1_000],
+  };
+
+  return {
+    budget: new MemoryRouteProviderCallBudget(traceId, maxRequests),
+    cache: new MemoryRouteSegmentCache(),
+    mode: "on",
+    policy,
+    traceId,
+  };
+}
+
+function createRecoveryOrigin(): RouteProviderStop {
+  return {
+    coordinate: { lat: 37, lng: 127 },
+    id: "recovery-origin",
+    label: "사용자 출발지",
+    placeConstraint: "fixed",
+    role: "출발지",
+    stopRef: "day-1-stop-1",
+  };
+}
+
+function createRecoveryDestination(
+  placeConstraint: "fixed" | "replaceable",
+): RouteProviderStop {
+  return {
+    coordinate: { lat: 37.01, lng: 127.01 },
+    id: "recovery-destination",
+    label: "방문지",
+    placeConstraint,
+    role: "방문지",
+    stopRef: "day-1-stop-2",
+  };
+}
+
+function createStationFixture(id: number, x: number, y: number) {
+  return { stationClass: 1, stationID: id, stationName: `정류장 ${id}`, x, y };
+}
+
+function createSingleStationRecoveryFetch(input: {
+  walkErrorCode?: string;
+  walkMinutes?: number;
+}): typeof fetch {
+  return async (request) => {
+    const url = new URL(String(request));
+
+    if (url.pathname.endsWith("/pointSearch")) {
+      return jsonResponse({ result: { station: [createStationFixture(1, 127.0105, 37.0105)] } });
+    }
+
+    if (url.pathname.endsWith("/searchWalkPathV2")) {
+      return input.walkErrorCode
+        ? jsonResponse({ error: { code: input.walkErrorCode, message: "walk network missing" } })
+        : jsonResponse({
+            result: { path: [{ info: { totalDistance: 300, totalTime: input.walkMinutes } }] },
+          });
+    }
+
+    if (url.pathname.endsWith("/searchPubTransPathT")) {
+      return Number(url.searchParams.get("EX")) === 127.01
+        ? jsonResponse({ error: { code: "4", message: "destination station missing" } })
+        : jsonResponse({ result: { path: [{ info: { totalDistance: 2_000, totalTime: 10 } }] } });
+    }
+
+    throw new Error(`Unexpected ODsay test path: ${url.pathname}`);
+  };
+}
+
+function jsonResponse(value: object) {
+  return new Response(JSON.stringify(value), {
+    headers: { "Content-Type": "application/json" },
+    status: 200,
+  });
+}
+
+function restoreEnv(name: string, value: string | undefined) {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
 }
 
 /** Verifies a non-retriable ODsay response retains the exact failed leg. */
@@ -524,7 +949,10 @@ function createTestItinerary(): PlanmeItinerary {
 }
 
 /** Produces one provider path without a duplicate flattened geoPath. */
-function createProviderResult(stops: RouteProviderStop[], durationSeconds: number) {
+function createProviderResult(
+  stops: RouteProviderStop[],
+  durationSeconds: number,
+): RouteProviderResult {
   const coordinates = stops
     .map((stop) => stop.coordinate)
     .filter((coordinate): coordinate is MapCoordinate => Boolean(coordinate));
@@ -541,6 +969,7 @@ function createProviderResult(stops: RouteProviderStop[], durationSeconds: numbe
     segments: [
       {
         distanceMeters: 1_000,
+        durationSource: "provider",
         durationSeconds,
         geometryStatus: "complete" as const,
         mode: "drive" as const,
@@ -550,6 +979,23 @@ function createProviderResult(stops: RouteProviderStop[], durationSeconds: numbe
     totalDistanceMeters: 1_000,
     totalDurationSeconds: durationSeconds,
     transitMarkers: [],
+  };
+}
+
+function createTransitProviderResult(
+  stops: RouteProviderStop[],
+  durationSeconds: number,
+  durationSource: "estimated" | "provider",
+): RouteProviderResult {
+  const result = createProviderResult(stops, durationSeconds);
+
+  return {
+    ...result,
+    segments: result.segments.map((segment) => ({
+      ...segment,
+      durationSource,
+      mode: "transit",
+    })),
   };
 }
 

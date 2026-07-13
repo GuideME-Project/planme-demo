@@ -3052,6 +3052,7 @@ async function main(): Promise<void> {
       name: "recommend_planme_itinerary",
       arguments: {
         destination: "남해 아이 동반 가족여행",
+        destinationType: "region",
         durationDays: 2, transportMode: "drive",
         travelerCount: 4,
         luggageCount: 2,

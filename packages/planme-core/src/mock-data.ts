@@ -14,6 +14,10 @@ export type PlanmeStopRole = "출발지" | "방문지" | "숙소" | "복귀지";
 
 export type PlanmeTransportMode = "drive" | "transit";
 
+export type RouteDurationSource = "provider" | "estimated";
+
+export type ItinerarySavingStatus = "verified" | "hidden_estimated";
+
 export type PlanmeRowMode = PlanmeTransportMode;
 
 export type ProviderSegmentMode = PlanmeRowMode;
@@ -27,6 +31,8 @@ export type RouteStop = {
   placeId?: string;
   placeSource?: "naver_local" | "naver_geocode" | "input";
   placeSourceRef?: string;
+  stopRef?: string;
+  placeConstraint?: "fixed" | "replaceable";
   role?: PlanmeStopRole;
 };
 
@@ -46,6 +52,8 @@ export type TimelineEvent = {
   category: "arrival" | "carryme" | "transit" | "meal" | "hotel" | "event";
   highlight?: boolean;
   savingLabel?: string;
+  stopRef?: string;
+  stayDurationMinutes?: number;
 };
 
 export type RoutePlan = {
@@ -63,6 +71,8 @@ export type RoutePlan = {
   transitMarkers?: RouteTransitMarker[];
   dashedGeoPath?: MapCoordinate[];
   dashedPath?: MapPoint[];
+  durationSource?: RouteDurationSource;
+  estimatedSegmentIndexes?: number[];
 };
 
 export type ItineraryDay = {
@@ -70,7 +80,8 @@ export type ItineraryDay = {
   label: string;
   standard: RoutePlan;
   carryme: RoutePlan;
-  savingMinutes: number;
+  savingMinutes?: number;
+  savingStatus?: ItinerarySavingStatus;
   timeline: TimelineEvent[];
   standardTimeline?: TimelineEvent[];
   carrymeTimeline?: TimelineEvent[];
@@ -89,9 +100,9 @@ export type PlanmeItinerary = {
   duration: string;
   summary: string;
   detailUrl: string;
-  carrymeSaving: string;
+  carrymeSaving?: string;
   totalDurationLabel: string;
-  savedDurationLabel: string;
+  savedDurationLabel?: string;
   transportMode: PlanmeTransportMode;
   days: ItineraryDay[];
   benefits: BenefitItem[];

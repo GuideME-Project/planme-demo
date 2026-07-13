@@ -202,6 +202,7 @@ async function requestNaverSegment(
 
   return {
     distanceMeters: route?.summary?.distance ?? 0,
+    durationSource: "provider",
     durationSeconds: Math.max(1, Math.round((route?.summary?.duration ?? 0) / 1000)),
     geometryStatus: "complete",
     mode: "drive",

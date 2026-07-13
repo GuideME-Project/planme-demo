@@ -3,11 +3,9 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import {
   assessPlanmePlanningInput,
-  createAiRecommendedItineraryResponse,
   formatPlanmeAiGenerationError,
   isPlanmeClarificationResponse,
   PlanmeAiConfigurationError,
-  toGptActionItineraryResponse,
   type PlanmeClarificationResponse,
   type PlanmePlanningRequest,
   type PlanmeRecommendationResponse,
@@ -24,6 +22,7 @@ import {
   PreviewStoreHandoffError,
 } from "./planme-mcp.js";
 import { createPlanmeUsageRecorder } from "./usage-counters.js";
+import { recommendAndPersistItinerary } from "./itinerary-recommendation-flow.js";
 
 type BodyRequest = IncomingMessage & {
   body?: object | string | Buffer;
@@ -46,6 +45,8 @@ const gptsTransportModeSchema = z
 const planningRequestSchema = z.object({
   message: z.string().optional(),
   destination: z.string().optional(),
+  destinationType: z.enum(["region", "place"]).optional(),
+  mustVisitPlaces: z.array(z.string().min(1)).optional(),
   durationDays: z.number().int().min(1).max(14).optional(),
   arrivalAirport: z.string().optional(),
   arrivalTime: z.string().optional(),
@@ -60,6 +61,8 @@ const planningRequestSchema = z.object({
 const recommendationRequestSchema = z
   .object({
     destination: z.string().min(1),
+    destinationType: z.enum(["region", "place"]).optional(),
+    mustVisitPlaces: z.array(z.string().min(1)).optional(),
     durationDays: z.number().int().min(1).max(14),
     arrivalAirport: z.string().optional(),
     arrivalTime: z.string().optional(),
@@ -171,42 +174,35 @@ export async function handleGptsRecommendItineraryRequest(
 
     const input: RecommendItineraryRequest = parsed.data;
     const usageRecorder = createPlanmeUsageRecorder();
-    const generated = await createAiRecommendedItineraryResponse(
+    const result = await recommendAndPersistItinerary(
       `${getPlanmeWebOrigin()}/api/gpt/itineraries/recommend`,
       input,
+      traceId,
       {
-        draftGeocoder: hasNaverGeocoderRuntimeConfig()
-          ? createNaverGeocoder({ usageRecorder })
-          : undefined,
-        googleMapsReferer: `${getPlanmeWebOrigin()}/`,
-        usageRecorder,
+        aiOptions: {
+          draftGeocoder: hasNaverGeocoderRuntimeConfig()
+            ? createNaverGeocoder({ usageRecorder })
+            : undefined,
+          googleMapsReferer: `${getPlanmeWebOrigin()}/`,
+          usageRecorder,
+        },
+        persist: persistItineraryForDetailPage,
       },
     );
 
-    if (isPlanmeClarificationResponse(generated)) {
+    if (result.status === "needs_clarification") {
       writeGptsRecommendationResponse(
         response,
-        toRestRecommendationResponse(generated),
+        toRestRecommendationResponse(result),
         traceId,
         "clarification",
       );
       return;
     }
 
-    // Do not return a usable detail URL unless the web handoff store accepted the itinerary.
-    const persisted = await persistItineraryForDetailPage(generated.itinerary, traceId);
-    const finalized = {
-      ...toGptActionItineraryResponse(
-        persisted.itinerary,
-        `${getPlanmeWebOrigin()}/api/gpt/itineraries/recommend`,
-      ),
-      resolutionLogs: generated.resolutionLogs,
-      validationIssues: generated.validationIssues,
-    };
-
     writeGptsRecommendationResponse(
       response,
-      toRestRecommendationResponse(finalized),
+      toRestRecommendationResponse(result.response),
       traceId,
       "ready",
     );
@@ -366,7 +362,10 @@ function toRestRecommendationResponse(response: PlanmeRecommendationResponse) {
     summary: response.summary,
     standardTotalMinutes: response.standardTotalMinutes,
     carrymeTotalMinutes: response.carrymeTotalMinutes,
-    savedMinutes: response.savedMinutes,
+    ...(response.savedMinutes === undefined
+      ? {}
+      : { savedMinutes: response.savedMinutes }),
+    savingStatus: response.savingStatus,
     pageUrl: response.pageUrl,
     ogImageUrl: response.ogImageUrl,
     previewMarkdown: response.previewMarkdown,
@@ -487,6 +486,8 @@ function buildGptsOpenApiSchema(serverUrl: string) {
           properties: {
             message: { type: "string" },
             destination: { type: "string", description: "Travel destination city or region." },
+            destinationType: { type: "string", enum: ["region", "place"] },
+            mustVisitPlaces: { type: "array", items: { type: "string" } },
             durationDays: { type: "integer", minimum: 1, maximum: 14 },
             arrivalAirport: { type: "string" },
             arrivalTime: { type: "string" },
@@ -555,20 +556,27 @@ function buildGptsOpenApiSchema(serverUrl: string) {
           type: "object",
           required: [
             "destination",
+            "destinationType",
             "origin",
             "arrivalAirport",
             "durationDays",
             "hotelName",
             "preferences",
+            "mustVisitPlaces",
             "transportMode",
           ],
           properties: {
             destination: { type: ["string", "null"] },
+            destinationType: {
+              type: ["string", "null"],
+              enum: ["region", "place", null],
+            },
             origin: { type: ["string", "null"] },
             arrivalAirport: { type: ["string", "null"] },
             durationDays: { type: ["integer", "null"] },
             hotelName: { type: ["string", "null"] },
             preferences: { type: "array", items: { type: "string" } },
+            mustVisitPlaces: { type: "array", items: { type: "string" } },
             transportMode: {
               type: ["string", "null"],
               enum: ["drive", "transit", null],
@@ -577,12 +585,23 @@ function buildGptsOpenApiSchema(serverUrl: string) {
         },
         RecommendItineraryRequest: {
           type: "object",
-          required: ["destination", "durationDays", "transportMode"],
+          required: ["destination", "destinationType", "durationDays", "transportMode"],
           anyOf: [{ required: ["origin"] }, { required: ["arrivalAirport"] }],
           properties: {
             destination: {
               type: "string",
               description: "A Korean region, city, or user-selected place such as 경주월드.",
+            },
+            destinationType: {
+              type: "string",
+              enum: ["region", "place"],
+              description:
+                "Use region for a travel area that must not become a stop; use place for a user-selected destination.",
+            },
+            mustVisitPlaces: {
+              type: "array",
+              items: { type: "string" },
+              description: "Exact user-requested places that must remain fixed.",
             },
             durationDays: { type: "integer", minimum: 1, maximum: 14 },
             arrivalAirport: { type: "string" },
@@ -619,7 +638,7 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             "summary",
             "standardTotalMinutes",
             "carrymeTotalMinutes",
-            "savedMinutes",
+            "savingStatus",
             "pageUrl",
             "highlights",
           ],
@@ -630,6 +649,10 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             standardTotalMinutes: { type: "integer" },
             carrymeTotalMinutes: { type: "integer" },
             savedMinutes: { type: "integer" },
+            savingStatus: {
+              type: "string",
+              enum: ["verified", "hidden_estimated"],
+            },
             pageUrl: { type: "string", format: "uri" },
             ogImageUrl: { type: "string", format: "uri" },
             previewMarkdown: { type: "string" },

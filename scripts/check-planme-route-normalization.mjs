@@ -90,3 +90,80 @@ assert.equal(
 );
 
 console.log("PlanME traveler routes remove duplicate luggage stops while retaining timeline events.");
+
+const fixedOrigin = {
+  ...origin,
+  requiredPlaceKind: "origin",
+};
+const fixedAttraction = {
+  ...attraction,
+  requiredPlaceKind: "must_visit",
+};
+const stableTimeline = [
+  {
+    category: "arrival",
+    description: "출발합니다.",
+    stayDurationMinutes: 0,
+    stopIndex: 0,
+    time: "08:00",
+    title: "동탄역 출발",
+  },
+  {
+    category: "event",
+    description: "방문합니다.",
+    stayDurationMinutes: 120,
+    stopIndex: 1,
+    time: "13:00",
+    title: "부산 아쿠아리움 방문",
+  },
+  {
+    category: "hotel",
+    description: "체크인합니다.",
+    stayDurationMinutes: 0,
+    stopIndex: 2,
+    time: "18:00",
+    title: "부산 호텔 체크인",
+  },
+];
+const stablePreview = createPlanmeDraftPreview({
+  days: [
+    {
+      carrymeDurationMinutes: 540,
+      carrymeStops: [fixedOrigin, fixedAttraction, travelerHotel],
+      carrymeTimeline: stableTimeline,
+      day: 1,
+      label: "Day 1",
+      standardDurationMinutes: 600,
+      standardStops: [fixedOrigin, fixedAttraction, travelerHotel],
+      standardTimeline: stableTimeline,
+    },
+  ],
+  duration: "1박 2일",
+  origin: "동탄역",
+  region: "부산",
+  savedMinutes: 60,
+  summary: "안정 장소 참조 계약 테스트",
+  title: "부산 일정",
+  transportMode: "transit",
+});
+const stableDay = stablePreview.itinerary.days[0];
+
+assert.deepEqual(
+  stableDay.standard.stops.map((stop) => stop.stopRef),
+  stableDay.carryme.stops.map((stop) => stop.stopRef),
+);
+assert.deepEqual(
+  stableDay.standard.stops.map((stop) => stop.placeConstraint),
+  ["fixed", "fixed", "replaceable"],
+);
+assert.deepEqual(
+  stableDay.standardTimeline?.map((event) => event.stopRef),
+  stableDay.standard.stops.map((stop) => stop.stopRef),
+);
+assert.deepEqual(
+  stableDay.standardTimeline?.map((event) => event.stayDurationMinutes),
+  [0, 120, 0],
+);
+assert.equal(stablePreview.validationIssues.length, 0);
+
+console.log("PlanME stable stop references and fixed-place constraints remain aligned across routes.");

@@ -13,7 +13,7 @@ type RouteMapProps = {
   expanded?: boolean;
   standardRoute: RoutePlan;
   carrymeRoute: RoutePlan;
-  savingLabel: string;
+  savingLabel?: string;
   showStandard: boolean;
   showCarryme: boolean;
   themeMode: PlanmeThemeMode;
@@ -193,10 +193,10 @@ function getVisibleTransitMarkers({
 /**
  * Builds the Roller copy agreed for CarryME benefit states.
  */
-function createRollerGuidanceContent(savingLabel: string): RollerGuidanceContent {
-  const savingDurationLabel = savingLabel.replace(/\s*절약$/, "").trim();
+function createRollerGuidanceContent(savingLabel?: string): RollerGuidanceContent {
+  const savingDurationLabel = savingLabel?.replace(/\s*절약$/, "").trim() ?? "";
   const hasPositiveSaving =
-    savingDurationLabel.length > 0 && !savingLabel.startsWith("시간 절약 없음");
+    savingDurationLabel.length > 0 && !savingLabel?.startsWith("시간 절약 없음");
 
   // Keep the map bubble in sync with the same saving label used by the header and timeline.
   return {

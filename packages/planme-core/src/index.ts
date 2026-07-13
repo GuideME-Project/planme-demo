@@ -8,3 +8,4 @@ export * from "./accommodation-candidates.js";
 export * from "./place-candidates.js";
 export * from "./draft-coordinate-resolution.js";
 export * from "./usage-events.js";
+export * from "./transit-stop-replacement.js";

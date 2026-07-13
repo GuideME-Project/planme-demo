@@ -23,7 +23,7 @@ export type PlanmeDraftStop = {
   placeSource?: PlanmePlaceCandidateSource;
   placeSourceRef?: string;
   mode?: PlanmeRowMode;
-  requiredPlaceKind?: "origin" | "destination";
+  requiredPlaceKind?: "origin" | "destination" | "must_visit";
 };
 
 export type PlanmeDraftRouteStop = {
@@ -36,7 +36,7 @@ export type PlanmeDraftRouteStop = {
   placeSource?: PlanmePlaceCandidateSource;
   placeSourceRef?: string;
   role?: PlanmeStopRole;
-  requiredPlaceKind?: "origin" | "destination";
+  requiredPlaceKind?: "origin" | "destination" | "must_visit";
 };
 
 export type PlanmeDraftTimelineEvent = {
@@ -46,6 +46,8 @@ export type PlanmeDraftTimelineEvent = {
   category?: TimelineEvent["category"];
   highlight?: boolean;
   savingLabel?: string;
+  stopIndex?: number | null;
+  stayDurationMinutes?: number;
 };
 
 export type PlanmeDraftDay = {
@@ -402,6 +404,22 @@ function validateDraftPreviewInput(input: PlanmeDraftPreviewRequest) {
 
     validateGeneratedRouteStopContract(day.standardStops, "Standard", day, dayIndex, validationIssues);
     validateGeneratedRouteStopContract(day.carrymeStops, "CarryME", day, dayIndex, validationIssues);
+    validateGeneratedTimelineContract(
+      day.standardTimeline,
+      standardStops.length,
+      "Standard",
+      day,
+      dayIndex,
+      validationIssues,
+    );
+    validateGeneratedTimelineContract(
+      day.carrymeTimeline,
+      carrymeStops.length,
+      "CarryME",
+      day,
+      dayIndex,
+      validationIssues,
+    );
   });
 
   if (!explicitOrigin && draftContainsDefaultAirportOrigin(input)) {
@@ -413,6 +431,75 @@ function validateDraftPreviewInput(input: PlanmeDraftPreviewRequest) {
   }
 
   return validationIssues;
+}
+
+function validateGeneratedTimelineContract(
+  events: PlanmeDraftTimelineEvent[] | undefined,
+  stopCount: number,
+  routeLabel: "CarryME" | "Standard",
+  day: PlanmeDraftDay,
+  dayIndex: number,
+  validationIssues: PlanmeDraftValidationIssue[],
+) {
+  if (
+    !events ||
+    !events.some(
+      (event) => event.stopIndex !== undefined || event.stayDurationMinutes !== undefined,
+    )
+  ) {
+    return;
+  }
+
+  const referencedStopIndexes = new Set<number>();
+  const referenceCounts = new Map<number, number>();
+  const dayLabel = day.label ?? `Day ${dayIndex + 1}`;
+
+  events.forEach((event, eventIndex) => {
+    const stopIndex = event.stopIndex;
+
+    if (
+      stopIndex !== null &&
+      (!Number.isInteger(stopIndex) || stopIndex === undefined || stopIndex < 0 || stopIndex >= stopCount)
+    ) {
+      validationIssues.push({
+        code: "invalid_timeline_stop_index",
+        message: `${dayLabel} ${routeLabel} ${eventIndex + 1}번째 타임라인의 장소 참조가 올바르지 않습니다.`,
+        severity: "error",
+      });
+    } else if (typeof stopIndex === "number") {
+      referencedStopIndexes.add(stopIndex);
+      referenceCounts.set(stopIndex, (referenceCounts.get(stopIndex) ?? 0) + 1);
+    }
+
+    if (
+      !Number.isInteger(event.stayDurationMinutes) ||
+      (event.stayDurationMinutes ?? -1) < 0
+    ) {
+      validationIssues.push({
+        code: "invalid_timeline_stay_duration",
+        message: `${dayLabel} ${routeLabel} ${eventIndex + 1}번째 타임라인의 체류시간이 올바르지 않습니다.`,
+        severity: "error",
+      });
+    }
+  });
+
+  for (let stopIndex = 0; stopIndex < stopCount; stopIndex += 1) {
+    if (!referencedStopIndexes.has(stopIndex)) {
+      validationIssues.push({
+        code: "missing_timeline_stop_reference",
+        message: `${dayLabel} ${routeLabel} ${stopIndex + 1}번째 장소의 대표 타임라인이 없습니다.`,
+        severity: "error",
+      });
+    }
+
+    if ((referenceCounts.get(stopIndex) ?? 0) > 1) {
+      validationIssues.push({
+        code: "duplicate_timeline_stop_reference",
+        message: `${dayLabel} ${routeLabel} ${stopIndex + 1}번째 장소의 대표 타임라인이 중복되었습니다.`,
+        severity: "error",
+      });
+    }
+  }
 }
 
 /**
@@ -480,7 +567,7 @@ function buildDraftItinerary(
         )
     : [buildEmptyDraftDay(input.savedMinutes ?? 0)];
   const firstDay = days[0];
-  const savedMinutes = Math.max(0, input.savedMinutes ?? firstDay.savingMinutes);
+  const savedMinutes = Math.max(0, input.savedMinutes ?? firstDay.savingMinutes ?? 0);
   const summaryPrefix = input.summary?.trim() || `${title}을 PlanME 위젯으로 미리 봅니다.`;
   const issueSummary =
     validationIssues.length > 0
@@ -513,14 +600,29 @@ function buildDraftDay(
   explicitOrigin: string | null = null,
   luggageFallbackLabel = "숙소",
 ): ItineraryDay {
+  const hasStableTimelineContract = [
+    ...(day.standardTimeline ?? []),
+    ...(day.carrymeTimeline ?? []),
+  ].some(
+    (event) => event.stopIndex !== undefined || event.stayDurationMinutes !== undefined,
+  );
+  const resolveStopReference = hasStableTimelineContract
+    ? createDraftStopReferenceResolver(index)
+    : undefined;
   const standardStops = createDraftRouteStops(
     day.standardStops ?? day.stops ?? [],
     explicitOrigin,
     luggageFallbackLabel,
+    resolveStopReference,
   );
   const carrymeStops = normalizeCarrymeTravelerStops(
     day.carrymeStops
-      ? createDraftRouteStops(day.carrymeStops, explicitOrigin, luggageFallbackLabel)
+      ? createDraftRouteStops(
+          day.carrymeStops,
+          explicitOrigin,
+          luggageFallbackLabel,
+          resolveStopReference,
+        )
       : buildCarrymeStops(standardStops),
   );
   let routeLikeTimelineIndex = 0;
@@ -721,11 +823,54 @@ function createDraftRouteStops(
   stops: Array<PlanmeDraftRouteStop | PlanmeDraftStop>,
   explicitOrigin: string | null,
   luggageFallbackLabel: string,
+  resolveStopReference?: DraftStopReferenceResolver,
 ) {
   return sanitizeStationLuggageStops(
-    sanitizeDraftOriginStops(stops.map(toRouteStop), explicitOrigin),
+    sanitizeDraftOriginStops(
+      stops.map((stop) => toRouteStop(stop, resolveStopReference)),
+      explicitOrigin,
+    ),
     luggageFallbackLabel,
   );
+}
+
+type DraftStopReferenceResolver = (
+  stop: PlanmeDraftRouteStop | PlanmeDraftStop,
+) => Pick<RouteStop, "placeConstraint" | "stopRef">;
+
+function createDraftStopReferenceResolver(dayIndex: number): DraftStopReferenceResolver {
+  const stopRefsByIdentity = new Map<string, string>();
+
+  return (stop) => {
+    const identity = createDraftStopIdentity(stop);
+    let stopRef = stopRefsByIdentity.get(identity);
+
+    if (!stopRef) {
+      stopRef = `day-${dayIndex + 1}-stop-${stopRefsByIdentity.size + 1}`;
+      stopRefsByIdentity.set(identity, stopRef);
+    }
+
+    return {
+      placeConstraint: stop.requiredPlaceKind ? "fixed" : "replaceable",
+      stopRef,
+    };
+  };
+}
+
+function createDraftStopIdentity(stop: PlanmeDraftRouteStop | PlanmeDraftStop) {
+  if (stop.placeSourceRef?.trim()) {
+    return `source:${stop.placeSourceRef.trim()}`;
+  }
+
+  if (stop.placeId?.trim()) {
+    return `place:${stop.placeId.trim()}`;
+  }
+
+  if (stop.coordinate) {
+    return `coordinate:${stop.coordinate.lat.toFixed(6)},${stop.coordinate.lng.toFixed(6)}`;
+  }
+
+  return `label:${stop.name.replace(/\s+/g, "").toLowerCase()}`;
 }
 
 /**
@@ -744,9 +889,12 @@ function buildDraftTimelineEvents(
       sanitizeDraftOriginTimelineEvent(rawEvent, explicitOrigin),
     );
     const isRouteLike = isRouteLikeText(event.title);
-    const fallbackStop = isRouteLike
-      ? selectTimelineStop(stops, event, routeLikeTimelineIndex)
-      : undefined;
+    const fallbackStop =
+      typeof event.stopIndex === "number"
+        ? stops[event.stopIndex]
+        : event.stopIndex === undefined && isRouteLike
+          ? selectTimelineStop(stops, event, routeLikeTimelineIndex)
+          : undefined;
 
     if (isRouteLike) {
       routeLikeTimelineIndex += 1;
@@ -788,7 +936,10 @@ function getIconForStopRole(role: PlanmeStopRole | undefined, caption: string): 
 /**
  * Converts ChatGPT stop roles into stable PlanME captions and icons.
  */
-function toRouteStop(stop: PlanmeDraftRouteStop | PlanmeDraftStop): RouteStop {
+function toRouteStop(
+  stop: PlanmeDraftRouteStop | PlanmeDraftStop,
+  resolveStopReference?: DraftStopReferenceResolver,
+): RouteStop {
   const caption = stop.caption?.trim() || "방문";
   const role = isPlanmeStopRole(stop.role) ? stop.role : undefined;
   const mode = "mode" in stop && isPlanmeRowMode(stop.mode) ? stop.mode : undefined;
@@ -804,6 +955,7 @@ function toRouteStop(stop: PlanmeDraftRouteStop | PlanmeDraftStop): RouteStop {
     placeSource: stop.placeSource,
     placeSourceRef: stop.placeSourceRef,
     role,
+    ...resolveStopReference?.(stop),
   };
 }
 
@@ -821,6 +973,8 @@ function toTimelineEvent(
     category: event.category ?? "event",
     highlight: event.highlight,
     savingLabel: event.savingLabel,
+    stopRef: fallbackStop?.stopRef,
+    stayDurationMinutes: event.stayDurationMinutes,
   };
 }
 
