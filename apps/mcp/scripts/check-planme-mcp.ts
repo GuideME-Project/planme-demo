@@ -15,9 +15,12 @@ import {
   getPlanmeItineraryById,
   PLANME_EXTERNAL_DURATION_ERROR_MESSAGE,
   PLANME_EXTERNAL_MAX_DURATION_DAYS,
+  PLANME_TRANSPORT_MODE_QUESTION,
   PlanmeRequiredPlaceResolutionError,
   PlanmeOpenAiError,
   resolvePlanmeDraftCoordinates,
+  resolvePlanmeTransportModeFromUserMessage,
+  runPlanmeUserConfirmedRecommendation,
   searchAccommodationCandidates,
   searchPlanmePlaceCandidates,
   selectPlanmeBroadOriginCandidate,
@@ -123,6 +126,85 @@ type PlanningContent = {
     text?: string;
   }>;
 };
+
+/** Verifies only a mode explicitly written by the latest user is accepted. */
+function assertLatestUserTransportModeContract(): void {
+  assert.equal(resolvePlanmeTransportModeFromUserMessage("자동차"), "drive");
+  assert.equal(resolvePlanmeTransportModeFromUserMessage("자동차요"), "drive");
+  assert.equal(resolvePlanmeTransportModeFromUserMessage("자동차로 안내해 주세요."), "drive");
+  assert.equal(
+    resolvePlanmeTransportModeFromUserMessage("동탄에서 남해 1박 2일 여행 일정, 자동차."),
+    "drive",
+  );
+  assert.equal(
+    resolvePlanmeTransportModeFromUserMessage("동탄에서 부산 자동차 여행"),
+    "drive",
+  );
+  assert.equal(resolvePlanmeTransportModeFromUserMessage("대중교통"), "transit");
+  assert.equal(resolvePlanmeTransportModeFromUserMessage("대중교통이요"), "transit");
+  assert.equal(resolvePlanmeTransportModeFromUserMessage("대중교통을 이용할게"), "transit");
+  assert.equal(
+    resolvePlanmeTransportModeFromUserMessage("동탄에서 부산 대중교통 여행"),
+    "transit",
+  );
+  assert.equal(
+    resolvePlanmeTransportModeFromUserMessage("대중교통으로 검색해 주세요."),
+    "transit",
+  );
+  assert.equal(
+    resolvePlanmeTransportModeFromUserMessage("마포구청에서 남해 1박 2일 여행"),
+    null,
+  );
+  assert.equal(
+    resolvePlanmeTransportModeFromUserMessage("자동차와 대중교통을 비교해 줘"),
+    null,
+  );
+  assert.equal(resolvePlanmeTransportModeFromUserMessage("자동차 없이 여행"), null);
+  assert.equal(resolvePlanmeTransportModeFromUserMessage("자동차를 선택 안 할게요"), null);
+  assert.equal(resolvePlanmeTransportModeFromUserMessage("자동차 박물관에서 출발"), null);
+  assert.equal(resolvePlanmeTransportModeFromUserMessage("대중교통을 이용 안 해요"), null);
+  assert.equal(resolvePlanmeTransportModeFromUserMessage(undefined), null);
+}
+
+/** Verifies blocked inputs never invoke generation and legacy enum conflicts lose to user text. */
+async function assertUserConfirmedRecommendationRunnerContract(): Promise<void> {
+  let runnerCalls = 0;
+  const legacyModelInput = {
+    destination: "남해",
+    durationDays: 2,
+    origin: "마포구청",
+    transportMode: "drive" as const,
+  };
+  const runner = async (input: RecommendItineraryRequest) => {
+    runnerCalls += 1;
+    return input;
+  };
+
+  const missingSelection = await runPlanmeUserConfirmedRecommendation(
+    "마포구청에서 남해 1박 2일 여행",
+    legacyModelInput,
+    runner,
+  );
+  const conflictingSelection = await runPlanmeUserConfirmedRecommendation(
+    "대중교통",
+    legacyModelInput,
+    runner,
+  );
+  const ambiguousSelection = await runPlanmeUserConfirmedRecommendation(
+    "자동차와 대중교통을 비교해 줘",
+    legacyModelInput,
+    runner,
+  );
+
+  assert.equal(missingSelection.status, "needs_transport_confirmation");
+  assert.equal(ambiguousSelection.status, "needs_transport_confirmation");
+  assert.equal(conflictingSelection.status, "confirmed");
+  assert.equal(runnerCalls, 1);
+
+  if (conflictingSelection.status === "confirmed") {
+    assert.equal(conflictingSelection.value.transportMode, "transit");
+  }
+}
 
 type PlanmeWidgetResourceMeta = {
   ui?: {
@@ -3950,13 +4032,31 @@ async function assertGptsActionsRestFacade(): Promise<void> {
         .clarificationContext,
     );
     assert.deepEqual(
-      openApiPayload.components.schemas.RecommendItineraryRequest.properties.transportMode.enum,
-      ["drive", "transit", "자동차", "대중교통"],
+      openApiPayload.components.schemas.PlanmePlanningRequest.required,
+      ["latestUserMessage"],
+    );
+    assert.deepEqual(
+      openApiPayload.components.schemas.RecommendItineraryRequest.required,
+      ["latestUserMessage", "destination", "durationDays"],
     );
     assert.match(
-      openApiPayload.components.schemas.RecommendItineraryRequest.properties.transportMode
-        .description,
-      /자동차.*drive|drive.*자동차/,
+      openApiPayload.components.schemas.RecommendItineraryRequest.properties
+        .latestUserMessage.description,
+      /exact latest user-authored message.*Do not summarize.*insert a transport choice/i,
+    );
+    assert.equal(
+      "transportMode" in
+        openApiPayload.components.schemas.RecommendItineraryRequest.properties,
+      false,
+    );
+    assert.equal(
+      "transportMode" in openApiPayload.components.schemas.PlanmePlanningRequest.properties,
+      false,
+    );
+    assert.equal(
+      openApiPayload.components.schemas.RecommendItineraryRequest.properties.latestUserMessage
+        .minLength,
+      1,
     );
     assert.match(
       openApiPayload.components.schemas.PlanmePlanningRequest.properties.origin.description,
@@ -4109,10 +4209,10 @@ async function assertGptsActionsRestFacade(): Promise<void> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        latestUserMessage: "대중교통",
         destination: "부산",
         durationDays: 2,
         origin: "용산역",
-        transportMode: "대중교통",
       }),
     });
     const koreanPlanningPayload = (await koreanPlanningResponse.json()) as PlanningContent;
@@ -4123,6 +4223,24 @@ async function assertGptsActionsRestFacade(): Promise<void> {
     assert.equal(koreanPlanningPayload.normalizedInput?.destinationType, "region");
     assert.deepEqual(koreanPlanningPayload.missingSlots, []);
     assert.deepEqual(koreanPlanningPayload.questions, []);
+
+    const conflictingPlanningResponse = await fetch(`${origin}/api/gpt/planning/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        latestUserMessage: "자동차",
+        destination: "부산",
+        durationDays: 2,
+        origin: "용산역",
+        transportMode: "transit",
+      }),
+    });
+    const conflictingPlanningPayload =
+      (await conflictingPlanningResponse.json()) as PlanningContent;
+
+    assert.equal(conflictingPlanningResponse.status, 200);
+    assert.equal(conflictingPlanningPayload.status, "ready");
+    assert.equal(conflictingPlanningPayload.normalizedInput?.transportMode, "drive");
 
     const originalConsoleError = console.error;
     let validationLogText = "";
@@ -4218,6 +4336,54 @@ async function assertGptsActionsRestFacade(): Promise<void> {
     );
     assert.match(durationValidationLogText, /planme_gpts_request_validation_failure/);
 
+    const inferredRecommendationResponse = await fetch(
+      `${origin}/api/gpt/itineraries/recommend`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          latestUserMessage: "마포구청에서 남해 1박 2일 여행",
+          destination: "남해",
+          durationDays: 2,
+          origin: "마포구청",
+          transportMode: "drive",
+        }),
+      },
+    );
+    const inferredRecommendationPayload =
+      (await inferredRecommendationResponse.json()) as RecommendationContent;
+
+    assert.equal(inferredRecommendationResponse.status, 200);
+    assert.equal(inferredRecommendationPayload.status, "needs_clarification");
+    assert.deepEqual(inferredRecommendationPayload.questions, [
+      PLANME_TRANSPORT_MODE_QUESTION,
+    ]);
+    assert.deepEqual(inferredRecommendationPayload.unresolvedStops, []);
+    assert.equal(inferredRecommendationPayload.itineraryId, undefined);
+
+    const legacyRecommendationResponse = await fetch(
+      `${origin}/api/gpt/itineraries/recommend`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          destination: "남해",
+          durationDays: 2,
+          origin: "마포구청",
+          transportMode: "drive",
+        }),
+      },
+    );
+    const legacyRecommendationPayload =
+      (await legacyRecommendationResponse.json()) as RecommendationContent;
+
+    assert.equal(legacyRecommendationResponse.status, 200);
+    assert.equal(legacyRecommendationPayload.status, "needs_clarification");
+    assert.deepEqual(legacyRecommendationPayload.questions, [
+      PLANME_TRANSPORT_MODE_QUESTION,
+    ]);
+    assert.equal(legacyRecommendationPayload.itineraryId, undefined);
+
     const originalConsoleInfo = console.info;
     let responseLogText = "";
     const [recommendationResponse, recommendationText] = await (async () => {
@@ -4229,9 +4395,9 @@ async function assertGptsActionsRestFacade(): Promise<void> {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            latestUserMessage: "자동차",
             destination: "여수",
             durationDays: 2,
-            transportMode: "자동차",
             origin: "서울",
           }),
         });
@@ -4290,6 +4456,8 @@ async function startServer() {
  * Verifies that PlanME MCP tools and resources satisfy the first GPT App PoC contract.
  */
 async function main(): Promise<void> {
+  assertLatestUserTransportModeContract();
+  await assertUserConfirmedRecommendationRunnerContract();
   assertGptActionMultiDayResponseContract();
   assertExternalDurationBoundaryContract();
   await assertOpenAiGeneratorContract();
@@ -4366,6 +4534,7 @@ async function main(): Promise<void> {
     const startPlanningInputSchema = startPlanningTool?.inputSchema as
       | {
           properties?: Record<string, { description?: string; maximum?: number }>;
+          required?: string[];
         }
       | undefined;
     const recommendOutputSchema = recommendTool?.outputSchema as
@@ -4376,13 +4545,11 @@ async function main(): Promise<void> {
 
     assert.ok(recommendInputSchema?.properties);
     assert.equal("days" in recommendInputSchema.properties, false);
-    assert.deepEqual(recommendInputSchema.properties.transportMode?.enum, [
-      "drive",
-      "transit",
-      "자동차",
-      "대중교통",
-    ]);
-    assert.match(recommendInputSchema.properties.transportMode?.description ?? "", /자동차.*drive/);
+    assert.equal("transportMode" in recommendInputSchema.properties, false);
+    assert.equal(
+      "transportMode" in (startPlanningInputSchema?.properties ?? {}),
+      false,
+    );
     assert.match(
       recommendInputSchema.properties.origin?.description ?? "",
       /동탄 같은 넓은 지역도 유효.*더 정확한 장소명이나 주소를 묻지 말고/,
@@ -4404,6 +4571,8 @@ async function main(): Promise<void> {
       /최대 3일/,
     );
     assert.equal(recommendInputSchema.required?.includes("destinationType"), false);
+    assert.equal(recommendInputSchema.required?.includes("latestUserMessage"), true);
+    assert.equal(startPlanningInputSchema?.required?.includes("latestUserMessage"), true);
     assert.equal(recommendTool?.title, "PlanME 여행 일정 생성 및 저장");
     assert.deepEqual(recommendOutputSchema?.properties?.status?.enum, [
       "ready",
@@ -4450,6 +4619,7 @@ async function main(): Promise<void> {
     const planningDraft = await client.callTool({
       name: "start_planme_planning",
       arguments: {
+        latestUserMessage: "여수 여행",
         destination: "여수",
       },
     });
@@ -4468,10 +4638,10 @@ async function main(): Promise<void> {
     const unsupportedDurationPlanning = await client.callTool({
       name: "start_planme_planning",
       arguments: {
+        latestUserMessage: "동탄에서 부산 4일 자동차 여행",
         destination: "부산",
         durationDays: PLANME_EXTERNAL_MAX_DURATION_DAYS + 1,
         origin: "동탄",
-        transportMode: "drive",
       },
     });
     const unsupportedDurationPlanningText = JSON.stringify(unsupportedDurationPlanning);
@@ -4483,10 +4653,10 @@ async function main(): Promise<void> {
     const unsupportedDurationRecommendation = await client.callTool({
       name: "recommend_planme_itinerary",
       arguments: {
+        latestUserMessage: "자동차",
         destination: "부산",
         durationDays: PLANME_EXTERNAL_MAX_DURATION_DAYS + 1,
         origin: "동탄",
-        transportMode: "drive",
       },
     });
     const unsupportedDurationRecommendationText = JSON.stringify(
@@ -4500,6 +4670,7 @@ async function main(): Promise<void> {
     const transportOnlyPlanning = await client.callTool({
       name: "start_planme_planning",
       arguments: {
+        latestUserMessage: "서울에서 여수 1박 2일 여행",
         destination: "여수",
         durationDays: 2,
         origin: "서울",
@@ -4520,8 +4691,9 @@ async function main(): Promise<void> {
     const readyPlanning = await client.callTool({
       name: "start_planme_planning",
       arguments: {
+        latestUserMessage: "자동차",
         destination: "여수",
-        durationDays: 2, transportMode: "drive",
+        durationDays: 2,
         origin: "서울",
       },
     });
@@ -4536,9 +4708,9 @@ async function main(): Promise<void> {
     const koreanPlanning = await client.callTool({
       name: "start_planme_planning",
       arguments: {
+        latestUserMessage: "대중교통",
         destination: "여수",
         durationDays: 2,
-        transportMode: "대중교통",
         origin: "서울",
       },
     });
@@ -4547,11 +4719,32 @@ async function main(): Promise<void> {
     assert.equal(koreanPlanning.isError, undefined);
     assert.equal(koreanPlanningContent?.normalizedInput?.transportMode, "transit");
 
+    const inferredModeRecommendation = await client.callTool({
+      name: "recommend_planme_itinerary",
+      arguments: {
+        latestUserMessage: "마포구청에서 남해 1박 2일 여행",
+        destination: "남해",
+        durationDays: 2,
+        origin: "마포구청",
+      },
+    });
+    const inferredModeRecommendationContent =
+      inferredModeRecommendation.structuredContent as RecommendationContent | undefined;
+
+    assert.equal(inferredModeRecommendation.isError, undefined);
+    assert.equal(inferredModeRecommendationContent?.status, "needs_clarification");
+    assert.deepEqual(inferredModeRecommendationContent?.questions, [
+      PLANME_TRANSPORT_MODE_QUESTION,
+    ]);
+    assert.deepEqual(inferredModeRecommendationContent?.unresolvedStops, []);
+    assert.equal(inferredModeRecommendationContent?.itineraryId, undefined);
+
     const missingAiGeneratorRecommendation = await client.callTool({
       name: "recommend_planme_itinerary",
       arguments: {
+        latestUserMessage: "자동차",
         destination: "남해 아이 동반 가족여행",
-        durationDays: 2, transportMode: "drive",
+        durationDays: 2,
         travelerCount: 4,
         luggageCount: 2,
       },

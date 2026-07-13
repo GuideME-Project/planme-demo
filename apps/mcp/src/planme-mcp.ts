@@ -7,8 +7,11 @@ import {
 } from "@modelcontextprotocol/ext-apps/server";
 import {
   assessPlanmePlanningInput,
+  createPlanmeTransportModeClarification,
   PLANME_EXTERNAL_DURATION_ERROR_MESSAGE,
   PLANME_EXTERNAL_MAX_DURATION_DAYS,
+  resolvePlanmeTransportModeFromUserMessage,
+  runPlanmeUserConfirmedRecommendation,
   type GptActionItineraryDaySummary,
   type GptActionItineraryResponse,
   type PlanmeClarificationResponse,
@@ -115,11 +118,6 @@ const planningQuestionSchema = z.object({
   examples: z.array(z.string()),
 });
 
-const appTransportModeSchema = z
-  .enum(["drive", "transit", "자동차", "대중교통"])
-  .describe(
-    "일정 전체 이동 수단입니다. 사용자가 자동차를 선택하면 자동차 또는 drive, 대중교통을 선택하면 대중교통 또는 transit으로 전달하세요.",
-  );
 const externalDurationDaysSchema = z
   .number()
   .int()
@@ -127,29 +125,15 @@ const externalDurationDaysSchema = z
   .max(PLANME_EXTERNAL_MAX_DURATION_DAYS, PLANME_EXTERNAL_DURATION_ERROR_MESSAGE)
   .describe(PLANME_EXTERNAL_DURATION_ERROR_MESSAGE);
 
-type AppTransportMode = z.infer<typeof appTransportModeSchema>;
-type AppPlanmePlanningRequest = Omit<PlanmePlanningRequest, "transportMode"> & {
-  transportMode?: AppTransportMode;
+type AppPlanmePlanningRequest = Omit<
+  PlanmePlanningRequest,
+  "latestUserMessage" | "transportMode"
+> & {
+  latestUserMessage: string;
 };
 type AppRecommendItineraryRequest = Omit<RecommendItineraryRequest, "transportMode"> & {
-  transportMode: AppTransportMode;
+  latestUserMessage: string;
 };
-
-/**
- * Converts Apps tool choices into the internal itinerary transport-mode values.
- */
-function normalizeAppTransportMode(value: AppTransportMode): RecommendItineraryRequest["transportMode"] {
-  // Apps can repeat Korean choices, while the itinerary generator requires internal values.
-  if (value === "자동차") {
-    return "drive";
-  }
-
-  if (value === "대중교통") {
-    return "transit";
-  }
-
-  return value;
-}
 
 const itinerarySummarySchema = {
   clarificationContext: z
@@ -530,7 +514,7 @@ export function createPlanmeMcpServer(): McpServer {
     },
     {
       instructions:
-        "When GuideME-PlanME is selected and the user asks to create a travel itinerary, use this server instead of web search. PlanME supports trips from 1 through 3 days. For 4 days or longer, explain the 3-day limit and ask the user to shorten the trip without calling recommend_planme_itinerary. If origin, destination, a supported trip length, and transport mode are present, call recommend_planme_itinerary immediately without researching routes, stations, coordinates, or attractions. Any non-empty origin is valid, including a broad region, city, neighborhood, station, or landmark such as 동탄. Never ask the user for a more exact origin, place name, or address; pass the user's origin text unchanged because the server resolves a representative departure point. When transport mode is answered in a follow-up turn, preserve the origin, destination, and trip length from the first turn. Call start_planme_planning only when one of those four inputs is missing. After a ready result, call get_planme_itinerary exactly once.",
+        "When GuideME-PlanME is selected and the user asks to create a travel itinerary, use this server instead of web search. PlanME supports trips from 1 through 3 days. For 4 days or longer, explain the 3-day limit and ask the user to shorten the trip without calling recommend_planme_itinerary. Always pass the exact latest user-authored message in latestUserMessage. Transport mode is derived only from that message; there is no separate transport-mode input to infer or fill. If latestUserMessage does not explicitly name 자동차 or 대중교통, ask the returned transport question and wait. If origin, destination, a supported trip length, and user-confirmed transport mode are present, call recommend_planme_itinerary immediately without researching routes, stations, coordinates, or attractions. Any non-empty origin is valid, including a broad region, city, neighborhood, station, or landmark such as 동탄. Never ask the user for a more exact origin, place name, or address; pass the user's origin text unchanged because the server resolves a representative departure point. When transport mode is answered in a follow-up turn, preserve the origin, destination, and trip length from the first turn. Call start_planme_planning only when one of those four inputs is missing. After a ready result, call get_planme_itinerary exactly once.",
     },
   );
   const usageRecorder = createPlanmeUsageRecorder();
@@ -544,8 +528,14 @@ export function createPlanmeMcpServer(): McpServer {
     {
       title: "PlanME 여행 조건 확인",
       description:
-        "Use this when the user asks PlanME to create a travel itinerary but origin, destination, a supported trip length from 1 through 3 days, or transport mode is missing. Any non-empty origin such as 동탄, 마포구청, or 강동역 already satisfies the origin requirement. Never treat a broad origin as missing and never ask for a more exact place name or address; the server resolves a representative point. When transport mode is supplied later, preserve the first turn's origin, destination, and trip length. For 4 days or longer, explain the 3-day limit and ask the user to shorten the trip. If the four required inputs are present, do not research attractions, stations, or coordinates and call recommend_planme_itinerary immediately. Lodging and preferences may be omitted and are not blockers.",
+        "Use this when the user asks PlanME to create a travel itinerary but origin, destination, a supported trip length from 1 through 3 days, or user-confirmed transport mode is missing. Always copy the exact latest user-authored message to latestUserMessage without adding a mode. Transport mode is derived only from that message; there is no separate transport-mode input to infer or fill. Any non-empty origin such as 동탄, 마포구청, or 강동역 already satisfies the origin requirement. Never treat a broad origin as missing and never ask for a more exact place name or address; the server resolves a representative point. When transport mode is supplied later, preserve the first turn's origin, destination, and trip length. For 4 days or longer, explain the 3-day limit and ask the user to shorten the trip. If the four required inputs are present, do not research attractions, stations, or coordinates and call recommend_planme_itinerary immediately. Lodging and preferences may be omitted and are not blockers.",
       inputSchema: {
+        latestUserMessage: z
+          .string()
+          .min(1)
+          .describe(
+            "필수: 사용자가 방금 작성한 원문 그대로입니다. 요약하거나 이전 턴과 합치거나 사용자가 말하지 않은 이동 수단을 넣지 마세요.",
+          ),
         message: z.string().optional(),
         destination: z.string().optional(),
         destinationType: z
@@ -567,7 +557,6 @@ export function createPlanmeMcpServer(): McpServer {
         travelerCount: z.number().int().min(1).max(20).optional(),
         luggageCount: z.number().int().min(0).max(20).optional(),
         preferences: z.array(z.string()).optional(),
-        transportMode: appTransportModeSchema.optional(),
         theme: z.enum(["light", "dark"]).optional(),
       },
       outputSchema: planningAssessmentSchema,
@@ -582,11 +571,12 @@ export function createPlanmeMcpServer(): McpServer {
       },
     },
     async (input: AppPlanmePlanningRequest) => {
+      const explicitTransportMode = resolvePlanmeTransportModeFromUserMessage(
+        input.latestUserMessage,
+      );
       const normalizedInput: PlanmePlanningRequest = {
         ...input,
-        transportMode: input.transportMode
-          ? normalizeAppTransportMode(input.transportMode)
-          : undefined,
+        transportMode: explicitTransportMode ?? undefined,
       };
       const assessment = assessPlanmePlanningInput(normalizedInput);
 
@@ -614,8 +604,14 @@ export function createPlanmeMcpServer(): McpServer {
     {
       title: "PlanME 여행 일정 생성 및 저장",
       description:
-        "Use this when the user asks PlanME to create a travel itinerary of 1 through 3 days and origin, destination, trip length, and transport mode are present, for example '동탄에서 남해 1박 2일 여행 일정, 자동차.' Any non-empty origin is valid, including a broad region, city, neighborhood, station, or landmark. Never ask for a more exact origin, place name, or address; pass the user's origin text unchanged because the server resolves a representative departure point. When transport mode is answered in a follow-up turn, preserve the origin, destination, and trip length from the first turn. Do not call this tool for 4 days or longer; explain the 3-day limit and ask the user to shorten the trip. Call this tool before browsing or researching attractions, stations, coordinates, or routes; the server selects, verifies, replaces, and saves itinerary places. Pass only places explicitly fixed by the user in mustVisitPlaces, and do not pass ChatGPT-authored days or timeline events. Missing lodging and preferences are allowed. If the response status is needs_clarification, ask the returned question in chat. If the response status is ready, call get_planme_itinerary exactly once with the returned itineraryId to render the widget. Do not render a widget from this tool. CarryME luggage handoff points must be lodging, hotels, or explicit pickup points, not plain train/subway stations, terminals, or airports.",
+        "Use this when the user asks PlanME to create a travel itinerary of 1 through 3 days and origin, destination, trip length, and user-confirmed transport mode are present, for example '동탄에서 남해 1박 2일 여행 일정, 자동차.' Always copy the exact latest user-authored message to latestUserMessage. Transport mode is derived only from that message; there is no separate transport-mode input to infer or fill. If that message does not explicitly name 자동차 or 대중교통, the server returns one transport question; ask it and wait for the user's answer. Any non-empty origin is valid, including a broad region, city, neighborhood, station, or landmark. Never ask for a more exact origin, place name, or address; pass the user's origin text unchanged because the server resolves a representative departure point. When transport mode is answered in a follow-up turn, preserve the origin, destination, and trip length from the first turn. Do not call this tool for 4 days or longer; explain the 3-day limit and ask the user to shorten the trip. Call this tool before browsing or researching attractions, stations, coordinates, or routes; the server selects, verifies, replaces, and saves itinerary places. Pass only places explicitly fixed by the user in mustVisitPlaces, and do not pass ChatGPT-authored days or timeline events. Missing lodging and preferences are allowed. If the response status is needs_clarification, ask the returned question in chat. If the response status is ready, call get_planme_itinerary exactly once with the returned itineraryId to render the widget. Do not render a widget from this tool. CarryME luggage handoff points must be lodging, hotels, or explicit pickup points, not plain train/subway stations, terminals, or airports.",
       inputSchema: {
+        latestUserMessage: z
+          .string()
+          .min(1)
+          .describe(
+            "필수: 사용자가 방금 작성한 원문 그대로입니다. 사용자가 말하지 않은 이동 수단을 넣지 마세요. 서버가 이 원문으로 이동 수단 선택을 확인합니다.",
+          ),
         destination: z
           .string()
           .min(1)
@@ -647,7 +643,6 @@ export function createPlanmeMcpServer(): McpServer {
           .array(z.string())
           .optional()
           .describe("User preferences like 아이 동반 or 바다 전망."),
-        transportMode: appTransportModeSchema,
         clarificationAnswers: z.union([z.string(), z.array(z.string())]).optional(),
         clarificationContext: z
           .object({
@@ -672,36 +667,65 @@ export function createPlanmeMcpServer(): McpServer {
     },
     async (input: AppRecommendItineraryRequest) => {
       const traceId = randomUUID();
-      const normalizedInput: RecommendItineraryRequest = {
-        ...input,
-        transportMode: normalizeAppTransportMode(input.transportMode),
-      };
+      const { latestUserMessage, ...recommendationInput } = input;
       let response: GptActionItineraryResponse;
 
       try {
-        const result = await recommendAndPersistItinerary(
-          getPlanmeWebRequestUrl(),
-          normalizedInput,
-          traceId,
-          {
-            aiOptions: {
-              draftGeocoder: hasNaverGeocoderRuntimeConfig()
-                ? createNaverGeocoder({ usageRecorder })
-                : undefined,
-              googleMapsReferer: `${getPlanmeWebOrigin()}/`,
-              usageRecorder,
-            },
-            onStage: (event) => {
-              console.info("PlanME Apps stage", {
-                completionStage: mapPlanmeMeasurementToCompletionStage(event.stage),
-                event: "planme_apps_stage",
-                ...event,
-                traceId,
-              });
-            },
-            persist: persistItineraryForDetailPage,
-          },
+        const guardedRecommendation = await runPlanmeUserConfirmedRecommendation(
+          latestUserMessage,
+          recommendationInput,
+          (confirmedInput) =>
+            recommendAndPersistItinerary(
+              getPlanmeWebRequestUrl(),
+              confirmedInput,
+              traceId,
+              {
+                aiOptions: {
+                  draftGeocoder: hasNaverGeocoderRuntimeConfig()
+                    ? createNaverGeocoder({ usageRecorder })
+                    : undefined,
+                  googleMapsReferer: `${getPlanmeWebOrigin()}/`,
+                  usageRecorder,
+                },
+                onStage: (event) => {
+                  console.info("PlanME Apps stage", {
+                    completionStage: mapPlanmeMeasurementToCompletionStage(event.stage),
+                    event: "planme_apps_stage",
+                    ...event,
+                    traceId,
+                  });
+                },
+                persist: persistItineraryForDetailPage,
+              },
+            ),
         );
+
+        if (guardedRecommendation.status === "needs_transport_confirmation") {
+          const clarification = createPlanmeTransportModeClarification(
+            input.clarificationContext,
+          );
+          const structuredContent = { ...toClarificationSummary(clarification), traceId };
+
+          console.info("PlanME Apps response", {
+            completionStage: "response_delivery",
+            event: "planme_apps_response",
+            stage: "clarification",
+            status: 200,
+            traceId,
+          });
+
+          return {
+            structuredContent,
+            content: [
+              {
+                type: "text" as const,
+                text: `${clarification.message} ${clarification.questions[0]}`,
+              },
+            ],
+          };
+        }
+
+        const result = guardedRecommendation.value;
 
         if (result.status === "needs_clarification") {
           const structuredContent = { ...toClarificationSummary(result), traceId };
