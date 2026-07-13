@@ -37,6 +37,7 @@ import {
   handleGptsOpenApiRequest,
   handleGptsPlanningStartRequest,
   handleGptsRecommendItineraryRequest,
+  toGptsRestRecommendationResponse,
 } from "../src/gpts-actions-api.js";
 
 type RecommendationContent = {
@@ -3010,6 +3011,27 @@ async function assertGptsActionsRestFacade(): Promise<void> {
         .default,
       "region",
     );
+    const actionResponseProperties =
+      openApiPayload.components.schemas.ItineraryActionResponse.properties;
+
+    assert.equal("itinerary" in actionResponseProperties, false);
+    assert.equal("previewMarkdown" in actionResponseProperties, false);
+    assert.equal("resolutionLogs" in actionResponseProperties, false);
+
+    const compactFixture = getPlanmeItineraryById("busan-bts-1d1n");
+    assert.ok(compactFixture);
+    const compactActionPayload = toGptsRestRecommendationResponse(
+      toGptActionItineraryResponse(
+        compactFixture,
+        "http://localhost:3000/api/gpt/itineraries/busan-bts-1d1n",
+      ),
+    );
+    const compactActionText = JSON.stringify(compactActionPayload);
+
+    assert.equal("itinerary" in compactActionPayload, false);
+    assert.equal("previewMarkdown" in compactActionPayload, false);
+    assert.equal("resolutionLogs" in compactActionPayload, false);
+    assert.ok(Buffer.byteLength(compactActionText, "utf8") < 16_384);
 
     const planningResponse = await fetch(`${origin}/api/gpt/planning/start`, {
       method: "POST",
