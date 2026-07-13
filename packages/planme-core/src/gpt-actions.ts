@@ -39,6 +39,7 @@ import {
   PlanmePlaceSearchConfigurationError,
   PlanmePlaceSearchProviderError,
   searchPlanmePlaceCandidates,
+  selectPlanmeBroadOriginCandidate,
   selectPlanmeRequiredPlaceCandidate,
   type PlanmePlaceCandidate,
   type PlanmePlaceCandidateSearcher,
@@ -824,6 +825,13 @@ async function resolveRequiredPlaces(
     options,
   );
   if (!origin) {
+    if (isBroadOriginLabel(originText)) {
+      throw new PlanmeRequiredPlaceResolutionError(
+        "ORIGIN_REPRESENTATIVE_NOT_FOUND",
+        false,
+      );
+    }
+
     return createRequiredPlaceClarification("origin", originText);
   }
 
@@ -944,7 +952,10 @@ async function resolveRequiredPlace(
           },
           timeoutMs: options.timeoutMs,
         });
-        const candidate = selectPlanmeRequiredPlaceCandidate(inputText, result.candidates);
+        const candidate =
+          kind === "origin" && isBroadOriginLabel(inputText)
+            ? selectPlanmeBroadOriginCandidate(inputText, result.candidates)
+            : selectPlanmeRequiredPlaceCandidate(inputText, result.candidates);
 
         if (candidate) {
           return candidate;

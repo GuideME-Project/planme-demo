@@ -15,10 +15,12 @@ import {
   getPlanmeItineraryById,
   PLANME_EXTERNAL_DURATION_ERROR_MESSAGE,
   PLANME_EXTERNAL_MAX_DURATION_DAYS,
+  PlanmeRequiredPlaceResolutionError,
   PlanmeOpenAiError,
   resolvePlanmeDraftCoordinates,
   searchAccommodationCandidates,
   searchPlanmePlaceCandidates,
+  selectPlanmeBroadOriginCandidate,
   selectPlanmeRequiredPlaceCandidate,
   toGptActionItineraryResponse,
   type GptActionItineraryResponse,
@@ -2492,6 +2494,16 @@ function assertRequiredPlaceCandidateSelectionContract(): void {
     ...createMockNaverPlaceCandidate("무더위쉼터 마포구청사무더위쉼터", 3),
     address: "서울특별시 마포구 월드컵로 212 (마포구청)",
   };
+  const dongtanDistrict = {
+    ...createMockNaverPlaceCandidate("동탄1신도시", 4),
+    address: "경기도 화성시 동탄구 반송동",
+    category: "행정지명>신도시",
+  };
+  const dongtanRestaurant = {
+    ...createMockNaverPlaceCandidate("미도인 동탄레이크꼬모점", 5),
+    address: "경기도 화성시 동탄구 동탄대로 181",
+    category: "음식점>양식",
+  };
 
   assert.equal(
     selectPlanmeRequiredPlaceCandidate("동탄호수공원", [hairSalon, lakePark])?.name,
@@ -2509,11 +2521,92 @@ function assertRequiredPlaceCandidateSelectionContract(): void {
     selectPlanmeRequiredPlaceCandidate("마포구청", [officeAmenity])?.name,
     "마포구청",
   );
+  assert.equal(
+    selectPlanmeBroadOriginCandidate("동탄", [dongtanRestaurant, dongtanDistrict])?.name,
+    "동탄1신도시",
+  );
+  assert.equal(
+    selectPlanmeBroadOriginCandidate("동탄", [dongtanRestaurant]),
+    null,
+  );
 }
 
 /** Verifies a typed retry resolves a landmark after an unrelated branch ranks first. */
 async function assertRequiredPlaceQualifiedRetryContract(): Promise<void> {
   let broadOriginName: string | undefined;
+  const dongtanDistrict = {
+    ...createMockNaverPlaceCandidate("동탄1신도시", 5),
+    address: "경기도 화성시 동탄구 반송동",
+    category: "행정지명>신도시",
+  };
+  const dongtanRestaurant = {
+    ...createMockNaverPlaceCandidate("미도인 동탄레이크꼬모점", 6),
+    address: "경기도 화성시 동탄구 동탄대로 181",
+    category: "음식점>양식",
+  };
+
+  for (const draftGeocoder of [
+    undefined,
+    (async () => null) as PlanmeDraftGeocoder,
+  ]) {
+    let representativeOriginName: string | undefined;
+
+    await assert.rejects(
+      createCoreAiRecommendedItineraryResponse(
+        "http://localhost:3000/api/gpt/itineraries/recommend",
+        {
+          destination: "부산",
+          destinationType: "region",
+          durationDays: 2,
+          origin: "동탄",
+          transportMode: "drive",
+        },
+        {
+          accommodationCandidateSearcher: async () => [],
+          aiItineraryGenerator: async (_input, context) => {
+            representativeOriginName = context?.requiredPlaces?.origin.name;
+            throw new Error("broad-origin-local-fallback-verified");
+          },
+          draftGeocoder,
+          placeCandidateSearcher: async () => ({
+            candidates: [dongtanRestaurant, dongtanDistrict],
+            searchedQueries: ["동탄"],
+          }),
+        },
+      ),
+      /broad-origin-local-fallback-verified/,
+    );
+
+    assert.equal(representativeOriginName, "동탄1신도시");
+  }
+
+  await assert.rejects(
+    createCoreAiRecommendedItineraryResponse(
+      "http://localhost:3000/api/gpt/itineraries/recommend",
+      {
+        destination: "부산",
+        destinationType: "region",
+        durationDays: 2,
+        origin: "동탄",
+        transportMode: "drive",
+      },
+      {
+        accommodationCandidateSearcher: async () => [],
+        aiItineraryGenerator: async () => {
+          throw new Error("broad origin without a representative must fail first");
+        },
+        draftGeocoder: async () => null,
+        placeCandidateSearcher: async () => ({
+          candidates: [dongtanRestaurant],
+          searchedQueries: ["동탄"],
+        }),
+      },
+    ),
+    (error: unknown) =>
+      error instanceof PlanmeRequiredPlaceResolutionError &&
+      error.code === "ORIGIN_REPRESENTATIVE_NOT_FOUND" &&
+      error.stage === "place_resolution",
+  );
 
   await assert.rejects(
     createCoreAiRecommendedItineraryResponse(
@@ -2555,6 +2648,32 @@ async function assertRequiredPlaceQualifiedRetryContract(): Promise<void> {
     0,
   );
   const lakePark = createMockNaverPlaceCandidate("동탄호수공원", 1);
+  const exactOriginClarification = await createCoreAiRecommendedItineraryResponse(
+    "http://localhost:3000/api/gpt/itineraries/recommend",
+    {
+      destination: "남해",
+      destinationType: "region",
+      durationDays: 2,
+      origin: "동탄호수공원",
+      transportMode: "drive",
+    },
+    {
+      accommodationCandidateSearcher: async () => [],
+      aiItineraryGenerator: async () => {
+        throw new Error("exact landmark must not accept a nearby business");
+      },
+      draftGeocoder: async () => null,
+      placeCandidateSearcher: async () => ({
+        candidates: [hairSalon],
+        searchedQueries: ["동탄호수공원"],
+      }),
+    },
+  );
+
+  assert.equal(isPlanmeClarificationResponse(exactOriginClarification), true);
+  if (isPlanmeClarificationResponse(exactOriginClarification)) {
+    assert.match(exactOriginClarification.questions[0] ?? "", /정확한 장소명이나 주소/);
+  }
 
   await assert.rejects(
     createCoreAiRecommendedItineraryResponse(
@@ -3801,8 +3920,16 @@ async function assertGptsActionsRestFacade(): Promise<void> {
       /four required inputs.*Ask the returned required questions exactly once.*Do not ask for lodging or preferences/i,
     );
     assert.match(
+      openApiPayload.paths["/api/gpt/planning/start"].post.description,
+      /Any non-empty origin is valid[\s\S]*Never ask for a more exact origin[\s\S]*preserve the user's origin text/i,
+    );
+    assert.match(
       openApiPayload.paths["/api/gpt/itineraries/recommend"].post.description,
       /call immediately without additional research or optional questions.*Never turn an internal generation failure into a request for more user input/i,
+    );
+    assert.match(
+      openApiPayload.paths["/api/gpt/itineraries/recommend"].post.description,
+      /Any non-empty origin is valid[\s\S]*Never ask for a more exact origin[\s\S]*representative departure point/i,
     );
     assert.match(openApiText, /\/api\/gpt\/planning\/start/);
     assert.match(openApiText, /\/api\/gpt\/itineraries\/recommend/);
@@ -3830,6 +3957,14 @@ async function assertGptsActionsRestFacade(): Promise<void> {
       openApiPayload.components.schemas.RecommendItineraryRequest.properties.transportMode
         .description,
       /자동차.*drive|drive.*자동차/,
+    );
+    assert.match(
+      openApiPayload.components.schemas.PlanmePlanningRequest.properties.origin.description,
+      /Broad regions such as 동탄 are valid.*never ask for a more exact place name or address/i,
+    );
+    assert.match(
+      openApiPayload.components.schemas.RecommendItineraryRequest.properties.origin.description,
+      /Broad regions such as 동탄 are valid.*server resolves a representative departure point/i,
     );
     assert.equal(
       openApiPayload.components.schemas.RecommendItineraryRequest.required.includes(
@@ -4201,6 +4336,10 @@ async function main(): Promise<void> {
 
     assert.match(client.getInstructions() ?? "", /use this server instead of web search/);
     assert.match(client.getInstructions() ?? "", /call recommend_planme_itinerary immediately/);
+    assert.match(
+      client.getInstructions() ?? "",
+      /Any non-empty origin is valid[\s\S]*Never ask the user for a more exact origin[\s\S]*preserve the origin/i,
+    );
 
     const tools = await client.listTools();
     const toolNames = tools.tools.map((tool) => tool.name);
@@ -4244,6 +4383,14 @@ async function main(): Promise<void> {
       "대중교통",
     ]);
     assert.match(recommendInputSchema.properties.transportMode?.description ?? "", /자동차.*drive/);
+    assert.match(
+      recommendInputSchema.properties.origin?.description ?? "",
+      /동탄 같은 넓은 지역도 유효.*더 정확한 장소명이나 주소를 묻지 말고/,
+    );
+    assert.match(
+      startPlanningInputSchema?.properties?.origin?.description ?? "",
+      /동탄 같은 넓은 지역도 유효.*더 정확한 장소명이나 주소를 묻지 말고/,
+    );
     assert.equal(
       recommendInputSchema.properties.durationDays?.maximum,
       PLANME_EXTERNAL_MAX_DURATION_DAYS,
@@ -4272,12 +4419,20 @@ async function main(): Promise<void> {
     assert.match(recommendTool?.description ?? "", /남해 1박 2일 여행 일정/);
     assert.match(recommendTool?.description ?? "", /before browsing or researching/);
     assert.match(recommendTool?.description ?? "", /Missing lodging and preferences are allowed/);
+    assert.match(
+      recommendTool?.description ?? "",
+      /Any non-empty origin is valid[\s\S]*Never ask for a more exact origin[\s\S]*preserve the origin/i,
+    );
     assert.deepEqual(recommendTool?.annotations, {
       readOnlyHint: false,
       destructiveHint: false,
       openWorldHint: false,
     });
     assert.match(startPlanningTool?.description ?? "", /^Use this when/);
+    assert.match(
+      startPlanningTool?.description ?? "",
+      /Any non-empty origin such as 동탄[\s\S]*Never treat a broad origin as missing[\s\S]*preserve the first turn's origin/i,
+    );
     assert.deepEqual(startPlanningTool?.annotations, {
       readOnlyHint: true,
       destructiveHint: false,

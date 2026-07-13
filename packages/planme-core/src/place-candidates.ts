@@ -259,6 +259,97 @@ export function selectPlanmeRequiredPlaceCandidate(
   return null;
 }
 
+/**
+ * Selects a provider-backed representative point for a region-like departure.
+ *
+ * Broad origins such as 동탄 are not exact POIs. Naver Local can return an
+ * administrative region together with unrelated businesses that contain the
+ * same region name, so only administrative or public-anchor candidates are
+ * eligible here. Exact landmarks keep using selectPlanmeRequiredPlaceCandidate.
+ */
+export function selectPlanmeBroadOriginCandidate(
+  inputText: string,
+  candidates: PlanmePlaceCandidate[],
+): PlanmePlaceCandidate | null {
+  const aliases = createBroadOriginAliases(inputText);
+  const validCandidates = candidates.filter(hasPlanmePlaceCandidateHardGate);
+
+  if (aliases.length === 0) {
+    return null;
+  }
+
+  const exactCandidate = validCandidates.find((candidate) =>
+    aliases.includes(normalizeRequiredPlaceName(candidate.name)),
+  );
+
+  if (exactCandidate) {
+    return exactCandidate;
+  }
+
+  return validCandidates
+    .map((candidate, index) => {
+      const normalizedAddress = normalizeRequiredPlaceName(candidate.address ?? "");
+      const normalizedCategory = normalizeRequiredPlaceName(candidate.category ?? "");
+      const normalizedName = normalizeRequiredPlaceName(candidate.name);
+      const matchedAlias = aliases.find(
+        (alias) => normalizedName.includes(alias) || normalizedAddress.includes(alias),
+      );
+      const categoryRank = getBroadOriginCategoryRank(normalizedCategory);
+      const hasRepresentativeName = isBroadOriginRepresentativeName(normalizedName);
+
+      if (!matchedAlias || (categoryRank === null && !hasRepresentativeName)) {
+        return null;
+      }
+
+      return {
+        candidate,
+        index,
+        score:
+          (categoryRank ?? 3) * 1000 +
+          (normalizedName.startsWith(matchedAlias) ? 0 : 100) +
+          normalizedName.length * 2 +
+          index,
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    .sort((left, right) => left.score - right.score)[0]?.candidate ?? null;
+}
+
+/** Keeps both the full region text and its final locality token. */
+function createBroadOriginAliases(inputText: string) {
+  const parts = inputText.trim().split(/\s+/).filter(Boolean);
+
+  return [...new Set(
+    [inputText, parts.at(-1) ?? ""]
+      .map(normalizeRequiredPlaceName)
+      .filter(Boolean),
+  )];
+}
+
+/** Administrative regions outrank transport and civic anchors. */
+function getBroadOriginCategoryRank(category: string) {
+  if (/(?:행정지명|법정동|행정동|신도시|도시지역)/.test(category)) {
+    return 0;
+  }
+
+  if (/(?:기차역|지하철역|철도역|버스터미널|여객터미널|공항)/.test(category)) {
+    return 1;
+  }
+
+  if (/(?:관공서|공공기관|주민센터|행정복지센터|공원|광장|항구|선착장)/.test(category)) {
+    return 2;
+  }
+
+  return null;
+}
+
+/** Allows a clearly named administrative or public anchor when category is absent. */
+function isBroadOriginRepresentativeName(name: string) {
+  return /(?:신도시|지구|특별시|광역시|역|터미널|공항|구청|시청|군청|도청|주민센터|행정복지센터|공원|광장|항구|선착장)$/.test(
+    name,
+  );
+}
+
 /** Keeps exact landmarks and benign provider qualifiers while rejecting embedded branch names. */
 function isRequiredPlaceBoundaryMatch(expectedName: string, candidateName: string) {
   if (candidateName.endsWith(expectedName)) {
