@@ -102,6 +102,47 @@ test("opens a stored generated itinerary without needing a web OpenAI key", asyn
   await expect(page.getByText("짐 숙소 도착").first()).toBeVisible();
 });
 
+test("separates the zero-saving metric from the CarryME benefit copy", async ({
+  page,
+  request,
+}) => {
+  const itinerary = createStoredGeneratedItinerary(
+    `generated-e2e-zero-saving-copy-${Date.now()}`,
+  );
+  const firstDay = itinerary.days[0];
+
+  firstDay.standard = {
+    ...firstDay.standard,
+    durationMinutes: firstDay.carryme.durationMinutes,
+    durationLabel: firstDay.carryme.durationLabel,
+    geoPath: firstDay.carryme.geoPath,
+    mapPath: firstDay.carryme.mapPath,
+    routeText: firstDay.carryme.routeText,
+    stops: firstDay.carryme.stops,
+  };
+
+  const storeResponse = await request.post("/api/gpt/itineraries/preview-store", {
+    data: { itinerary },
+    headers: {
+      Authorization: `Bearer ${process.env.PLANME_INTERNAL_API_TOKEN}`,
+    },
+  });
+
+  expect(storeResponse.ok()).toBeTruthy();
+  const stored = await storeResponse.json();
+  const pageUrl = new URL(stored.pageUrl);
+
+  await page.goto(`${pageUrl.pathname}${pageUrl.search}`);
+
+  await expect(page.getByText("시간 절약 없음", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("carryme-duration-saving-chip")).toHaveText(
+    "짐 없이 바로 이동 가능!",
+  );
+  await expect(
+    page.getByText("시간 절약 없음 · 짐 없이 바로 이동", { exact: true }),
+  ).toHaveCount(0);
+});
+
 test("separates Standard check-in from CarryME delivery and removes row emphasis", async ({
   page,
   request,

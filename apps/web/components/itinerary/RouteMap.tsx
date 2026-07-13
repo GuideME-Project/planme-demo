@@ -65,6 +65,7 @@ type NaverLatLng = {
 };
 
 type NaverMapInstance = {
+  autoResize: () => void;
   fitBounds: (bounds: object) => void;
 };
 
@@ -256,6 +257,7 @@ function loadNaverMaps(clientId: string): Promise<NaverMapsNamespace> {
 type NaverRouteMapProps = {
   carrymeColor: string;
   carrymeRoute: RoutePlan;
+  expanded: boolean;
   onLoadFailed: () => void;
   showCarryme: boolean;
   showStandard: boolean;
@@ -269,6 +271,7 @@ type NaverRouteMapProps = {
 function NaverRouteMap({
   carrymeColor,
   carrymeRoute,
+  expanded,
   onLoadFailed,
   showCarryme,
   showStandard,
@@ -276,6 +279,7 @@ function NaverRouteMap({
   standardRoute,
 }: NaverRouteMapProps) {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
+  const mapInstanceRef = useRef<NaverMapInstance | null>(null);
   const markers = useMemo(
     () => standardRoute.stops.filter((stop) => Boolean(stop.coordinate)),
     [standardRoute.stops],
@@ -290,6 +294,22 @@ function NaverRouteMap({
       }),
     [carrymeRoute, showCarryme, showStandard, standardRoute],
   );
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+
+    if (!map) {
+      return;
+    }
+
+    const resizeFrame = window.requestAnimationFrame(() => {
+      map.autoResize();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(resizeFrame);
+    };
+  }, [expanded]);
 
   useEffect(() => {
     let cancelled = false;
@@ -326,6 +346,7 @@ function NaverRouteMap({
           zoom: 10,
           zoomControl: true,
         });
+        mapInstanceRef.current = map;
         const bounds = new maps.LatLngBounds();
         let hasBounds = false;
 
@@ -428,6 +449,7 @@ function NaverRouteMap({
 
     return () => {
       cancelled = true;
+      mapInstanceRef.current = null;
     };
   }, [
     carrymeColor,
@@ -452,7 +474,11 @@ function NaverRouteMap({
       }}
     >
       <Box sx={{ inset: 0, position: "absolute" }}>
-        <Box ref={mapElementRef} sx={{ height: "100%", width: "100%" }} />
+        <Box
+          ref={mapElementRef}
+          data-testid="naver-map-container"
+          sx={{ height: "100%", width: "100%" }}
+        />
       </Box>
       <Stack
         spacing={0.8}
@@ -760,6 +786,7 @@ export function RouteMap({
             <NaverRouteMap
               carrymeColor={carrymeColor}
               carrymeRoute={carrymeRoute}
+              expanded={expanded}
               onLoadFailed={handleNaverLoadFailed}
               showCarryme={showCarryme}
               showStandard={showStandard}
