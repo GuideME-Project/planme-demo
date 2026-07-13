@@ -59,6 +59,18 @@ export type RecommendItineraryRequest = GeneratedItineraryRequest & {
   theme?: "light" | "dark";
 };
 
+export const DEFAULT_RECOMMENDATION_DESTINATION_TYPE = "region" as const;
+
+/** Applies the backward-compatible destination intent used by GPTs and Apps clients. */
+export function normalizeRecommendItineraryRequest(
+  input: RecommendItineraryRequest,
+): RecommendItineraryRequest & { destinationType: "region" | "place" } {
+  return {
+    ...input,
+    destinationType: input.destinationType ?? DEFAULT_RECOMMENDATION_DESTINATION_TYPE,
+  };
+}
+
 export type GptActionItineraryResponse = {
   itineraryId: string;
   title: string;
@@ -272,7 +284,7 @@ export function createRecommendedItineraryResponse(
       resolutionLogs: options.resolutionLogs,
       input: {
         destination: input.destination ?? result.itinerary.region,
-        destinationType: input.destinationType ?? "place",
+        destinationType: input.destinationType ?? DEFAULT_RECOMMENDATION_DESTINATION_TYPE,
         mustVisitPlaces: input.mustVisitPlaces ?? [],
         durationDays: input.durationDays ?? result.itinerary.days.length,
         arrivalAirport: input.arrivalAirport ?? null,
@@ -299,7 +311,7 @@ export function createRecommendedItineraryResponse(
     ...toGptActionItineraryResponse(itinerary, requestUrl),
     input: {
       destination: input.destination ?? itinerary.region,
-      destinationType: input.destinationType ?? "place",
+      destinationType: input.destinationType ?? DEFAULT_RECOMMENDATION_DESTINATION_TYPE,
       mustVisitPlaces: input.mustVisitPlaces ?? [],
       durationDays: input.durationDays ?? 2,
       arrivalAirport: input.arrivalAirport ?? null,
@@ -483,7 +495,7 @@ async function resolveRequiredPlaces(
 > {
   const originText = input.origin?.trim() || input.arrivalAirport?.trim() || "";
   const destinationText = input.destination?.trim() || input.region?.trim() || "";
-  const destinationType = input.destinationType ?? "place";
+  const destinationType = input.destinationType ?? DEFAULT_RECOMMENDATION_DESTINATION_TYPE;
   const mustVisitPlaces = normalizeRequiredPlaceTexts(input.mustVisitPlaces);
 
   if (!originText) {

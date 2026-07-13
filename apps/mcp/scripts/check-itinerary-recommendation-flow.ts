@@ -23,6 +23,7 @@ const request: RecommendItineraryRequest = {
 
 async function main() {
   await assertCorePlaceIntentContract();
+  await assertLegacyOmissionDefaultsToRegion();
   await assertReplacementCandidatesAndSingleStore();
   await assertCandidateExhaustionRemovesOnlyAiStop();
   await assertFixedPlaceBecomesClarification();
@@ -30,6 +31,28 @@ async function main() {
   await assertOffModeSkipsPreflight();
   await assertFinalStoreRepairSafetyRunsOnce();
   console.log("PlanME shared recommendation flow contract passed");
+}
+
+async function assertLegacyOmissionDefaultsToRegion() {
+  let capturedDestinationType: RecommendItineraryRequest["destinationType"];
+  const legacyRequest = { ...request };
+  delete legacyRequest.destinationType;
+  const result = await recommendAndPersistItinerary(
+    requestUrl,
+    legacyRequest,
+    "00000000-0000-4000-8000-000000000200",
+    {
+      generate: async (_currentRequestUrl, input) => {
+        capturedDestinationType = input.destinationType;
+        return createGeneratedResponse(createFlowItinerary())();
+      },
+      mode: "off",
+      persist: async (itinerary) => ({ itinerary }),
+    },
+  );
+
+  assert.equal(result.status, "ready");
+  assert.equal(capturedDestinationType, "region");
 }
 
 async function assertFinalStoreRepairSafetyRunsOnce() {

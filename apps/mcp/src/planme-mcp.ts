@@ -453,7 +453,10 @@ export function createPlanmeMcpServer(): McpServer {
       inputSchema: {
         message: z.string().optional(),
         destination: z.string().optional(),
-        destinationType: z.enum(["region", "place"]).optional(),
+        destinationType: z
+          .enum(["region", "place"])
+          .optional()
+          .describe("정확한 단일 장소만 place이며, 생략하면 region으로 처리합니다."),
         mustVisitPlaces: z.array(z.string().min(1)).optional(),
         durationDays: z.number().int().min(1).max(14).optional(),
         arrivalAirport: z.string().optional(),
@@ -513,8 +516,9 @@ export function createPlanmeMcpServer(): McpServer {
           .describe("A Korean region, city, or user-selected place such as 경주월드."),
         destinationType: z
           .enum(["region", "place"])
+          .optional()
           .describe(
-            "지역 범위만 고정하면 region, 사용자가 고른 정확한 목적지이면 place로 전달하세요.",
+            "지역 범위만 고정하면 region, 사용자가 고른 정확한 목적지이면 place입니다. 생략하면 region으로 처리합니다.",
           ),
         mustVisitPlaces: z
           .array(z.string().min(1))

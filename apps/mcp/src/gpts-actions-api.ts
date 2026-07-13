@@ -486,7 +486,12 @@ function buildGptsOpenApiSchema(serverUrl: string) {
           properties: {
             message: { type: "string" },
             destination: { type: "string", description: "Travel destination city or region." },
-            destinationType: { type: "string", enum: ["region", "place"] },
+            destinationType: {
+              type: "string",
+              enum: ["region", "place"],
+              default: "region",
+              description: "Exact single places use place; omitted values are treated as region.",
+            },
             mustVisitPlaces: { type: "array", items: { type: "string" } },
             durationDays: { type: "integer", minimum: 1, maximum: 14 },
             arrivalAirport: { type: "string" },
@@ -585,7 +590,7 @@ function buildGptsOpenApiSchema(serverUrl: string) {
         },
         RecommendItineraryRequest: {
           type: "object",
-          required: ["destination", "destinationType", "durationDays", "transportMode"],
+          required: ["destination", "durationDays", "transportMode"],
           anyOf: [{ required: ["origin"] }, { required: ["arrivalAirport"] }],
           properties: {
             destination: {
@@ -595,8 +600,9 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             destinationType: {
               type: "string",
               enum: ["region", "place"],
+              default: "region",
               description:
-                "Use region for a travel area that must not become a stop; use place for a user-selected destination.",
+                "Use region for a travel area that must not become a stop; use place for a user-selected destination. Omitted values are treated as region.",
             },
             mustVisitPlaces: {
               type: "array",

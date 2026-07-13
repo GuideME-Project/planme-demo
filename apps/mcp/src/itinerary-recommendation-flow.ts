@@ -1,6 +1,7 @@
 import {
   createAiRecommendedItineraryResponse,
   isPlanmeClarificationResponse,
+  normalizeRecommendItineraryRequest,
   removeReplaceableTransitStop,
   replaceTransitItineraryStop,
   toGptActionItineraryResponse,
@@ -77,9 +78,10 @@ export async function recommendAndPersistItinerary(
 ): Promise<RecommendAndPersistResult> {
   const now = options.now ?? Date.now;
   const deadline = now() + RECOMMENDATION_BUDGET_MS;
+  const normalizedInput = normalizeRecommendItineraryRequest(input);
   const generated = await (options.generate ?? createAiRecommendedItineraryResponse)(
     requestUrl,
-    input,
+    normalizedInput,
     options.aiOptions,
   );
 
@@ -94,7 +96,7 @@ export async function recommendAndPersistItinerary(
   const excludedRefsByStopRef = new Map<string, string[]>();
   const preflight = options.preflight ?? createTransitPreflightClient(requestUrl);
 
-  if (input.transportMode === "transit" && mode === "on") {
+  if (normalizedInput.transportMode === "transit" && mode === "on") {
     let decision = await preflight(
       itinerary,
       traceId,
@@ -118,7 +120,7 @@ export async function recommendAndPersistItinerary(
             attempt: nextAttempt,
             excludedPlaceSourceRefs,
             itinerary,
-            request: input,
+            request: normalizedInput,
             stopRef,
           },
           {
@@ -185,7 +187,7 @@ export async function recommendAndPersistItinerary(
   } catch (error) {
     if (
       mode !== "on" ||
-      input.transportMode !== "transit" ||
+      normalizedInput.transportMode !== "transit" ||
       !(error instanceof PreviewStoreHandoffError) ||
       !error.repairCode ||
       !error.repairContext
@@ -209,7 +211,7 @@ export async function recommendAndPersistItinerary(
           excludedPlaceSourceRefs:
             excludedRefsByStopRef.get(stopRef) ?? findPlaceSourceRefs(itinerary, stopRef),
           itinerary,
-          request: input,
+          request: normalizedInput,
           stopRef,
         },
         {

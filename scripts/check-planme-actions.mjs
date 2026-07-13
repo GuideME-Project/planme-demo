@@ -152,8 +152,8 @@ for (const contractFile of [gptsActionsApiFile, planmeMcpFile]) {
 if (existsSync(gptsActionsApiFile)) {
   const gptsActionsSource = readFileSync(gptsActionsApiFile, "utf8");
 
-  if (!gptsActionsSource.includes('required: ["destination", "destinationType", "durationDays", "transportMode"]')) {
-    failures.push("GPTs OpenAPI must require destinationType for newly imported clients");
+  if (!gptsActionsSource.includes('required: ["destination", "durationDays", "transportMode"]')) {
+    failures.push("GPTs OpenAPI must keep destinationType optional for legacy clients");
   }
 
   if (gptsActionsSource.includes('"savedMinutes",\n            "savingStatus"')) {
