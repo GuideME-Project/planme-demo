@@ -3997,21 +3997,24 @@ async function assertGptsActionsRestFacade(): Promise<void> {
     assert.equal(openApiResponse.status, 200);
     assert.match(openApiText, /startPlanmePlanning/);
     assert.match(openApiText, /recommendPlanmeItinerary/);
+    const planningOperationDescription =
+      openApiPayload.paths["/api/gpt/planning/start"].post.description;
+    const recommendOperationDescription =
+      openApiPayload.paths["/api/gpt/itineraries/recommend"].post.description;
+
+    assert.ok(planningOperationDescription.length <= 300);
+    assert.ok(recommendOperationDescription.length <= 300);
     assert.match(
-      openApiPayload.paths["/api/gpt/planning/start"].post.description,
-      /four required inputs.*Ask the returned required questions exactly once.*Do not ask for lodging or preferences/i,
+      planningOperationDescription,
+      /exact latest user message.*Never infer transport mode.*broad origins such as 동탄.*Ask required questions once.*do not ask for lodging or preferences/i,
     );
     assert.match(
-      openApiPayload.paths["/api/gpt/planning/start"].post.description,
-      /Any non-empty origin is valid[\s\S]*Never ask for a more exact origin[\s\S]*preserve the user's origin text/i,
+      recommendOperationDescription,
+      /only after the user explicitly chooses 자동차 or 대중교통.*exact latest message.*preserve the original origin across turns/i,
     );
     assert.match(
-      openApiPayload.paths["/api/gpt/itineraries/recommend"].post.description,
-      /call immediately without additional research or optional questions.*Never turn an internal generation failure into a request for more user input/i,
-    );
-    assert.match(
-      openApiPayload.paths["/api/gpt/itineraries/recommend"].post.description,
-      /Any non-empty origin is valid[\s\S]*Never ask for a more exact origin[\s\S]*representative departure point/i,
+      recommendOperationDescription,
+      /Never infer transport mode.*ask for an exact origin.*broad origins such as 동탄.*limited to 1-3 days/i,
     );
     assert.match(openApiText, /\/api\/gpt\/planning\/start/);
     assert.match(openApiText, /\/api\/gpt\/itineraries\/recommend/);

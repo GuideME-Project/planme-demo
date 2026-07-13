@@ -200,3 +200,14 @@ GPTs 새 대화 `https://chatgpt.com/g/g-6a4f8507a7608191b72b721e54b889ff-planme
 - `git diff --check`: 통과
 
 [OpenAI Apps SDK 공식 계약](https://developers.openai.com/apps-sdk/reference)상 서버가 받는 도구 인자는 모델이 매개변수화하며, 별도의 서명된 최신 사용자 원문은 제공되지 않는다. 따라서 이 변경은 모델이 임의 이동 수단을 채운 직접 통로를 제거하고 보수적으로 차단하지만, 사용자 원문 출처를 암호학적으로 증명하는 계약은 아니다. 배포 후 GPTs Action OpenAPI 재가져오기와 Custom GPT 지침 갱신, GPTs·GuideME 앱 새 대화 반복 검증을 완료해야 최종 통과로 판정한다.
+
+### Custom GPT 스키마 편집기 호환성
+
+PR #63 운영 배포 후 Custom GPT Builder에서 새 OpenAPI를 다시 가져오자 두 작업의 `description`이 편집기 300자 제한을 초과했다.
+
+| 작업 | 편집기 관찰 길이 | 결과 |
+|---|---:|---|
+| `startPlanmePlanning` | 772자 | 저장 차단 |
+| `recommendPlanmeItinerary` | 983자 | 저장 차단 |
+
+긴 설명을 사용자 원문 보존, 이동 수단 추론 금지, 넓은 출발지 재질문 금지, 1~3일 제한만 남겨 각각 300자 이하로 축약했다. 계약 테스트는 두 작업 설명의 길이와 핵심 규칙을 함께 검증한다. 로컬에서 `typecheck`, `test:mcp`, `test:actions`, `lint`, `build`, `git diff --check`를 통과했다. 운영 배포와 Builder 재가져오기·저장은 후속 검증 대상으로 남긴다.
