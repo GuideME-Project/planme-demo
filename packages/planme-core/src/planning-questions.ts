@@ -1,4 +1,7 @@
-import type { RecommendItineraryRequest } from "./gpt-actions.js";
+import {
+  DEFAULT_RECOMMENDATION_DESTINATION_TYPE,
+  type RecommendItineraryRequest,
+} from "./gpt-actions.js";
 import type { PlanmeTransportMode } from "./mock-data.js";
 
 export type PlanmePlanningSlot =
@@ -114,7 +117,9 @@ function normalizeTransportMode(value: PlanmeTransportMode | undefined) {
  * Preserves the explicit destination meaning without turning legacy omission into a question.
  */
 function normalizeDestinationType(value: RecommendItineraryRequest["destinationType"]) {
-  return value === "region" || value === "place" ? value : null;
+  return value === "region" || value === "place"
+    ? value
+    : DEFAULT_RECOMMENDATION_DESTINATION_TYPE;
 }
 
 /**

@@ -58,6 +58,7 @@ type PlanningContent = {
   missingSlots?: string[];
   nextAction?: "ask_user" | "recommend_planme_itinerary";
   normalizedInput?: {
+    destinationType?: "region" | "place" | null;
     transportMode?: "drive" | "transit" | null;
   };
   questions?: Array<{
@@ -1298,6 +1299,7 @@ async function assertThreeDayAiDraftContract(): Promise<void> {
     "http://localhost:3000/api/gpt/itineraries/recommend",
     {
       destination: "남해",
+      destinationType: "place",
       durationDays: 3, transportMode: "drive",
       origin: "서울",
       preferences: ["낚시", "가족 여행"],
@@ -2809,6 +2811,17 @@ async function assertGptsActionsRestFacade(): Promise<void> {
         .description,
       /자동차.*drive|drive.*자동차/,
     );
+    assert.equal(
+      openApiPayload.components.schemas.RecommendItineraryRequest.required.includes(
+        "destinationType",
+      ),
+      false,
+    );
+    assert.equal(
+      openApiPayload.components.schemas.RecommendItineraryRequest.properties.destinationType
+        .default,
+      "region",
+    );
 
     const planningResponse = await fetch(`${origin}/api/gpt/planning/start`, {
       method: "POST",
@@ -2837,6 +2850,7 @@ async function assertGptsActionsRestFacade(): Promise<void> {
     assert.equal(koreanPlanningResponse.status, 200);
     assert.equal(koreanPlanningPayload.status, "ready");
     assert.equal(koreanPlanningPayload.normalizedInput?.transportMode, "transit");
+    assert.equal(koreanPlanningPayload.normalizedInput?.destinationType, "region");
 
     const invalidRecommendationResponse = await fetch(
       `${origin}/api/gpt/itineraries/recommend`,
@@ -2986,6 +3000,7 @@ async function main(): Promise<void> {
     const recommendInputSchema = recommendTool?.inputSchema as
       | {
           properties?: Record<string, { enum?: string[]; description?: string }>;
+          required?: string[];
         }
       | undefined;
 
@@ -2998,6 +3013,7 @@ async function main(): Promise<void> {
       "대중교통",
     ]);
     assert.match(recommendInputSchema.properties.transportMode?.description ?? "", /자동차.*drive/);
+    assert.equal(recommendInputSchema.required?.includes("destinationType"), false);
     assert.equal(recommendTool?._meta?.["openai/outputTemplate"], undefined);
     assert.equal(getItineraryTool?._meta?.["openai/outputTemplate"], "ui://planme/itinerary-widget-v2.html");
 
@@ -3052,7 +3068,6 @@ async function main(): Promise<void> {
       name: "recommend_planme_itinerary",
       arguments: {
         destination: "남해 아이 동반 가족여행",
-        destinationType: "region",
         durationDays: 2, transportMode: "drive",
         travelerCount: 4,
         luggageCount: 2,
