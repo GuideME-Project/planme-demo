@@ -3575,6 +3575,7 @@ function assertTimelineUsesCanonicalResolvedStopLabel(): void {
         stops: [
           { name: "동탄", caption: "출발", role: "출발지" },
           { name: "부산자갈치시장", caption: "방문", role: "방문지" },
+          { name: "양양전통시장 공영 주차장", caption: "방문", role: "방문지" },
         ],
         timeline: [
           {
@@ -3591,6 +3592,13 @@ function assertTimelineUsesCanonicalResolvedStopLabel(): void {
             time: "12:00",
             title: "부산부산부산자갈치시장 방문",
           },
+          {
+            category: "event",
+            description: "시장 주변을 둘러봅니다.",
+            stopIndex: 2,
+            time: "13:00",
+            title: "양양전통시장 공영 주차장 공영 주차장 공영 주차장 방문",
+          },
         ],
       },
     ],
@@ -3599,7 +3607,10 @@ function assertTimelineUsesCanonicalResolvedStopLabel(): void {
 
   assert.equal(day?.standardTimeline?.[1]?.title, "부산자갈치시장 방문");
   assert.equal(day?.carrymeTimeline?.[1]?.title, "부산자갈치시장 방문");
+  assert.equal(day?.standardTimeline?.[2]?.title, "양양전통시장 공영 주차장 방문");
+  assert.equal(day?.carrymeTimeline?.[2]?.title, "양양전통시장 공영 주차장 방문");
   assert.doesNotMatch(JSON.stringify(day), /부산부산/);
+  assert.doesNotMatch(JSON.stringify(day), /공영 주차장 공영 주차장/);
 }
 
 /**
