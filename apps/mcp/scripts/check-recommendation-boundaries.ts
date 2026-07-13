@@ -205,6 +205,20 @@ function assertSafeFailureClassification(): void {
   assert.equal(placeFailure.retryable, true);
   assert.equal(mapPlanmeFailureToCompletionStage(placeFailure), "place_resolution");
 
+  const unresolvedOriginFailure = classifyPlanmeRecommendationFailure(
+    new PlanmeRequiredPlaceResolutionError("ORIGIN_PLACE_NOT_FOUND", false),
+  );
+  const unresolvedOriginPayload = createPlanmePublicFailurePayload(
+    unresolvedOriginFailure,
+    "00000000-0000-4000-8000-000000000303",
+  );
+  assert.equal(unresolvedOriginPayload.stage, "place_resolution");
+  assert.equal(unresolvedOriginPayload.retryable, false);
+  assert.doesNotMatch(
+    JSON.stringify(unresolvedOriginPayload),
+    /정확한 장소명|주소를 알려|동탄호수공원/,
+  );
+
   const configurationFailure = classifyPlanmeRecommendationFailure(
     new PlanmeAiConfigurationError("secret configuration detail"),
   );
