@@ -3014,6 +3014,8 @@ async function main(): Promise<void> {
     ]);
     assert.match(recommendInputSchema.properties.transportMode?.description ?? "", /자동차.*drive/);
     assert.equal(recommendInputSchema.required?.includes("destinationType"), false);
+    assert.match(recommendTool?.description ?? "", /Do not browse, search, verify, or resolve/);
+    assert.match(recommendTool?.description ?? "", /Missing lodging and preferences are allowed/);
     assert.equal(recommendTool?._meta?.["openai/outputTemplate"], undefined);
     assert.equal(getItineraryTool?._meta?.["openai/outputTemplate"], "ui://planme/itinerary-widget-v2.html");
 

@@ -527,13 +527,25 @@ function applyRouteTaskResults(
     const carrymeRoute = applyProviderResult(day.carryme, carryme.result, transportMode);
     const stableContract = hasStableDayTimelineContract(day);
     const standardTimeline = stableContract
-      ? adjustTimelineEvents(day.standardTimeline ?? [], standardRoute, standard.result)
+      ? adjustTimelineEvents(day.standardTimeline ?? [], standardRoute, standard.result, {
+          dayIndex,
+          routeId: "standard",
+          sourceRoute: day.standard,
+        })
       : day.standardTimeline;
     const adjustedCarrymeTimeline = stableContract
-      ? adjustTimelineEvents(day.carrymeTimeline ?? [], carrymeRoute, carryme.result)
+      ? adjustTimelineEvents(day.carrymeTimeline ?? [], carrymeRoute, carryme.result, {
+          dayIndex,
+          routeId: "carryme",
+          sourceRoute: day.carryme,
+        })
       : day.carrymeTimeline;
     const adjustedTimeline = stableContract
-      ? adjustTimelineEvents(day.timeline, carrymeRoute, carryme.result)
+      ? adjustTimelineEvents(day.timeline, carrymeRoute, carryme.result, {
+          dayIndex,
+          routeId: "carryme",
+          sourceRoute: day.carryme,
+        })
       : day.timeline;
     const carrymeTimeline = stableContract
       ? alignCarrymeDeliveryTimes(adjustedCarrymeTimeline ?? [], standardTimeline ?? [])
@@ -697,6 +709,11 @@ function adjustTimelineEvents(
   events: TimelineEvent[],
   route: RoutePlan,
   result: RouteProviderResult,
+  context: {
+    dayIndex: number;
+    routeId: "standard" | "carryme";
+    sourceRoute: RoutePlan;
+  },
 ) {
   if (events.length === 0) {
     return events;
@@ -708,8 +725,11 @@ function adjustTimelineEvents(
   return events.map((event, eventIndex) => {
     if (!Number.isInteger(event.stayDurationMinutes) || (event.stayDurationMinutes ?? -1) < 0) {
       throw new RouteFinalizationError("시간표 체류시간 계약이 올바르지 않습니다.", {
+        dayIndex: context.dayIndex,
         internalCode: "INVALID_TIMELINE_STAY_DURATION",
+        routeId: context.routeId,
         stage: "timeline_validation",
+        stopRef: event.stopRef,
       });
     }
 
@@ -718,12 +738,19 @@ function adjustTimelineEvents(
     }
 
     if (event.stopRef) {
-      const stopIndex = route.stops.findIndex((stop) => stop.stopRef === event.stopRef);
+      const stopIndex = findTimelineStopIndex(
+        event.stopRef,
+        route,
+        context.sourceRoute,
+      );
 
       if (stopIndex < 0 || (lastStopIndex !== null && stopIndex < lastStopIndex)) {
         throw new RouteFinalizationError("시간표 장소 순서 계약이 올바르지 않습니다.", {
+          dayIndex: context.dayIndex,
           internalCode: "INVALID_TIMELINE_STOP_REFERENCE",
+          routeId: context.routeId,
           stage: "timeline_validation",
+          stopRef: event.stopRef,
         });
       }
 
@@ -739,8 +766,11 @@ function adjustTimelineEvents(
 
     if (cursorMinutes >= 24 * 60) {
       throw new RouteFinalizationError("경로 보정 결과가 같은 일차의 날짜 경계를 넘었습니다.", {
+        dayIndex: context.dayIndex,
         internalCode: "TIMELINE_DATE_BOUNDARY_EXCEEDED",
+        routeId: context.routeId,
         stage: "timeline_validation",
+        stopRef: event.stopRef,
       });
     }
 
@@ -749,6 +779,27 @@ function adjustTimelineEvents(
       time: formatTimelineMinutes(cursorMinutes),
     };
   });
+}
+
+/** Maps a timeline reference through adjacent same-place route normalization. */
+function findTimelineStopIndex(
+  stopRef: string,
+  route: RoutePlan,
+  sourceRoute: RoutePlan,
+) {
+  const directIndex = route.stops.findIndex((stop) => stop.stopRef === stopRef);
+
+  if (directIndex >= 0) {
+    return directIndex;
+  }
+
+  const sourceStop = sourceRoute.stops.find((stop) => stop.stopRef === stopRef);
+
+  if (!sourceStop) {
+    return -1;
+  }
+
+  return route.stops.findIndex((stop) => isSameRouteStop(stop, sourceStop));
 }
 
 function hideTimelineSavings(events: TimelineEvent[]): TimelineEvent[];

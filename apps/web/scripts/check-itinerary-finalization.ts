@@ -61,6 +61,7 @@ async function main() {
   await assertMissingCoordinatesUseRepresentativeNaverCandidate();
   await assertEditedItineraryPreservesAiFields();
   await assertDuplicateOnlyRouteNeedsNoProviderCall();
+  await assertDuplicateStableTimelineReferences();
 
   let providerCalls = 0;
   await assert.rejects(
@@ -681,6 +682,77 @@ async function assertDuplicateOnlyRouteNeedsNoProviderCall() {
   assert.equal(finalized.days[0].standard.durationLabel, "0분");
   assert.equal(finalized.days[0].standard.geoSegments, undefined);
   assert.equal(finalized.days[0].standard.stops.length, 1);
+}
+
+/** Verifies same-place route deduplication keeps every logical timeline reference valid. */
+async function assertDuplicateStableTimelineReferences() {
+  const itinerary = createTestItinerary();
+  const createStableRoute = (route: RoutePlan): RoutePlan => {
+    const origin = {
+      ...route.stops[0],
+      placeConstraint: "fixed" as const,
+      stopRef: "day-1-stop-1",
+    };
+    const firstVisit = {
+      ...route.stops[1],
+      mode: "transit" as const,
+      placeConstraint: "replaceable" as const,
+      placeSourceRef: "naver_local:same-place",
+      stopRef: "day-1-stop-2",
+    };
+    const secondVisit = {
+      ...firstVisit,
+      caption: "같은 장소에서 다음 일정",
+      stopRef: "day-1-stop-3",
+    };
+
+    return { ...route, stops: [origin, firstVisit, secondVisit] };
+  };
+  const timeline = [
+    {
+      category: "arrival" as const,
+      description: "출발합니다.",
+      stayDurationMinutes: 30,
+      stopRef: "day-1-stop-1",
+      time: "08:00",
+      title: "출발",
+    },
+    {
+      category: "event" as const,
+      description: "첫 일정을 진행합니다.",
+      stayDurationMinutes: 60,
+      stopRef: "day-1-stop-2",
+      time: "09:00",
+      title: "첫 일정",
+    },
+    {
+      category: "event" as const,
+      description: "같은 장소에서 다음 일정을 진행합니다.",
+      stayDurationMinutes: 30,
+      stopRef: "day-1-stop-3",
+      time: "10:00",
+      title: "다음 일정",
+    },
+  ];
+
+  itinerary.transportMode = "transit";
+  itinerary.days = itinerary.days.slice(0, 1).map((day) => ({
+    ...day,
+    carryme: createStableRoute(day.carryme),
+    carrymeTimeline: timeline,
+    standard: createStableRoute(day.standard),
+    standardTimeline: timeline,
+    timeline,
+  }));
+
+  const finalized = await finalizeItineraryRoutes(itinerary, {
+    computeTransitRoute: async (stops) =>
+      createTransitProviderResult(stops, 600, "provider"),
+  });
+
+  assert.equal(finalized.days[0].standard.stops.length, 2);
+  assert.equal(finalized.days[0].standardTimeline?.[1].time, "08:40");
+  assert.equal(finalized.days[0].standardTimeline?.[2].time, "09:40");
 }
 
 /** Verifies browser edits cannot replace stored AI copy, Standard order, or timeline arrays. */

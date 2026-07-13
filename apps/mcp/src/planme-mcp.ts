@@ -449,7 +449,7 @@ export function createPlanmeMcpServer(): McpServer {
     {
       title: "Start PlanME planning",
       description:
-        "Check whether a PlanME request has enough detail. Use this first when origin, destination, trip length, lodging, or preferences are unclear; ask the returned questions before recommending an itinerary.",
+        "Use only when origin, destination, trip length, or transport mode is missing. If those four inputs are present, do not research attractions, stations, or coordinates and call recommend_planme_itinerary immediately. Lodging and preferences may be omitted and are not blockers.",
       inputSchema: {
         message: z.string().optional(),
         destination: z.string().optional(),
@@ -508,7 +508,7 @@ export function createPlanmeMcpServer(): McpServer {
     {
       title: "Recommend PlanME itinerary",
       description:
-        "Generate and save a PlanME itinerary server-side. Do not render a widget from this tool. If the response status is needs_clarification, ask the returned question in chat. If the response status is ready, call get_planme_itinerary exactly once with the returned itineraryId to render the widget. Do not pass ChatGPT-authored days or timeline events; this MCP server calls OpenAI internally and then saves the generated itinerary for the detail page. CarryME luggage handoff points must be lodging, hotels, or explicit pickup points, not plain train/subway stations, terminals, or airports.",
+        "Call immediately when origin, destination, trip length, and transport mode are present. Do not browse, search, verify, or resolve attractions, stations, coordinates, or routes before calling; the server selects, verifies, replaces, and saves itinerary places. Pass only places explicitly fixed by the user in mustVisitPlaces, and do not pass ChatGPT-authored days or timeline events. Missing lodging and preferences are allowed. If the response status is needs_clarification, ask the returned question in chat. If the response status is ready, call get_planme_itinerary exactly once with the returned itineraryId to render the widget. Do not render a widget from this tool. CarryME luggage handoff points must be lodging, hotels, or explicit pickup points, not plain train/subway stations, terminals, or airports.",
       inputSchema: {
         destination: z
           .string()
