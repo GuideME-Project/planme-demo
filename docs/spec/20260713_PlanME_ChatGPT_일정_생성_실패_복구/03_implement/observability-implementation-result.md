@@ -18,7 +18,8 @@
 
 - 웹 상세 저장 API는 유효한 추적 헤더를 사용하고, 없거나 잘못된 값은 새 UUID로 교체한다.
 - 인증, 요청 검증, 저장 기록 조회, 잠금, 경로 최종화, Redis 저장 단계를 구분한다.
-- 경로 제공자 오류는 제공자, 내부 코드, 일차, Standard/CarryME, 실제 재시도 여부를 보존한다.
+- 경로 제공자 오류는 제공자, 내부 코드, 일차, Standard/CarryME, 구간 번호, 실제 재시도 여부를 보존한다.
+- 실패 구간의 AI 방문지·숙소 장소명과 좌표를 기록하고 사용자 출발지·복귀지는 제거한다.
 - 좌표 확인 실패 메시지에서 장소명과 좌표를 제거한다.
 
 ## 변경 파일
@@ -29,8 +30,8 @@
 | `apps/mcp/src/planme-mcp.ts` | 웹 저장 추적 헤더, 안전한 하위 오류 타입·코드 파싱, GPT 앱 실패 구조 로그 |
 | `apps/mcp/scripts/check-planme-mcp.ts` | 추적 헤더와 응답 바이트 로그 계약 테스트 |
 | `apps/web/app/api/gpt/itineraries/preview-store/route.ts` | 추적 헤더 검증과 단계별 실패 구조 로그 |
-| `apps/web/lib/itinerary-route-finalizer.ts` | 경로 제공자 오류 컨텍스트 보존과 좌표 오류 비식별화 |
-| `apps/web/lib/route-providers/types.ts` | 제공자 오류의 실제 재시도 여부 필드 추가 |
+| `apps/web/lib/itinerary-route-finalizer.ts` | 구간·장소 컨텍스트 보존과 사용자 출발지·복귀지 제거 |
+| `apps/web/lib/route-providers/types.ts` | 제공자 오류의 실패 구간과 실제 재시도 여부 필드 추가 |
 | `apps/web/lib/route-providers/naver-directions.ts` | 네이버 재시도 후 실패 상태 보존 |
 | `apps/web/lib/route-providers/odsay.ts` | ODsay 재시도 후 실패 상태 보존 |
 | `apps/web/scripts/check-itinerary-finalization.ts` | 제공자·경로·재시도 로그 컨텍스트 테스트 |
@@ -40,8 +41,8 @@
 구조 로그에 다음 값이 들어가지 않도록 구현했다.
 
 - 일정 요청·응답 본문
-- 출발지, 목적지, 장소명
-- 좌표와 경로 형상
+- 사용자 출발지와 같은 장소인 복귀지의 장소명·좌표
+- 전체 경로 형상
 - 외부 API 응답 원문과 요청 URL
 - API 키, 내부 인증값, 환경변수
 

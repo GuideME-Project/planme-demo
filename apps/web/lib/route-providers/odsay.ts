@@ -5,6 +5,7 @@ import {
   type RouteProviderResult,
   type RouteProviderSegment,
   type RouteProviderStop,
+  withRouteProviderSegmentContext,
 } from "./types";
 
 type OdsayError = {
@@ -116,8 +117,12 @@ async function requestTransitSegmentWithRetry(
   try {
     return await requestTransitSegment(origin, destination, segmentIndex, signal);
   } catch (error) {
-    if (!(error instanceof RouteProviderError) || !error.retriable || signal.aborted) {
+    if (!(error instanceof RouteProviderError) || signal.aborted) {
       throw error;
+    }
+
+    if (!error.retriable) {
+      throw withRouteProviderSegmentContext(error, origin, destination, segmentIndex);
     }
 
     // One short backoff prevents an immediate repeat of a provider burst response.
@@ -127,10 +132,11 @@ async function requestTransitSegmentWithRetry(
     } catch (retryError) {
       if (retryError instanceof RouteProviderError) {
         // Preserve that the provider failure was observed after the single allowed retry.
-        throw new RouteProviderError(
-          retryError.code,
-          retryError.message,
-          retryError.retriable,
+        throw withRouteProviderSegmentContext(
+          retryError,
+          origin,
+          destination,
+          segmentIndex,
           true,
         );
       }

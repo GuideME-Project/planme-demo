@@ -9,9 +9,15 @@ export type RouteGeometryStatus = "complete" | "partial";
 
 export type RouteProviderStop = Pick<
   RouteStop,
-  "coordinate" | "label" | "placeId" | "placeSourceRef"
+  "coordinate" | "label" | "placeId" | "placeSourceRef" | "role"
 > & {
   id: string;
+};
+
+export type RouteProviderErrorContext = {
+  destinationStop?: RouteProviderStop;
+  originStop?: RouteProviderStop;
+  segmentIndex?: number;
 };
 
 export type RouteProviderSegment = {
@@ -34,15 +40,42 @@ export type RouteProviderResult = {
 /** Represents a provider failure while retaining whether one automatic retry is safe. */
 export class RouteProviderError extends Error {
   readonly code: string;
+  readonly destinationStop?: RouteProviderStop;
+  readonly originStop?: RouteProviderStop;
   readonly retried: boolean;
   readonly retriable: boolean;
+  readonly segmentIndex?: number;
 
-  /** Creates a redacted route-provider error suitable for API responses and logs. */
-  constructor(code: string, message: string, retriable: boolean, retried = false) {
+  /** Creates an internal provider error whose location context is redacted at the log boundary. */
+  constructor(
+    code: string,
+    message: string,
+    retriable: boolean,
+    retried = false,
+    context: RouteProviderErrorContext = {},
+  ) {
     super(message);
     this.name = "RouteProviderError";
     this.code = code;
+    this.destinationStop = context.destinationStop;
+    this.originStop = context.originStop;
     this.retried = retried;
     this.retriable = retriable;
+    this.segmentIndex = context.segmentIndex;
   }
+}
+
+/** Adds one failed leg to a provider error without changing its retry classification. */
+export function withRouteProviderSegmentContext(
+  error: RouteProviderError,
+  originStop: RouteProviderStop,
+  destinationStop: RouteProviderStop,
+  segmentIndex: number,
+  retried = error.retried,
+) {
+  return new RouteProviderError(error.code, error.message, error.retriable, retried, {
+    destinationStop,
+    originStop,
+    segmentIndex,
+  });
 }

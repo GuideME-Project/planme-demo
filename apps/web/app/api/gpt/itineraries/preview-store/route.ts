@@ -143,9 +143,14 @@ export async function POST(request: Request) {
         error.stage,
         {
           dayIndex: error.dayIndex,
+          destinationCoordinate: error.destinationCoordinate,
+          destinationPlaceName: error.destinationPlaceName,
+          originCoordinate: error.originCoordinate,
+          originPlaceName: error.originPlaceName,
           provider: error.provider,
           retried: error.retried,
           routeId: error.routeId,
+          segmentIndex: error.segmentIndex,
         },
       );
       return NextResponse.json(
@@ -192,9 +197,14 @@ function logPreviewStoreFailure(
   stage: PreviewStoreFailureStage | RouteFinalizationError["stage"],
   routeContext: {
     dayIndex?: number;
+    destinationCoordinate?: RouteFinalizationError["destinationCoordinate"];
+    destinationPlaceName?: string;
+    originCoordinate?: RouteFinalizationError["originCoordinate"];
+    originPlaceName?: string;
     provider?: "naver-directions" | "odsay";
     retried?: boolean;
     routeId?: "standard" | "carryme";
+    segmentIndex?: number;
   } = {},
 ) {
   console.error("PlanME preview store failure", {
