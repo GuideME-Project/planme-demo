@@ -7,16 +7,12 @@ import {
 } from "@modelcontextprotocol/ext-apps/server";
 import {
   assessPlanmePlanningInput,
-  createAiRecommendedItineraryResponse,
   formatPlanmeAiGenerationError,
-  isPlanmeClarificationResponse,
   PlanmeAiConfigurationError,
-  toGptActionItineraryResponse,
   type GptActionItineraryResponse,
   type PlanmeClarificationResponse,
   type PlanmeItinerary,
   type PlanmePlanningRequest,
-  type PlanmeRecommendationResponse,
   type RecommendItineraryRequest,
 } from "@planme/core";
 import { z } from "zod";
@@ -26,6 +22,9 @@ import {
 } from "./naver-geocoding.js";
 import { createPlanmeWidgetHtml } from "./planme-widget.js";
 import { createPlanmeUsageRecorder } from "./usage-counters.js";
+import { recommendAndPersistItinerary } from "./itinerary-recommendation-flow.js";
+import { PreviewStoreHandoffError } from "./preview-store-handoff-error.js";
+export { PreviewStoreHandoffError } from "./preview-store-handoff-error.js";
 
 export const PLANME_WIDGET_URI = "ui://planme/itinerary-widget-v2.html";
 const PLANME_LEGACY_WIDGET_URI = "ui://planme/itinerary-widget.html";
@@ -44,26 +43,6 @@ type PersistedFinalizedItineraryResponse = {
   revision: number;
   status: "ready";
 };
-
-/** Represents a redacted MCP-to-web handoff failure with correlation metadata. */
-export class PreviewStoreHandoffError extends Error {
-  readonly internalCode: string;
-  readonly status?: number;
-  readonly traceId: string;
-
-  /** Creates an error that excludes itinerary content and upstream response bodies. */
-  constructor(traceId: string, internalCode: string, status?: number) {
-    super(
-      status === undefined
-        ? "PlanME preview store handoff request failed"
-        : `PlanME preview store handoff failed with status ${status}`,
-    );
-    this.name = "PreviewStoreHandoffError";
-    this.internalCode = internalCode;
-    this.status = status;
-    this.traceId = traceId;
-  }
-}
 
 const timelineEventSchema = z.object({
   time: z.string(),
@@ -152,6 +131,7 @@ const itinerarySummarySchema = {
     )
     .optional(),
   savedMinutes: z.number().optional(),
+  savingStatus: z.enum(["verified", "hidden_estimated"]).optional(),
   standardTotalMinutes: z.number().optional(),
   transportMode: z.enum(["drive", "transit"]).optional(),
   status: z.enum(["ready", "needs_clarification"]),
@@ -168,11 +148,13 @@ const planningAssessmentSchema = {
   questions: z.array(planningQuestionSchema),
   normalizedInput: z.object({
     destination: z.string().nullable(),
+    destinationType: z.enum(["region", "place"]).nullable(),
     origin: z.string().nullable(),
     arrivalAirport: z.string().nullable(),
     durationDays: z.number().nullable(),
     hotelName: z.string().nullable(),
     preferences: z.array(z.string()),
+    mustVisitPlaces: z.array(z.string()),
     transportMode: z.enum(["drive", "transit"]).nullable(),
   }),
   nextAction: z.enum(["ask_user", "recommend_planme_itinerary"]),
@@ -188,6 +170,7 @@ type ItinerarySummary = {
   questions?: string[];
   resolutionLogs?: PlanmeClarificationResponse["resolutionLogs"];
   savedMinutes?: number;
+  savingStatus?: "verified" | "hidden_estimated";
   standardTotalMinutes?: number;
   transportMode?: "drive" | "transit";
   status: "ready" | "needs_clarification";
@@ -218,6 +201,7 @@ function toItinerarySummary(response: GptActionItineraryResponse): ItinerarySumm
     pageUrl: response.pageUrl,
     resolutionLogs: response.resolutionLogs,
     savedMinutes: response.savedMinutes,
+    savingStatus: response.savingStatus,
     standardTotalMinutes: response.standardTotalMinutes,
     transportMode: response.itinerary.transportMode,
     status: "ready",
@@ -266,11 +250,16 @@ function toWidgetMeta(itinerary: PlanmeItinerary, pageUrl: string) {
  */
 export async function persistItineraryForDetailPage(
   itinerary: PlanmeItinerary,
-  traceId = randomUUID(),
+  traceId: string = randomUUID(),
+  timeoutMs = 40_000,
 ): Promise<PersistedFinalizedItineraryResponse> {
   const internalToken = getPlanmeInternalApiToken();
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), PLANME_WEB_FINALIZATION_TIMEOUT_MS);
+  const normalizedTimeoutMs = Math.max(1, Math.min(timeoutMs, 40_000));
+  const timeout = setTimeout(
+    () => controller.abort(),
+    Math.min(PLANME_WEB_FINALIZATION_TIMEOUT_MS, normalizedTimeoutMs + 3_000),
+  );
 
   try {
     const response = await fetch(buildPlanmeWebUrl("/api/gpt/itineraries/preview-store"), {
@@ -280,16 +269,18 @@ export async function persistItineraryForDetailPage(
         "Content-Type": "application/json",
         "X-PlanME-Trace-Id": traceId,
       },
-      body: JSON.stringify({ itinerary }),
+      body: JSON.stringify({ itinerary, timeoutMs: normalizedTimeoutMs }),
       signal: controller.signal,
     });
 
     if (!response.ok) {
       // Only the stable web error code crosses service boundaries; response messages stay private.
+      const failure = await readPreviewStoreError(response);
       throw new PreviewStoreHandoffError(
         traceId,
-        await readPreviewStoreErrorCode(response),
+        failure.internalCode,
         response.status,
+        failure.repair,
       );
     }
 
@@ -306,16 +297,26 @@ export async function persistItineraryForDetailPage(
 }
 
 /** Reads only a stable error code from the web handoff response. */
-async function readPreviewStoreErrorCode(response: Response) {
+async function readPreviewStoreError(response: Response) {
   try {
-    const body = (await response.json()) as { error?: string };
+    const body = (await response.json()) as {
+      code?: PreviewStoreHandoffError["repairCode"];
+      context?: PreviewStoreHandoffError["repairContext"];
+      error?: string;
+    };
     const errorCode = body.error?.trim() ?? "";
 
-    return /^[A-Z][A-Z0-9_]{2,80}$/.test(errorCode)
-      ? errorCode
-      : "PREVIEW_STORE_HANDOFF_FAILED";
+    return {
+      internalCode: /^[A-Z][A-Z0-9_]{2,80}$/.test(errorCode)
+        ? errorCode
+        : "PREVIEW_STORE_HANDOFF_FAILED",
+      repair:
+        errorCode === "ROUTE_REPAIR_REQUIRED" && body.code && body.context
+          ? { code: body.code, context: body.context }
+          : undefined,
+    };
   } catch {
-    return "PREVIEW_STORE_HANDOFF_FAILED";
+    return { internalCode: "PREVIEW_STORE_HANDOFF_FAILED" };
   }
 }
 
@@ -452,6 +453,8 @@ export function createPlanmeMcpServer(): McpServer {
       inputSchema: {
         message: z.string().optional(),
         destination: z.string().optional(),
+        destinationType: z.enum(["region", "place"]).optional(),
+        mustVisitPlaces: z.array(z.string().min(1)).optional(),
         durationDays: z.number().int().min(1).max(14).optional(),
         arrivalAirport: z.string().optional(),
         arrivalTime: z.string().optional(),
@@ -508,6 +511,15 @@ export function createPlanmeMcpServer(): McpServer {
           .string()
           .min(1)
           .describe("A Korean region, city, or user-selected place such as 경주월드."),
+        destinationType: z
+          .enum(["region", "place"])
+          .describe(
+            "지역 범위만 고정하면 region, 사용자가 고른 정확한 목적지이면 place로 전달하세요.",
+          ),
+        mustVisitPlaces: z
+          .array(z.string().min(1))
+          .optional()
+          .describe("사용자가 직접 지정한 필수 방문 장소 목록입니다."),
         durationDays: z.number().int().min(1).max(14),
         arrivalAirport: z.string().optional(),
         arrivalTime: z.string().optional(),
@@ -543,20 +555,40 @@ export function createPlanmeMcpServer(): McpServer {
         ...input,
         transportMode: normalizeAppTransportMode(input.transportMode),
       };
-      let response: PlanmeRecommendationResponse;
+      let response: GptActionItineraryResponse;
 
       try {
-        response = await createAiRecommendedItineraryResponse(
+        const result = await recommendAndPersistItinerary(
           getPlanmeWebRequestUrl(),
           normalizedInput,
+          traceId,
           {
-            draftGeocoder: hasNaverGeocoderRuntimeConfig()
-              ? createNaverGeocoder({ usageRecorder })
-              : undefined,
-            googleMapsReferer: `${getPlanmeWebOrigin()}/`,
-            usageRecorder,
+            aiOptions: {
+              draftGeocoder: hasNaverGeocoderRuntimeConfig()
+                ? createNaverGeocoder({ usageRecorder })
+                : undefined,
+              googleMapsReferer: `${getPlanmeWebOrigin()}/`,
+              usageRecorder,
+            },
+            persist: persistItineraryForDetailPage,
           },
         );
+
+        if (result.status === "needs_clarification") {
+          const structuredContent = toClarificationSummary(result);
+
+          return {
+            structuredContent,
+            content: [
+              {
+                type: "text" as const,
+                text: `${result.message} 확인 필요 장소: ${result.unresolvedStops.join(", ")}`,
+              },
+            ],
+          };
+        }
+
+        response = result.response;
       } catch (error) {
         if (error instanceof PlanmeAiConfigurationError) {
           return {
@@ -573,55 +605,17 @@ export function createPlanmeMcpServer(): McpServer {
         const safeMessage =
           error instanceof Error ? formatPlanmeAiGenerationError(error) : "unknown error";
 
-        // The API key is never logged; this message is needed to debug provider/schema failures.
-        console.error("PlanME itinerary request failure", {
-          event: "planme_itinerary_request_failure",
-          internalCode: "AI_ITINERARY_GENERATION_FAILED",
-          stage: "ai_generation",
-          traceId,
-        });
-
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text" as const,
-              text: `PlanME AI 일정 생성에 실패했습니다: ${safeMessage}`,
-            },
-          ],
-        };
-      }
-
-      if (isPlanmeClarificationResponse(response)) {
-        const structuredContent = toClarificationSummary(response);
-
-        return {
-          structuredContent,
-          content: [
-            {
-              type: "text" as const,
-              text: `${response.message} 확인 필요 장소: ${response.unresolvedStops.join(", ")}`,
-            },
-          ],
-        };
-      }
-
-      try {
-        const persisted = await persistItineraryForDetailPage(response.itinerary, traceId);
-        response = {
-          ...toGptActionItineraryResponse(persisted.itinerary, getPlanmeWebRequestUrl()),
-          resolutionLogs: response.resolutionLogs,
-          validationIssues: response.validationIssues,
-        };
-      } catch (error) {
-        // Do not expose a detail URL when the web store could not persist the generated payload.
+        // The API key and itinerary payload never enter operational logs.
         console.error("PlanME itinerary request failure", {
           event: "planme_itinerary_request_failure",
           internalCode:
             error instanceof PreviewStoreHandoffError
               ? error.internalCode
-              : "PREVIEW_STORE_HANDOFF_FAILED",
-          stage: "preview_store_handoff",
+              : "PLANME_RECOMMENDATION_FLOW_FAILED",
+          stage:
+            error instanceof PreviewStoreHandoffError
+              ? "preview_store_handoff"
+              : "recommendation_flow",
           status: error instanceof PreviewStoreHandoffError ? error.status : undefined,
           traceId,
         });
@@ -631,7 +625,7 @@ export function createPlanmeMcpServer(): McpServer {
           content: [
             {
               type: "text" as const,
-              text: "PlanME 일정은 생성됐지만 상세 일정 저장에 실패했습니다. 잠시 후 다시 시도하세요.",
+              text: `PlanME 일정 생성 또는 저장에 실패했습니다: ${safeMessage}`,
             },
           ],
         };

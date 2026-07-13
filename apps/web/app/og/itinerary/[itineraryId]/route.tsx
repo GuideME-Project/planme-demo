@@ -145,19 +145,21 @@ export async function GET(_request: Request, context: ItineraryOgRouteContext) {
               {`${itinerary.region} ${itinerary.duration}`}
             </div>
           </div>
-          <div
-            style={{
-              background: "#ecfdf3",
-              border: "2px solid #b7e4c5",
-              borderRadius: 999,
-              color: "#16a34a",
-              fontSize: 24,
-              fontWeight: 900,
-              padding: "14px 22px",
-            }}
-          >
-            {itinerary.savedDurationLabel}
-          </div>
+          {itinerary.savedDurationLabel ? (
+            <div
+              style={{
+                background: "#ecfdf3",
+                border: "2px solid #b7e4c5",
+                borderRadius: 999,
+                color: "#16a34a",
+                fontSize: 24,
+                fontWeight: 900,
+                padding: "14px 22px",
+              }}
+            >
+              {itinerary.savedDurationLabel}
+            </div>
+          ) : null}
         </div>
 
         <div
@@ -301,20 +303,22 @@ export async function GET(_request: Request, context: ItineraryOgRouteContext) {
                 {day.carryme.durationLabel}
               </div>
             </div>
-            <div
-              style={{
-                alignItems: "center",
-                background: "#ef4444",
-                borderRadius: 999,
-                color: "#ffffff",
-                display: "flex",
-                fontSize: 26,
-                fontWeight: 900,
-                padding: "0 28px",
-              }}
-            >
-              {itinerary.savedDurationLabel}
-            </div>
+            {itinerary.savedDurationLabel ? (
+              <div
+                style={{
+                  alignItems: "center",
+                  background: "#ef4444",
+                  borderRadius: 999,
+                  color: "#ffffff",
+                  display: "flex",
+                  fontSize: 26,
+                  fontWeight: 900,
+                  padding: "0 28px",
+                }}
+              >
+                {itinerary.savedDurationLabel}
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

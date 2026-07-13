@@ -305,7 +305,15 @@ export function createPlanmeWidgetHtml(): string {
 	        const carryme = firstDay.carryme || fallbackItinerary.days[0].carryme;
 
 	        setText("[data-planme-title]", String(itinerary.region ?? "") + " " + String(itinerary.duration ?? ""));
-	        setText("[data-planme-saving]", itinerary.savedDurationLabel);
+	        const savingElement = document.querySelector("[data-planme-saving]");
+	        const savingLabel = itinerary.savedDurationLabel;
+
+	        if (savingElement) {
+	          savingElement.style.display = savingLabel ? "flex" : "none";
+	          if (savingLabel) {
+	            savingElement.textContent = String(savingLabel);
+	          }
+	        }
 	        setText("[data-planme-standard]", String(standard.routeText ?? "") + " · " + String(standard.durationLabel ?? ""));
 	        setText("[data-planme-carryme]", String(carryme.routeText ?? "") + " · " + String(carryme.durationLabel ?? ""));
         setText("[data-planme-carryme-duration]", carryme.durationLabel);

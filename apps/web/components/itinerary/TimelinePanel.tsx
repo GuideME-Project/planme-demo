@@ -21,7 +21,7 @@ type TimelinePanelProps = {
   carrymeStops: RouteStop[];
   isFinalDay: boolean;
   mode: PlanmeThemeMode;
-  savingLabel: string;
+  savingLabel?: string;
   standardDurationLabel: string;
   standardEvents: TimelineEvent[];
   standardStops: RouteStop[];
@@ -44,7 +44,7 @@ type RouteTimelineColumnProps = {
   isCarryme?: boolean;
   isDark: boolean;
   routeStops: RouteStop[];
-  savingLabel: string;
+  savingLabel?: string;
 };
 
 /**
@@ -190,7 +190,7 @@ function RouteTimelineColumn({
             {durationLabel}
           </Typography>
         </Box>
-        {isCarryme ? (
+        {isCarryme && savingLabel ? (
           <Chip
             color="error"
             data-testid="carryme-duration-saving-chip"

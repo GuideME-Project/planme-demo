@@ -22,11 +22,13 @@ export type PlanmePlanningAssessment = {
   questions: PlanmePlanningQuestion[];
   normalizedInput: {
     destination: string | null;
+    destinationType: "region" | "place" | null;
     origin: string | null;
     arrivalAirport: string | null;
     durationDays: number | null;
     hotelName: string | null;
     preferences: string[];
+    mustVisitPlaces: string[];
     transportMode: PlanmeTransportMode | null;
   };
   nextAction: "ask_user" | "recommend_planme_itinerary";
@@ -45,10 +47,12 @@ export function assessPlanmePlanningInput(
   const normalizedInput = {
     arrivalAirport: normalizeOptionalText(input.arrivalAirport),
     destination: normalizeOptionalText(input.destination),
+    destinationType: normalizeDestinationType(input.destinationType),
     durationDays: normalizeDurationDays(input.durationDays),
     hotelName: normalizeOptionalText(input.hotelName),
     origin: normalizeOptionalText(input.origin),
     preferences: normalizePreferences(input.preferences),
+    mustVisitPlaces: [...new Set(normalizePreferences(input.mustVisitPlaces))],
     transportMode: normalizeTransportMode(input.transportMode),
   };
   const missingSlots = getMissingRequiredSlots(normalizedInput);
@@ -104,6 +108,13 @@ function normalizePreferences(preferences: string[] | undefined) {
  */
 function normalizeTransportMode(value: PlanmeTransportMode | undefined) {
   return value === "drive" || value === "transit" ? value : null;
+}
+
+/**
+ * Preserves the explicit destination meaning without turning legacy omission into a question.
+ */
+function normalizeDestinationType(value: RecommendItineraryRequest["destinationType"]) {
+  return value === "region" || value === "place" ? value : null;
 }
 
 /**

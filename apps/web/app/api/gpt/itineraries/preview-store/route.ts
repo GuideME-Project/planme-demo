@@ -17,6 +17,7 @@ import {
 type PreviewStoreRequest = {
   baseRevision?: number;
   itinerary?: Partial<PlanmeItinerary>;
+  timeoutMs?: number;
 };
 
 type PreviewStoreFailureStage =
@@ -52,6 +53,11 @@ export async function POST(request: Request) {
 
   if (!isPlanmeItinerary(body.itinerary)) {
     logPreviewStoreFailure(traceId, 400, "INVALID_ITINERARY", "request_validation");
+    return NextResponse.json({ error: "INVALID_ITINERARY" }, { status: 400 });
+  }
+
+  if (body.timeoutMs !== undefined && (!Number.isInteger(body.timeoutMs) || body.timeoutMs <= 0)) {
+    logPreviewStoreFailure(traceId, 400, "INVALID_TIMEOUT", "request_validation");
     return NextResponse.json({ error: "INVALID_ITINERARY" }, { status: 400 });
   }
 
@@ -99,7 +105,12 @@ export async function POST(request: Request) {
   }
 
   try {
-    const itinerary = await finalizeItineraryRoutes(body.itinerary);
+    const itinerary = await finalizeItineraryRoutes(body.itinerary, {
+      allowTransitRecoverySmoke:
+        request.headers.get("x-planme-transit-recovery-smoke") === "1",
+      timeoutMs: Math.min(body.timeoutMs ?? 40_000, 40_000),
+      traceId,
+    });
     const savedPreview = await saveFinalizedPreviewItinerary(itinerary, expectedRevision);
 
     if (!savedPreview) {
@@ -136,6 +147,28 @@ export async function POST(request: Request) {
     }
 
     if (error instanceof RouteFinalizationError) {
+      if (
+        error.internalCode === "TRANSIT_PLACE_REPLACEMENT_REQUIRED" ||
+        error.internalCode === "USER_PLACE_CONFIRMATION_REQUIRED"
+      ) {
+        return NextResponse.json(
+          {
+            code: error.internalCode,
+            context: {
+              dayIndex: error.dayIndex,
+              placeConstraint: error.placeConstraint,
+              reason: error.transitAccessReason,
+              routeId: error.routeId,
+              segmentIndex: error.segmentIndex,
+              stopRef: error.stopRef,
+            },
+            error: "ROUTE_REPAIR_REQUIRED",
+            status: "repair_required",
+          },
+          { status: 422 },
+        );
+      }
+
       logPreviewStoreFailure(
         traceId,
         422,

@@ -42,6 +42,8 @@ import {
 } from "./usage-events.js";
 
 export type RecommendItineraryRequest = GeneratedItineraryRequest & {
+  destinationType?: "region" | "place";
+  mustVisitPlaces?: string[];
   previewId?: string;
   baseVersion?: number;
   title?: string;
@@ -63,7 +65,8 @@ export type GptActionItineraryResponse = {
   summary: string;
   standardTotalMinutes: number;
   carrymeTotalMinutes: number;
-  savedMinutes: number;
+  savingStatus: "verified" | "hidden_estimated";
+  savedMinutes?: number;
   pageUrl: string;
   ogImageUrl: string;
   previewMarkdown: string;
@@ -141,7 +144,7 @@ export type PlanmePlaceCandidateDecider = (input: {
 }) => Promise<PlanmePlaceCandidateDecision>;
 
 export type PlanmeReplacementQuerySuggester = (input: {
-  attempt: 1 | 2;
+  attempt: 1 | 2 | 3;
   itinerary: RecommendItineraryRequest;
   stop: ResolvableDraftStop;
 }) => Promise<string | null>;
@@ -195,14 +198,19 @@ export function toGptActionItineraryResponse(
   const pageUrl = buildItineraryPageUrl(requestUrl, itinerary.id);
   const ogImageUrl = buildItineraryOgImageUrl(requestUrl, itinerary.id);
   const previewMarkdown = buildItineraryPreviewMarkdown(ogImageUrl);
+  const savingStatus = firstDay.savingStatus ?? "verified";
+  const savedMinutes = firstDay.savingMinutes;
 
   return {
     itineraryId: itinerary.id,
     title: itinerary.title,
-    summary: itinerary.carrymeSaving,
+    summary: itinerary.carrymeSaving ?? itinerary.summary,
     standardTotalMinutes: firstDay.standard.durationMinutes,
     carrymeTotalMinutes: firstDay.carryme.durationMinutes,
-    savedMinutes: firstDay.savingMinutes,
+    savingStatus,
+    ...(savingStatus === "verified" && typeof savedMinutes === "number"
+      ? { savedMinutes }
+      : {}),
     pageUrl,
     ogImageUrl,
     previewMarkdown,
@@ -264,6 +272,8 @@ export function createRecommendedItineraryResponse(
       resolutionLogs: options.resolutionLogs,
       input: {
         destination: input.destination ?? result.itinerary.region,
+        destinationType: input.destinationType ?? "place",
+        mustVisitPlaces: input.mustVisitPlaces ?? [],
         durationDays: input.durationDays ?? result.itinerary.days.length,
         arrivalAirport: input.arrivalAirport ?? null,
         arrivalTime: input.arrivalTime ?? "09:30",
@@ -289,6 +299,8 @@ export function createRecommendedItineraryResponse(
     ...toGptActionItineraryResponse(itinerary, requestUrl),
     input: {
       destination: input.destination ?? itinerary.region,
+      destinationType: input.destinationType ?? "place",
+      mustVisitPlaces: input.mustVisitPlaces ?? [],
       durationDays: input.durationDays ?? 2,
       arrivalAirport: input.arrivalAirport ?? null,
       arrivalTime: input.arrivalTime ?? "09:30",
@@ -471,6 +483,8 @@ async function resolveRequiredPlaces(
 > {
   const originText = input.origin?.trim() || input.arrivalAirport?.trim() || "";
   const destinationText = input.destination?.trim() || input.region?.trim() || "";
+  const destinationType = input.destinationType ?? "place";
+  const mustVisitPlaces = normalizeRequiredPlaceTexts(input.mustVisitPlaces);
 
   if (!originText) {
     return createRequiredPlaceClarification("origin", "출발지");
@@ -487,23 +501,59 @@ async function resolveRequiredPlaces(
     options.draftGeocoder,
     searcher,
   );
-  const destination = await resolveRequiredPlace(
-    "destination",
-    destinationText,
-    input,
-    options.draftGeocoder,
-    searcher,
-  );
-
   if (!origin) {
     return createRequiredPlaceClarification("origin", originText);
   }
 
-  if (!destination) {
-    return createRequiredPlaceClarification("destination", destinationText);
+  const requiredPlaceInputs = normalizeRequiredPlaceInputs([
+    ...(destinationType === "place"
+      ? [{ kind: "destination" as const, text: destinationText }]
+      : []),
+    ...mustVisitPlaces.map((text) => ({ kind: "must_visit" as const, text })),
+  ]);
+  const destinations: PlanmeResolvedRequiredPlace[] = [];
+
+  for (const requiredPlaceInput of requiredPlaceInputs) {
+    const destination = await resolveRequiredPlace(
+      requiredPlaceInput.kind,
+      requiredPlaceInput.text,
+      input,
+      options.draftGeocoder,
+      searcher,
+    );
+
+    if (!destination) {
+      return createRequiredPlaceClarification(
+        requiredPlaceInput.kind,
+        requiredPlaceInput.text,
+      );
+    }
+
+    destinations.push(destination);
   }
 
-  return { requiredPlaces: { destination, origin } };
+  return { requiredPlaces: { destinations, origin } };
+}
+
+function normalizeRequiredPlaceTexts(values: string[] | undefined) {
+  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))];
+}
+
+function normalizeRequiredPlaceInputs(
+  inputs: Array<{ kind: "destination" | "must_visit"; text: string }>,
+) {
+  const seen = new Set<string>();
+
+  return inputs.filter((input) => {
+    const key = normalizeComparableText(input.text);
+
+    if (!key || seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
 }
 
 /**
@@ -524,7 +574,7 @@ async function resolveRequiredPlace(
     const result = await geocoder({
       dayIndex: -1,
       query: inputText,
-      region: kind === "destination" ? input.region : undefined,
+      region: kind === "origin" ? undefined : input.region,
       stop: {
         addressQuery: inputText,
         name: inputText,
@@ -554,10 +604,10 @@ async function resolveRequiredPlace(
   const localCandidate = async () => {
     try {
       const result = await searcher({
-        destination: kind === "destination" ? input.destination : undefined,
+        destination: kind === "origin" ? undefined : input.destination,
         maxCandidates: 5,
         query: inputText,
-        region: kind === "destination" ? input.region : undefined,
+        region: kind === "origin" ? undefined : input.region,
         stop: {
           addressQuery: inputText,
           name: inputText,
@@ -607,7 +657,8 @@ function createRequiredPlaceClarification(
   kind: PlanmeRequiredPlaceKind,
   place: string,
 ): PlanmeClarificationResponse {
-  const label = kind === "origin" ? "출발지" : "목적지";
+  const label =
+    kind === "origin" ? "출발지" : kind === "must_visit" ? "필수 장소" : "목적지";
   const question = `${place} ${label}의 정확한 장소명이나 주소를 알려주세요.`;
 
   return {
@@ -648,17 +699,11 @@ function applyRequiredPlacesToDraft(
   transportMode: RecommendItineraryRequest["transportMode"],
 ): PlanmeDraftPreviewRequest {
   const lastDayIndex = Math.max(0, draft.days.length - 1);
-  const destinationDayIndex = Math.max(
-    0,
-    draft.days.findIndex((day) =>
-      [day.standardStops, day.carrymeStops, day.stops].some((stops) =>
-        stops?.some(
-          (stop) =>
-            stop.requiredPlaceKind === "destination" ||
-            isSameRequiredPlace(stop.name, requiredPlaces.destination),
-        ),
-      ),
-    ),
+  const requiredPlaceDayIndexes = new Map(
+    requiredPlaces.destinations.map((place, placeIndex) => [
+      place.sourceRef,
+      findRequiredPlaceDayIndex(draft, place, placeIndex),
+    ]),
   );
 
   return {
@@ -672,14 +717,15 @@ function applyRequiredPlacesToDraft(
         }
 
         let nextStops = stops.map((stop) => {
-          const matchesDestination =
-            stop.requiredPlaceKind === "destination" ||
-            isSameRequiredPlace(stop.name, requiredPlaces.destination);
+          const requiredPlace = findRequiredPlaceForStop(
+            stop,
+            requiredPlaces.destinations,
+          );
 
-          if (matchesDestination) {
+          if (requiredPlace) {
             return applyRequiredPlaceToStop(
               stop,
-              requiredPlaces.destination,
+              requiredPlace,
               transportMode,
               "방문지",
             );
@@ -709,21 +755,28 @@ function applyRequiredPlacesToDraft(
             : [originStop, ...nextStops];
         }
 
-        if (
-          dayIndex === destinationDayIndex &&
-          !nextStops.some((stop) => stop.requiredPlaceKind === "destination")
-        ) {
-          const destinationStop = applyRequiredPlaceToStop(
+        for (const requiredPlace of requiredPlaces.destinations) {
+          if (
+            requiredPlaceDayIndexes.get(requiredPlace.sourceRef) !== dayIndex ||
+            nextStops.some((stop) => isSameRequiredPlace(stop.name, requiredPlace))
+          ) {
+            continue;
+          }
+
+          const requiredStop = applyRequiredPlaceToStop(
             undefined,
-            requiredPlaces.destination,
+            requiredPlace,
             transportMode,
             "방문지",
           ) as T;
-          const insertIndex = Math.max(1, nextStops.length - (dayIndex === lastDayIndex ? 1 : 0));
+          const insertIndex = Math.max(
+            1,
+            nextStops.length - (dayIndex === lastDayIndex ? 1 : 0),
+          );
 
           nextStops = [
             ...nextStops.slice(0, insertIndex),
-            destinationStop,
+            requiredStop,
             ...nextStops.slice(insertIndex),
           ];
         }
@@ -761,6 +814,45 @@ function applyRequiredPlacesToDraft(
       };
     }),
   };
+}
+
+function findRequiredPlaceDayIndex(
+  draft: PlanmeDraftPreviewRequest,
+  place: PlanmeResolvedRequiredPlace,
+  fallbackIndex: number,
+) {
+  const matchingDayIndex = draft.days.findIndex((day) =>
+    [day.standardStops, day.carrymeStops, day.stops].some((stops) =>
+      stops?.some(
+        (stop) =>
+          isSameRequiredPlace(stop.name, place) ||
+          (place.kind === "destination" && stop.requiredPlaceKind === "destination"),
+      ),
+    ),
+  );
+
+  if (matchingDayIndex >= 0) {
+    return matchingDayIndex;
+  }
+
+  return draft.days.length > 0 ? fallbackIndex % draft.days.length : 0;
+}
+
+function findRequiredPlaceForStop(
+  stop: ResolvableDraftStop,
+  places: PlanmeResolvedRequiredPlace[],
+) {
+  const exactMatch = places.find((place) => isSameRequiredPlace(stop.name, place));
+
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  if (stop.requiredPlaceKind === "destination") {
+    return places.find((place) => place.kind === "destination");
+  }
+
+  return undefined;
 }
 
 /**

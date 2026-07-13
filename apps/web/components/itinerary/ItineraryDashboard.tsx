@@ -2147,7 +2147,13 @@ export function ItineraryDashboard({
   const displayCarrymeRoute = shouldHideProviderResult
     ? createPendingRoute(carrymeRoute, hiddenDurationLabel)
     : carrymeRoute;
-  const displaySavingLabel = shouldHideProviderResult ? hiddenDurationLabel : savingLabel;
+  const shouldHideSavings =
+    selectedDayPlan.savingStatus === "hidden_estimated" || finalizationStatus === "error";
+  const displaySavingLabel = shouldHideSavings
+    ? undefined
+    : shouldHideProviderResult
+      ? hiddenDurationLabel
+      : savingLabel;
 
   useEffect(() => {
     if (routesFinalized || !activeFinalizationToken) {
@@ -2474,12 +2480,14 @@ export function ItineraryDashboard({
               tone="primary"
               value={shouldHideProviderResult ? hiddenDurationLabel : totalDurationLabel}
             />
-            <MetricCard
-              icon={<WbSunnyRoundedIcon />}
-              label="절약 시간"
-              tone="error"
-              value={displaySavingLabel}
-            />
+            {displaySavingLabel ? (
+              <MetricCard
+                icon={<WbSunnyRoundedIcon />}
+                label="절약 시간"
+                tone="error"
+                value={displaySavingLabel}
+              />
+            ) : null}
           </Stack>
         </Box>
 
@@ -2889,7 +2897,7 @@ type DestinationEditorProps = {
   onFinalizeItinerary?: (
     carrymeRows: DestinationRow[],
   ) => Promise<EditedItineraryFinalizationResult>;
-  savingLabel: string;
+  savingLabel?: string;
   standardRoute: RoutePlan;
   transportMode: PlanmeTransportMode;
   onTransportModeChange: (transportMode: PlanmeTransportMode) => void;

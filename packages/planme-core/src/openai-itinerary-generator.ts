@@ -125,7 +125,7 @@ export function createOpenAiReplacementQuerySuggester(
           "한국 국내 여행 일정의 실제 대체 장소 검색어 하나를 작성하세요.",
           "원래 장소와 같은 지역, 일정 주제, 장소 종류를 최대한 유지하세요.",
           "장소나 좌표를 지어내지 말고 네이버 지역 검색에 넣을 짧은 한국어 검색어만 반환하세요.",
-          `대체 시도: ${attempt}/2`,
+          `대체 시도: ${attempt}/3`,
           `원래 장소: ${stop.name}`,
           `원래 검색어: ${stop.addressQuery ?? stop.name}`,
           `목적지: ${itinerary.destination ?? itinerary.region ?? "미정"}`,
@@ -482,7 +482,7 @@ function createItineraryGenerationPrompt(
     "각 day는 standardStops, carrymeStops, standardTimeline, carrymeTimeline을 모두 작성하세요.",
     "각 standardStops/carrymeStops stop은 name, caption, role, requiredPlaceKind를 모두 작성하세요.",
     "role은 반드시 출발지, 방문지, 숙소, 복귀지 중 하나입니다.",
-    "requiredPlaceKind는 사용자 출발지면 origin, 사용자 목적지면 destination, 그 밖의 중간 장소면 null입니다.",
+    "requiredPlaceKind는 사용자 출발지면 origin, destinationType=place인 목적지면 destination, mustVisitPlaces의 장소면 must_visit, 그 밖의 중간 장소면 null입니다.",
     `일정 전체 이동 수단은 ${input.transportMode}이며 모든 대표 구간에 동일하게 적용됩니다. stop별로 다른 이동 수단을 결정하지 마세요.`,
     "Standard 경로는 짐을 놓기 위해 호텔/숙소를 중간 방문하여 체크인하는 경로입니다.",
     "Standard의 첫 호텔/숙소 중간 방문은 '<호텔명> 체크인'으로 작성하고 통상적인 오후 시간대에 배치하세요.",
@@ -514,8 +514,15 @@ function createItineraryGenerationPrompt(
       ? `고정 출발지: ${requiredPlaces.origin.name} | ${requiredPlaces.origin.address ?? "주소 없음"} | ${requiredPlaces.origin.coordinate.lat}, ${requiredPlaces.origin.coordinate.lng}`
       : "고정 출발지: 미확인",
     requiredPlaces
-      ? `고정 사용자 목적지: ${requiredPlaces.destination.name} | ${requiredPlaces.destination.address ?? "주소 없음"} | ${requiredPlaces.destination.coordinate.lat}, ${requiredPlaces.destination.coordinate.lng}`
-      : "고정 사용자 목적지: 미확인",
+      ? `고정 사용자 방문지: ${requiredPlaces.destinations.length > 0
+        ? requiredPlaces.destinations
+            .map(
+              (place) =>
+                `${place.name} | ${place.address ?? "주소 없음"} | ${place.coordinate.lat}, ${place.coordinate.lng} | ${place.kind}`,
+            )
+            .join(" / ")
+        : "없음"}`
+      : "고정 사용자 방문지: 미확인",
     createAccommodationCandidatePromptSection(accommodationCandidates),
   ].join("\n");
 }
@@ -745,7 +752,7 @@ function createRouteStopsSchema() {
         },
         requiredPlaceKind: {
           type: ["string", "null"],
-          enum: ["origin", "destination", null],
+          enum: ["origin", "destination", "must_visit", null],
         },
         addressQuery: { type: "string" },
       },
@@ -764,7 +771,16 @@ function createTimelineSchema() {
     items: {
       type: "object",
       additionalProperties: false,
-      required: ["time", "title", "description", "category", "highlight", "savingLabel"],
+      required: [
+        "time",
+        "title",
+        "description",
+        "category",
+        "highlight",
+        "savingLabel",
+        "stopIndex",
+        "stayDurationMinutes",
+      ],
       properties: {
         time: { type: "string" },
         title: { type: "string" },
@@ -775,6 +791,8 @@ function createTimelineSchema() {
         },
         highlight: { type: "boolean" },
         savingLabel: { type: "string" },
+        stopIndex: { type: ["integer", "null"], minimum: 0 },
+        stayDurationMinutes: { type: "integer", minimum: 0 },
       },
     },
   };

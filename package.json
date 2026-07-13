@@ -16,7 +16,8 @@
     "test:mcp": "npm --workspace @planme/mcp run test:mcp",
     "test:finalization": "tsx apps/web/scripts/check-itinerary-finalization.ts",
     "test:route-normalization": "npm --workspace @planme/core run build && node scripts/check-planme-route-normalization.mjs",
-    "smoke:external": "npm --workspace @planme/mcp run smoke:external"
+    "smoke:external": "npm --workspace @planme/mcp run smoke:external",
+    "smoke:transit-recovery": "npm --workspace @planme/mcp run smoke:transit-recovery"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1"

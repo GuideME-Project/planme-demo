@@ -9,6 +9,7 @@ const requiredFiles = [
   "app/api/gpt/itineraries/[itineraryId]/route.ts",
   "app/api/gpt/itineraries/[itineraryId]/share/route.ts",
   "app/api/gpt/itineraries/preview-store/route.ts",
+  "app/api/gpt/itineraries/transit-preflight/route.ts",
   "app/api/gpt/openapi/route.ts",
   "app/api/places/search/route.ts",
   "app/og/itinerary/[itineraryId]/route.tsx",
@@ -116,6 +117,9 @@ if (existsSync(gptActionsFile)) {
 }
 
 const openAiGeneratorFile = join(root, "packages/planme-core/src/openai-itinerary-generator.ts");
+const gptsActionsApiFile = join(root, "apps/mcp/src/gpts-actions-api.ts");
+const planmeMcpFile = join(root, "apps/mcp/src/planme-mcp.ts");
+const routeFinalizerFile = join(root, "apps/web/lib/itinerary-route-finalizer.ts");
 
 if (existsSync(openAiGeneratorFile)) {
   const openAiGeneratorSource = readFileSync(openAiGeneratorFile, "utf8");
@@ -126,6 +130,43 @@ if (existsSync(openAiGeneratorFile)) {
 
   if (openAiGeneratorSource.includes("search_places_nearby") || openAiGeneratorSource.includes("radiusMeters")) {
     failures.push("OpenAI place tools must not expose nearby or radius contracts.");
+  }
+}
+
+for (const contractFile of [gptsActionsApiFile, planmeMcpFile]) {
+  if (!existsSync(contractFile)) {
+    continue;
+  }
+
+  const contractSource = readFileSync(contractFile, "utf8");
+
+  if (!contractSource.includes("destinationType") || !contractSource.includes("mustVisitPlaces")) {
+    failures.push(`${contractFile} must expose destinationType and mustVisitPlaces`);
+  }
+
+  if (!contractSource.includes("savingStatus")) {
+    failures.push(`${contractFile} must expose savingStatus`);
+  }
+}
+
+if (existsSync(gptsActionsApiFile)) {
+  const gptsActionsSource = readFileSync(gptsActionsApiFile, "utf8");
+
+  if (!gptsActionsSource.includes('required: ["destination", "destinationType", "durationDays", "transportMode"]')) {
+    failures.push("GPTs OpenAPI must require destinationType for newly imported clients");
+  }
+
+  if (gptsActionsSource.includes('"savedMinutes",\n            "savingStatus"')) {
+    failures.push("GPTs ready responses must not require savedMinutes when duration is estimated");
+  }
+}
+
+if (existsSync(routeFinalizerFile)) {
+  const routeFinalizerSource = readFileSync(routeFinalizerFile, "utf8");
+
+  if (!routeFinalizerSource.includes("placeConstraint: stop.placeConstraint") ||
+      !routeFinalizerSource.includes("stopRef: stop.stopRef")) {
+    failures.push("Route provider stops must preserve placeConstraint and stopRef");
   }
 }
 

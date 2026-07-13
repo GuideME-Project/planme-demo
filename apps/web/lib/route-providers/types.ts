@@ -9,7 +9,13 @@ export type RouteGeometryStatus = "complete" | "partial";
 
 export type RouteProviderStop = Pick<
   RouteStop,
-  "coordinate" | "label" | "placeId" | "placeSourceRef" | "role"
+  | "coordinate"
+  | "label"
+  | "placeConstraint"
+  | "placeId"
+  | "placeSourceRef"
+  | "role"
+  | "stopRef"
 > & {
   id: string;
 };
@@ -22,12 +28,45 @@ export type RouteProviderErrorContext = {
 
 export type RouteProviderSegment = {
   distanceMeters: number;
+  durationSource: "provider" | "estimated";
   durationSeconds: number;
   geometryStatus: RouteGeometryStatus;
   mode: PlanmeTransportMode;
   paths: MapCoordinate[][];
   transitMarkers?: RouteTransitMarker[];
 };
+
+export type TransitAccessFailureReason =
+  | "destination_station_missing"
+  | "walk_limit_exceeded"
+  | "walk_path_missing";
+
+export type TransitAccessFailureStatus =
+  | "confirmation_required"
+  | "replacement_required";
+
+/** Represents a safe, expected accessibility decision instead of a provider outage. */
+export class TransitAccessDecisionError extends Error {
+  readonly destinationStop: RouteProviderStop;
+  readonly reason: TransitAccessFailureReason;
+  readonly segmentIndex: number;
+  readonly status: TransitAccessFailureStatus;
+
+  constructor(
+    destinationStop: RouteProviderStop,
+    segmentIndex: number,
+    reason: TransitAccessFailureReason,
+  ) {
+    super("대중교통 접근 정책에 따라 장소 확인 또는 교체가 필요합니다.");
+    this.name = "TransitAccessDecisionError";
+    this.destinationStop = destinationStop;
+    this.reason = reason;
+    this.segmentIndex = segmentIndex;
+    this.status = destinationStop.placeConstraint === "replaceable"
+      ? "replacement_required"
+      : "confirmation_required";
+  }
+}
 
 export type RouteProviderResult = {
   geometryStatus: RouteGeometryStatus;

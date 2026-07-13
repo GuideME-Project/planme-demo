@@ -23,7 +23,7 @@ export type PlanmePlaceCandidate = {
   sourceRef: string;
 };
 
-export type PlanmeRequiredPlaceKind = "origin" | "destination";
+export type PlanmeRequiredPlaceKind = "origin" | "destination" | "must_visit";
 
 export type PlanmeResolvedRequiredPlace = {
   address?: string;
@@ -36,7 +36,7 @@ export type PlanmeResolvedRequiredPlace = {
 };
 
 export type PlanmeResolvedRequiredPlaces = {
-  destination: PlanmeResolvedRequiredPlace;
+  destinations: PlanmeResolvedRequiredPlace[];
   origin: PlanmeResolvedRequiredPlace;
 };
 
