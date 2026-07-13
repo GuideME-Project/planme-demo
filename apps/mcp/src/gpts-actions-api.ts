@@ -196,7 +196,7 @@ export async function handleGptsRecommendItineraryRequest(
     if (result.status === "needs_clarification") {
       writeGptsRecommendationResponse(
         response,
-        toRestRecommendationResponse(result),
+        toGptsRestRecommendationResponse(result),
         traceId,
         "clarification",
       );
@@ -205,7 +205,7 @@ export async function handleGptsRecommendItineraryRequest(
 
     writeGptsRecommendationResponse(
       response,
-      toRestRecommendationResponse(result.response),
+      toGptsRestRecommendationResponse(result.response),
       traceId,
       "ready",
     );
@@ -356,9 +356,10 @@ function firstHeaderValue(value: string | string[] | undefined): string | undefi
 }
 
 /**
- * Converts the core itinerary response into the REST payload exposed to GPTs.
+ * Keeps GPTs Actions responses link-focused after the full itinerary is persisted.
+ * Route geometry, preview markup, and internal resolution logs stay on the detail surface.
  */
-function toRestRecommendationResponse(response: PlanmeRecommendationResponse) {
+export function toGptsRestRecommendationResponse(response: PlanmeRecommendationResponse) {
   if (isPlanmeClarificationResponse(response)) {
     return toRestClarificationResponse(response);
   }
@@ -375,10 +376,7 @@ function toRestRecommendationResponse(response: PlanmeRecommendationResponse) {
     savingStatus: response.savingStatus,
     pageUrl: response.pageUrl,
     ogImageUrl: response.ogImageUrl,
-    previewMarkdown: response.previewMarkdown,
     highlights: response.highlights,
-    resolutionLogs: response.resolutionLogs,
-    itinerary: response.itinerary,
     transportMode: response.itinerary.transportMode,
     status: "ready",
     validationIssues: response.validationIssues?.map((issue) => issue.message),
@@ -668,16 +666,10 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             },
             pageUrl: { type: "string", format: "uri" },
             ogImageUrl: { type: "string", format: "uri" },
-            previewMarkdown: { type: "string" },
             highlights: { type: "array", items: { type: "string" } },
-            resolutionLogs: {
-              type: "array",
-              items: { $ref: "#/components/schemas/PlanmeResolutionLog" },
-            },
             status: { type: "string", enum: ["ready"] },
             validationIssues: { type: "array", items: { type: "string" } },
             transportMode: { type: "string", enum: ["drive", "transit"] },
-            itinerary: { type: "object", additionalProperties: true },
           },
         },
         PlanmeClarificationContext: {
