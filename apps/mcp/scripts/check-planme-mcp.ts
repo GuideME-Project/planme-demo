@@ -3187,6 +3187,7 @@ async function main(): Promise<void> {
 
     const recommendTool = tools.tools.find((tool) => tool.name === "recommend_planme_itinerary");
     const getItineraryTool = tools.tools.find((tool) => tool.name === "get_planme_itinerary");
+    const startPlanningTool = tools.tools.find((tool) => tool.name === "start_planme_planning");
     const recommendInputSchema = recommendTool?.inputSchema as
       | {
           properties?: Record<string, { enum?: string[]; description?: string }>;
@@ -3204,8 +3205,28 @@ async function main(): Promise<void> {
     ]);
     assert.match(recommendInputSchema.properties.transportMode?.description ?? "", /자동차.*drive/);
     assert.equal(recommendInputSchema.required?.includes("destinationType"), false);
-    assert.match(recommendTool?.description ?? "", /Do not browse, search, verify, or resolve/);
+    assert.equal(recommendTool?.title, "PlanME 여행 일정 생성 및 저장");
+    assert.match(recommendTool?.description ?? "", /^Use this when/);
+    assert.match(recommendTool?.description ?? "", /남해 1박 2일 여행 일정/);
+    assert.match(recommendTool?.description ?? "", /before browsing or researching/);
     assert.match(recommendTool?.description ?? "", /Missing lodging and preferences are allowed/);
+    assert.deepEqual(recommendTool?.annotations, {
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    });
+    assert.match(startPlanningTool?.description ?? "", /^Use this when/);
+    assert.deepEqual(startPlanningTool?.annotations, {
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    });
+    assert.match(getItineraryTool?.description ?? "", /^Use this when/);
+    assert.deepEqual(getItineraryTool?.annotations, {
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    });
     assert.equal(recommendTool?._meta?.["openai/outputTemplate"], undefined);
     assert.equal(getItineraryTool?._meta?.["openai/outputTemplate"], "ui://planme/itinerary-widget-v2.html");
 

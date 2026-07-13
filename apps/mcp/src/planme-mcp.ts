@@ -450,9 +450,9 @@ export function createPlanmeMcpServer(): McpServer {
     server,
     "start_planme_planning",
     {
-      title: "Start PlanME planning",
+      title: "PlanME 여행 조건 확인",
       description:
-        "Use only when origin, destination, trip length, or transport mode is missing. If those four inputs are present, do not research attractions, stations, or coordinates and call recommend_planme_itinerary immediately. Lodging and preferences may be omitted and are not blockers.",
+        "Use this when the user asks PlanME to create a travel itinerary but origin, destination, trip length, or transport mode is missing. If those four inputs are present, do not research attractions, stations, or coordinates and call recommend_planme_itinerary immediately. Lodging and preferences may be omitted and are not blockers.",
       inputSchema: {
         message: z.string().optional(),
         destination: z.string().optional(),
@@ -473,6 +473,11 @@ export function createPlanmeMcpServer(): McpServer {
         theme: z.enum(["light", "dark"]).optional(),
       },
       outputSchema: planningAssessmentSchema,
+      annotations: {
+        readOnlyHint: true,
+        openWorldHint: false,
+        destructiveHint: false,
+      },
       _meta: {
         "openai/toolInvocation/invoking": "PlanME 일정 조건을 확인하는 중입니다.",
         "openai/toolInvocation/invoked": "PlanME 일정 질문이 준비됐습니다.",
@@ -509,9 +514,9 @@ export function createPlanmeMcpServer(): McpServer {
     server,
     "recommend_planme_itinerary",
     {
-      title: "Recommend PlanME itinerary",
+      title: "PlanME 여행 일정 생성 및 저장",
       description:
-        "Call immediately when origin, destination, trip length, and transport mode are present. Do not browse, search, verify, or resolve attractions, stations, coordinates, or routes before calling; the server selects, verifies, replaces, and saves itinerary places. Pass only places explicitly fixed by the user in mustVisitPlaces, and do not pass ChatGPT-authored days or timeline events. Missing lodging and preferences are allowed. If the response status is needs_clarification, ask the returned question in chat. If the response status is ready, call get_planme_itinerary exactly once with the returned itineraryId to render the widget. Do not render a widget from this tool. CarryME luggage handoff points must be lodging, hotels, or explicit pickup points, not plain train/subway stations, terminals, or airports.",
+        "Use this when the user asks PlanME to create a travel itinerary and origin, destination, trip length, and transport mode are present, for example '남해 1박 2일 여행 일정 만들어줘. 동탄호수공원에서 출발하고 대중교통으로 갈게.' Call this tool before browsing or researching attractions, stations, coordinates, or routes; the server selects, verifies, replaces, and saves itinerary places. Pass only places explicitly fixed by the user in mustVisitPlaces, and do not pass ChatGPT-authored days or timeline events. Missing lodging and preferences are allowed. If the response status is needs_clarification, ask the returned question in chat. If the response status is ready, call get_planme_itinerary exactly once with the returned itineraryId to render the widget. Do not render a widget from this tool. CarryME luggage handoff points must be lodging, hotels, or explicit pickup points, not plain train/subway stations, terminals, or airports.",
       inputSchema: {
         destination: z
           .string()
@@ -551,6 +556,11 @@ export function createPlanmeMcpServer(): McpServer {
         theme: z.enum(["light", "dark"]).optional(),
       },
       outputSchema: itinerarySummarySchema,
+      annotations: {
+        readOnlyHint: false,
+        openWorldHint: false,
+        destructiveHint: false,
+      },
       _meta: {
         "openai/toolInvocation/invoking": "PlanME 일정을 구성하는 중입니다.",
         "openai/toolInvocation/invoked": "PlanME 일정이 준비됐습니다.",
@@ -659,13 +669,18 @@ export function createPlanmeMcpServer(): McpServer {
     server,
     "get_planme_itinerary",
     {
-      title: "Get PlanME itinerary",
+      title: "저장된 PlanME 여행 일정 표시",
       description:
-        "Render a ready PlanME itinerary in the timeline widget. Call exactly once after recommend_planme_itinerary returns status ready.",
+        "Use this when recommend_planme_itinerary returns status ready. Call exactly once with the returned itineraryId to show the saved PlanME itinerary in the timeline widget.",
       inputSchema: {
         itineraryId: z.string().min(1),
       },
       outputSchema: itinerarySummarySchema,
+      annotations: {
+        readOnlyHint: true,
+        openWorldHint: false,
+        destructiveHint: false,
+      },
       _meta: {
         ui: {
           resourceUri: PLANME_WIDGET_URI,
