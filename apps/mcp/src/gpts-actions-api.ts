@@ -375,6 +375,7 @@ export function toGptsRestRecommendationResponse(response: PlanmeRecommendationR
       : { savedMinutes: response.savedMinutes }),
     savingStatus: response.savingStatus,
     pageUrl: response.pageUrl,
+    detailLinkMarkdown: `[상세 일정 열기](${response.pageUrl})`,
     ogImageUrl: response.ogImageUrl,
     highlights: response.highlights,
     transportMode: response.itinerary.transportMode,
@@ -651,6 +652,7 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             "carrymeTotalMinutes",
             "savingStatus",
             "pageUrl",
+            "detailLinkMarkdown",
             "highlights",
           ],
           properties: {
@@ -665,6 +667,11 @@ function buildGptsOpenApiSchema(serverUrl: string) {
               enum: ["verified", "hidden_estimated"],
             },
             pageUrl: { type: "string", format: "uri" },
+            detailLinkMarkdown: {
+              type: "string",
+              description:
+                "Render this exact Markdown link in the final answer without changing or omitting its URL.",
+            },
             ogImageUrl: { type: "string", format: "uri" },
             highlights: { type: "array", items: { type: "string" } },
             status: { type: "string", enum: ["ready"] },
