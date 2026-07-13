@@ -3175,6 +3175,9 @@ async function main(): Promise<void> {
   try {
     await client.connect(transport);
 
+    assert.match(client.getInstructions() ?? "", /use this server instead of web search/);
+    assert.match(client.getInstructions() ?? "", /call recommend_planme_itinerary immediately/);
+
     const tools = await client.listTools();
     const toolNames = tools.tools.map((tool) => tool.name);
 

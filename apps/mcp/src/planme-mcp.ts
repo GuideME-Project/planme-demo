@@ -437,10 +437,16 @@ function registerPlanmeWidgetResource(server: McpServer, name: string, resourceU
  * Creates the PlanME MCP server used by the GPT App proof of concept.
  */
 export function createPlanmeMcpServer(): McpServer {
-  const server = new McpServer({
-    name: "planme-mcp",
-    version: "0.1.0",
-  });
+  const server = new McpServer(
+    {
+      name: "planme-mcp",
+      version: "0.1.0",
+    },
+    {
+      instructions:
+        "When GuideME-PlanME is selected and the user asks to create a travel itinerary, use this server instead of web search. If origin, destination, trip length, and transport mode are present, call recommend_planme_itinerary immediately without researching routes, stations, coordinates, or attractions. Call start_planme_planning only when one of those four inputs is missing. After a ready result, call get_planme_itinerary exactly once.",
+    },
+  );
   const usageRecorder = createPlanmeUsageRecorder();
 
   registerPlanmeWidgetResource(server, "planme-itinerary-widget-v2", PLANME_WIDGET_URI);
