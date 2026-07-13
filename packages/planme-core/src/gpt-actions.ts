@@ -743,7 +743,9 @@ function applyRequiredPlacesToDraft(
             );
           }
 
-          return { ...stop, mode: transportMode };
+          // Only server-resolved user inputs may become fixed places. A model can
+          // mislabel its own regional recommendations as required destinations.
+          return { ...stop, mode: transportMode, requiredPlaceKind: undefined };
         }) as T[];
 
         if (dayIndex === 0) {

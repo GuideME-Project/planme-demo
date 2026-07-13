@@ -213,6 +213,49 @@ async function assertCorePlaceIntentContract() {
     );
   }
 
+  const misclassifiedRegionResponse = await createAiRecommendedItineraryResponse(
+    requestUrl,
+    { ...request, destinationType: "region" },
+    {
+      ...commonOptions,
+      aiItineraryGenerator: async () => {
+        const draft = createDraft(false);
+        const removeHardGate = (stops: typeof draft.days[number]["standardStops"]) =>
+          stops?.map((stop) =>
+            stop.role === "방문지"
+              ? {
+                  ...stop,
+                  coordinate: undefined,
+                  placeSource: undefined,
+                  placeSourceRef: undefined,
+                  requiredPlaceKind: "destination" as const,
+                }
+              : stop,
+          );
+
+        return {
+          ...draft,
+          days: draft.days.map((day) => ({
+            ...day,
+            carrymeStops: removeHardGate(day.carrymeStops),
+            standardStops: removeHardGate(day.standardStops),
+          })),
+        };
+      },
+    },
+  );
+
+  assert.equal(isPlanmeClarificationResponse(misclassifiedRegionResponse), false);
+
+  if (!isPlanmeClarificationResponse(misclassifiedRegionResponse)) {
+    assert.equal(
+      misclassifiedRegionResponse.itinerary.days[0].standard.stops.find(
+        (stop) => stop.label === "원예예술촌",
+      )?.placeConstraint,
+      "replaceable",
+    );
+  }
+
   const fixedResponse = await createAiRecommendedItineraryResponse(
     requestUrl,
     {
