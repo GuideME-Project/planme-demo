@@ -59,6 +59,9 @@ const ODSAY_API_ORIGIN = "https://api.odsay.com";
 const DEFAULT_ODSAY_REFERER = "https://planme-demo.vercel.app/";
 // The Basic key is sensitive to bursts; serialize starts within one finalization invocation.
 const ODSAY_MINIMUM_REQUEST_INTERVAL_MS = 260;
+// ODsay does not return public-transit routes when endpoints are within this direct distance.
+const ODSAY_MINIMUM_TRANSIT_DISTANCE_METERS = 700;
+const ESTIMATED_WALKING_SPEED_METERS_PER_SECOND = 4_000 / 3_600;
 let lastOdsayRequestStartedAt = 0;
 let odsayRequestQueue: Promise<void> = Promise.resolve();
 
@@ -88,6 +91,16 @@ export async function computeOdsayTransitRoute(
   const segments: RouteProviderSegment[] = [];
 
   for (let index = 0; index < stops.length - 1; index += 1) {
+    const directDistanceMeters = calculateDirectDistanceMeters(
+      stops[index].coordinate!,
+      stops[index + 1].coordinate!,
+    );
+
+    if (directDistanceMeters <= ODSAY_MINIMUM_TRANSIT_DISTANCE_METERS) {
+      segments.push(createShortTransitSegment(directDistanceMeters));
+      continue;
+    }
+
     // Keep traveler order stable and retry only the failed origin-destination leg.
     segments.push(
       await requestTransitSegmentWithRetry(stops[index], stops[index + 1], index, signal),
@@ -105,6 +118,39 @@ export async function computeOdsayTransitRoute(
     totalDurationSeconds: segments.reduce((sum, segment) => sum + segment.durationSeconds, 0),
     transitMarkers,
   };
+}
+
+/** Completes a nearby leg without asking ODsay for a public-transit route it cannot return. */
+function createShortTransitSegment(directDistanceMeters: number): RouteProviderSegment {
+  const distanceMeters = Math.round(directDistanceMeters);
+
+  return {
+    distanceMeters,
+    durationSeconds: Math.max(
+      60,
+      Math.round(distanceMeters / ESTIMATED_WALKING_SPEED_METERS_PER_SECOND),
+    ),
+    geometryStatus: "partial",
+    mode: "transit",
+    paths: [],
+  };
+}
+
+/** Calculates the WGS84 endpoint distance used by ODsay's 700 m transit boundary. */
+function calculateDirectDistanceMeters(origin: MapCoordinate, destination: MapCoordinate) {
+  const earthRadiusMeters = 6_371_000;
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+  const originLatitude = toRadians(origin.lat);
+  const destinationLatitude = toRadians(destination.lat);
+  const latitudeDelta = toRadians(destination.lat - origin.lat);
+  const longitudeDelta = toRadians(destination.lng - origin.lng);
+  const haversine =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(originLatitude) *
+      Math.cos(destinationLatitude) *
+      Math.sin(longitudeDelta / 2) ** 2;
+
+  return 2 * earthRadiusMeters * Math.asin(Math.sqrt(haversine));
 }
 
 /** Retries one transient ODsay leg exactly once within the shared deadline. */
