@@ -63,7 +63,6 @@ type OpenAiPlaceCandidateDecisionInput = Parameters<PlanmePlaceCandidateDecider>
 
 const OPENAI_RESPONSES_API_URL = "https://api.openai.com/v1/responses";
 const DEFAULT_OPENAI_MODEL = "gpt-5.4-mini";
-const DEFAULT_OPENAI_REASONING_EFFORT = "minimal";
 // The widget supports longer drafts, but the schema still caps payload size for reliable MCP handoff.
 const MAX_GENERATED_ITINERARY_DAYS = 14;
 const MAX_OPENAI_TOOL_LOOP_COUNT = 3;
@@ -122,7 +121,6 @@ export function createOpenAiReplacementQuerySuggester(
       },
       body: JSON.stringify({
         model,
-        reasoning: { effort: DEFAULT_OPENAI_REASONING_EFFORT },
         input: [
           "한국 국내 여행 일정의 실제 대체 장소 검색어 하나를 작성하세요.",
           "원래 장소와 같은 지역, 일정 주제, 장소 종류를 최대한 유지하세요.",
@@ -193,7 +191,6 @@ export async function decidePlanmePlaceCandidateWithOpenAi(
     },
     body: JSON.stringify({
       model,
-      reasoning: { effort: DEFAULT_OPENAI_REASONING_EFFORT },
       input: createPlaceCandidateDecisionPrompt(input),
       text: {
         format: {
@@ -340,7 +337,6 @@ function createOpenAiItineraryRequestBody(
 
   return {
     model,
-    reasoning: { effort: DEFAULT_OPENAI_REASONING_EFFORT },
     input: createItineraryGenerationPrompt(input, Boolean(tools), context.requiredPlaces),
     ...(tools ? { tool_choice: "auto", tools } : {}),
     text: {
