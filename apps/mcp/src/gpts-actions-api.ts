@@ -406,7 +406,7 @@ function buildGptsOpenApiSchema(serverUrl: string) {
           operationId: "startPlanmePlanning",
           summary: "Check whether a PlanME itinerary request has enough detail",
           description:
-            "Check only the four required inputs: origin, destination, trip length, and transport mode. PlanME supports trips from 1 through 3 days; for 4 days or longer, explain the limit and ask for a trip of up to 3 days. Ask the returned required questions exactly once. Do not ask for lodging or preferences.",
+            "Check only the four required inputs: origin, destination, trip length, and transport mode. Any non-empty origin is valid, including a broad region, city, neighborhood, station, or landmark such as 동탄. Never ask for a more exact origin, place name, or address; preserve the user's origin text across the transport-mode follow-up because the server resolves a representative point. PlanME supports trips from 1 through 3 days; for 4 days or longer, explain the limit and ask for a trip of up to 3 days. Ask the returned required questions exactly once. Do not ask for lodging or preferences.",
           requestBody: {
             required: true,
             content: {
@@ -440,7 +440,7 @@ function buildGptsOpenApiSchema(serverUrl: string) {
           operationId: "recommendPlanmeItinerary",
           summary: "Generate a PlanME itinerary and return a detail page link",
           description:
-            "When origin, destination, a supported trip length from 1 through 3 days, and transport mode are present, call immediately without additional research or optional questions. Do not call this operation for 4 days or longer; explain the 3-day limit and ask the user to shorten the trip. Never turn an internal generation failure into a request for more user input.",
+            "When origin, destination, a supported trip length from 1 through 3 days, and transport mode are present, call immediately without additional research or optional questions. Any non-empty origin is valid, including a broad region such as 동탄. Never ask for a more exact origin, place name, or address; pass the user's origin text unchanged because the server resolves a representative departure point, and preserve it when transport mode is answered later. Do not call this operation for 4 days or longer; explain the 3-day limit and ask the user to shorten the trip. Never turn an internal generation failure into a request for more user input.",
           requestBody: {
             required: true,
             content: {
@@ -508,7 +508,11 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             arrivalAirport: { type: "string" },
             arrivalTime: { type: "string" },
             hotelName: { type: "string" },
-            origin: { type: "string" },
+            origin: {
+              type: "string",
+              description:
+                "The user's origin text. Broad regions such as 동탄 are valid; never ask for a more exact place name or address, and pass the text unchanged.",
+            },
             travelerCount: { type: "integer", minimum: 1, maximum: 20 },
             luggageCount: { type: "integer", minimum: 0, maximum: 20 },
             preferences: { type: "array", items: { type: "string" } },
@@ -629,7 +633,11 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             arrivalAirport: { type: "string" },
             arrivalTime: { type: "string" },
             hotelName: { type: "string" },
-            origin: { type: "string" },
+            origin: {
+              type: "string",
+              description:
+                "The user's origin text. Broad regions such as 동탄 are valid; never ask for a more exact place name or address. The server resolves a representative departure point.",
+            },
             travelerCount: { type: "integer", minimum: 1, maximum: 20 },
             luggageCount: { type: "integer", minimum: 0, maximum: 20 },
             preferences: { type: "array", items: { type: "string" } },

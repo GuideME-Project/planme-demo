@@ -530,7 +530,7 @@ export function createPlanmeMcpServer(): McpServer {
     },
     {
       instructions:
-        "When GuideME-PlanME is selected and the user asks to create a travel itinerary, use this server instead of web search. PlanME supports trips from 1 through 3 days. For 4 days or longer, explain the 3-day limit and ask the user to shorten the trip without calling recommend_planme_itinerary. If origin, destination, a supported trip length, and transport mode are present, call recommend_planme_itinerary immediately without researching routes, stations, coordinates, or attractions. Call start_planme_planning only when one of those four inputs is missing. After a ready result, call get_planme_itinerary exactly once.",
+        "When GuideME-PlanME is selected and the user asks to create a travel itinerary, use this server instead of web search. PlanME supports trips from 1 through 3 days. For 4 days or longer, explain the 3-day limit and ask the user to shorten the trip without calling recommend_planme_itinerary. If origin, destination, a supported trip length, and transport mode are present, call recommend_planme_itinerary immediately without researching routes, stations, coordinates, or attractions. Any non-empty origin is valid, including a broad region, city, neighborhood, station, or landmark such as 동탄. Never ask the user for a more exact origin, place name, or address; pass the user's origin text unchanged because the server resolves a representative departure point. When transport mode is answered in a follow-up turn, preserve the origin, destination, and trip length from the first turn. Call start_planme_planning only when one of those four inputs is missing. After a ready result, call get_planme_itinerary exactly once.",
     },
   );
   const usageRecorder = createPlanmeUsageRecorder();
@@ -544,7 +544,7 @@ export function createPlanmeMcpServer(): McpServer {
     {
       title: "PlanME 여행 조건 확인",
       description:
-        "Use this when the user asks PlanME to create a travel itinerary but origin, destination, a supported trip length from 1 through 3 days, or transport mode is missing. For 4 days or longer, explain the 3-day limit and ask the user to shorten the trip. If the four required inputs are present, do not research attractions, stations, or coordinates and call recommend_planme_itinerary immediately. Lodging and preferences may be omitted and are not blockers.",
+        "Use this when the user asks PlanME to create a travel itinerary but origin, destination, a supported trip length from 1 through 3 days, or transport mode is missing. Any non-empty origin such as 동탄, 마포구청, or 강동역 already satisfies the origin requirement. Never treat a broad origin as missing and never ask for a more exact place name or address; the server resolves a representative point. When transport mode is supplied later, preserve the first turn's origin, destination, and trip length. For 4 days or longer, explain the 3-day limit and ask the user to shorten the trip. If the four required inputs are present, do not research attractions, stations, or coordinates and call recommend_planme_itinerary immediately. Lodging and preferences may be omitted and are not blockers.",
       inputSchema: {
         message: z.string().optional(),
         destination: z.string().optional(),
@@ -557,7 +557,13 @@ export function createPlanmeMcpServer(): McpServer {
         arrivalAirport: z.string().optional(),
         arrivalTime: z.string().optional(),
         hotelName: z.string().optional(),
-        origin: z.string().optional(),
+        origin: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "사용자가 말한 출발지 원문입니다. 동탄 같은 넓은 지역도 유효하므로 더 정확한 장소명이나 주소를 묻지 말고 그대로 전달하세요.",
+          ),
         travelerCount: z.number().int().min(1).max(20).optional(),
         luggageCount: z.number().int().min(0).max(20).optional(),
         preferences: z.array(z.string()).optional(),
@@ -608,7 +614,7 @@ export function createPlanmeMcpServer(): McpServer {
     {
       title: "PlanME 여행 일정 생성 및 저장",
       description:
-        "Use this when the user asks PlanME to create a travel itinerary of 1 through 3 days and origin, destination, trip length, and transport mode are present, for example '남해 1박 2일 여행 일정 만들어줘. 동탄호수공원에서 출발하고 대중교통으로 갈게.' Do not call this tool for 4 days or longer; explain the 3-day limit and ask the user to shorten the trip. Call this tool before browsing or researching attractions, stations, coordinates, or routes; the server selects, verifies, replaces, and saves itinerary places. Pass only places explicitly fixed by the user in mustVisitPlaces, and do not pass ChatGPT-authored days or timeline events. Missing lodging and preferences are allowed. If the response status is needs_clarification, ask the returned question in chat. If the response status is ready, call get_planme_itinerary exactly once with the returned itineraryId to render the widget. Do not render a widget from this tool. CarryME luggage handoff points must be lodging, hotels, or explicit pickup points, not plain train/subway stations, terminals, or airports.",
+        "Use this when the user asks PlanME to create a travel itinerary of 1 through 3 days and origin, destination, trip length, and transport mode are present, for example '동탄에서 남해 1박 2일 여행 일정, 자동차.' Any non-empty origin is valid, including a broad region, city, neighborhood, station, or landmark. Never ask for a more exact origin, place name, or address; pass the user's origin text unchanged because the server resolves a representative departure point. When transport mode is answered in a follow-up turn, preserve the origin, destination, and trip length from the first turn. Do not call this tool for 4 days or longer; explain the 3-day limit and ask the user to shorten the trip. Call this tool before browsing or researching attractions, stations, coordinates, or routes; the server selects, verifies, replaces, and saves itinerary places. Pass only places explicitly fixed by the user in mustVisitPlaces, and do not pass ChatGPT-authored days or timeline events. Missing lodging and preferences are allowed. If the response status is needs_clarification, ask the returned question in chat. If the response status is ready, call get_planme_itinerary exactly once with the returned itineraryId to render the widget. Do not render a widget from this tool. CarryME luggage handoff points must be lodging, hotels, or explicit pickup points, not plain train/subway stations, terminals, or airports.",
       inputSchema: {
         destination: z
           .string()
@@ -628,7 +634,13 @@ export function createPlanmeMcpServer(): McpServer {
         arrivalAirport: z.string().optional(),
         arrivalTime: z.string().optional(),
         hotelName: z.string().optional(),
-        origin: z.string().optional(),
+        origin: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "사용자가 말한 출발지 원문입니다. 동탄 같은 넓은 지역도 유효하므로 더 정확한 장소명이나 주소를 묻지 말고 그대로 전달하세요. 서버가 대표 출발 지점을 확정합니다.",
+          ),
         travelerCount: z.number().int().min(1).max(20).optional(),
         luggageCount: z.number().int().min(0).max(20).optional(),
         preferences: z
