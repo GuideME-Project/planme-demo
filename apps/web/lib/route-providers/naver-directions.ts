@@ -102,7 +102,21 @@ async function requestNaverSegmentWithRetry(
     }
 
     // Retry only the failed provider leg so successful legs are never requested twice.
-    return requestNaverSegment(origin, destination, keyId, keySecret, signal);
+    try {
+      return await requestNaverSegment(origin, destination, keyId, keySecret, signal);
+    } catch (retryError) {
+      if (retryError instanceof RouteProviderError) {
+        // Preserve that the provider failure was observed after the single allowed retry.
+        throw new RouteProviderError(
+          retryError.code,
+          retryError.message,
+          retryError.retriable,
+          true,
+        );
+      }
+
+      throw retryError;
+    }
   }
 }
 

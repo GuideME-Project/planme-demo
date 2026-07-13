@@ -19,27 +19,58 @@ type PreviewStoreRequest = {
   itinerary?: Partial<PlanmeItinerary>;
 };
 
+type PreviewStoreFailureStage =
+  | "authorization"
+  | "request_validation"
+  | "record_lookup"
+  | "lock_acquisition"
+  | "route_finalization"
+  | "preview_persistence";
+
 export const maxDuration = 45;
 
 /** Finalizes and atomically stores an MCP-produced PlanME itinerary. */
 export async function POST(request: Request) {
+  const traceId = getPreviewStoreTraceId(request);
+
   if (!isAuthorizedInternalRequest(request)) {
+    logPreviewStoreFailure(traceId, 401, "UNAUTHORIZED_INTERNAL_REQUEST", "authorization");
     return NextResponse.json(
       { error: "UNAUTHORIZED_INTERNAL_REQUEST" },
       { status: 401 },
     );
   }
 
-  const body = (await request.json()) as PreviewStoreRequest;
+  let body: PreviewStoreRequest;
+
+  try {
+    body = (await request.json()) as PreviewStoreRequest;
+  } catch {
+    logPreviewStoreFailure(traceId, 400, "INVALID_JSON", "request_validation");
+    return NextResponse.json({ error: "INVALID_JSON" }, { status: 400 });
+  }
 
   if (!isPlanmeItinerary(body.itinerary)) {
+    logPreviewStoreFailure(traceId, 400, "INVALID_ITINERARY", "request_validation");
     return NextResponse.json({ error: "INVALID_ITINERARY" }, { status: 400 });
   }
 
-  const currentRecord = await getPreviewItineraryRecordById(body.itinerary.id);
+  let currentRecord: Awaited<ReturnType<typeof getPreviewItineraryRecordById>>;
+
+  try {
+    currentRecord = await getPreviewItineraryRecordById(body.itinerary.id);
+  } catch {
+    logPreviewStoreFailure(traceId, 500, "PREVIEW_STORE_LOOKUP_FAILED", "record_lookup");
+    return NextResponse.json(
+      { error: "PREVIEW_STORE_UNAVAILABLE" },
+      { status: 500 },
+    );
+  }
+
   const expectedRevision = body.baseRevision ?? currentRecord?.revision ?? 0;
 
   if (body.baseRevision !== undefined && currentRecord?.revision !== body.baseRevision) {
+    logPreviewStoreFailure(traceId, 409, "ITINERARY_VERSION_CONFLICT", "record_lookup");
     return NextResponse.json(
       { error: "ITINERARY_VERSION_CONFLICT" },
       { status: 409 },
@@ -47,9 +78,20 @@ export async function POST(request: Request) {
   }
 
   const lockOwner = randomUUID();
-  const lockAcquired = await acquirePreviewItineraryLock(body.itinerary.id, lockOwner);
+  let lockAcquired = false;
+
+  try {
+    lockAcquired = await acquirePreviewItineraryLock(body.itinerary.id, lockOwner);
+  } catch {
+    logPreviewStoreFailure(traceId, 500, "PREVIEW_STORE_LOCK_FAILED", "lock_acquisition");
+    return NextResponse.json(
+      { error: "PREVIEW_STORE_UNAVAILABLE" },
+      { status: 500 },
+    );
+  }
 
   if (!lockAcquired) {
+    logPreviewStoreFailure(traceId, 409, "ITINERARY_VERSION_CONFLICT", "lock_acquisition");
     return NextResponse.json(
       { error: "ITINERARY_VERSION_CONFLICT" },
       { status: 409 },
@@ -61,6 +103,7 @@ export async function POST(request: Request) {
     const savedPreview = await saveFinalizedPreviewItinerary(itinerary, expectedRevision);
 
     if (!savedPreview) {
+      logPreviewStoreFailure(traceId, 409, "ITINERARY_VERSION_CONFLICT", "preview_persistence");
       return NextResponse.json(
         { error: "ITINERARY_VERSION_CONFLICT" },
         { status: 409 },
@@ -80,6 +123,12 @@ export async function POST(request: Request) {
     const safeMessage = error instanceof Error ? error.message : "일정 경로 계산 실패";
 
     if (error instanceof RouteFinalizationTimeoutError) {
+      logPreviewStoreFailure(
+        traceId,
+        504,
+        "ROUTE_FINALIZATION_TIMEOUT",
+        "route_finalization",
+      );
       return NextResponse.json(
         { error: "ROUTE_FINALIZATION_TIMEOUT", message: safeMessage },
         { status: 504 },
@@ -87,13 +136,30 @@ export async function POST(request: Request) {
     }
 
     if (error instanceof RouteFinalizationError) {
+      logPreviewStoreFailure(
+        traceId,
+        422,
+        error.internalCode,
+        error.stage,
+        {
+          dayIndex: error.dayIndex,
+          provider: error.provider,
+          retried: error.retried,
+          routeId: error.routeId,
+        },
+      );
       return NextResponse.json(
         { error: "ROUTE_FINALIZATION_FAILED", message: safeMessage },
         { status: 422 },
       );
     }
 
-    console.error("PlanME finalized preview store failed", safeMessage);
+    logPreviewStoreFailure(
+      traceId,
+      500,
+      "PREVIEW_STORE_UNAVAILABLE",
+      "preview_persistence",
+    );
     return NextResponse.json(
       {
         error: "PREVIEW_STORE_UNAVAILABLE",
@@ -104,6 +170,41 @@ export async function POST(request: Request) {
   } finally {
     await releasePreviewItineraryLock(body.itinerary.id, lockOwner);
   }
+}
+
+/** Reads a valid cross-service trace id or creates a safe local replacement. */
+function getPreviewStoreTraceId(request: Request) {
+  const providedTraceId = request.headers.get("x-planme-trace-id")?.trim() ?? "";
+
+  // Only UUIDs enter structured logs, preventing arbitrary request-header content from being logged.
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    providedTraceId,
+  )
+    ? providedTraceId
+    : randomUUID();
+}
+
+/** Writes only safe diagnostic fields needed to correlate MCP and web failures. */
+function logPreviewStoreFailure(
+  traceId: string,
+  status: number,
+  internalCode: string,
+  stage: PreviewStoreFailureStage | RouteFinalizationError["stage"],
+  routeContext: {
+    dayIndex?: number;
+    provider?: "naver-directions" | "odsay";
+    retried?: boolean;
+    routeId?: "standard" | "carryme";
+  } = {},
+) {
+  console.error("PlanME preview store failure", {
+    event: "planme_preview_store_failure",
+    internalCode,
+    stage,
+    status,
+    traceId,
+    ...routeContext,
+  });
 }
 
 /** Compares the internal bearer token without leaking length or content through normal string checks. */

@@ -34,13 +34,15 @@ export type RouteProviderResult = {
 /** Represents a provider failure while retaining whether one automatic retry is safe. */
 export class RouteProviderError extends Error {
   readonly code: string;
+  readonly retried: boolean;
   readonly retriable: boolean;
 
   /** Creates a redacted route-provider error suitable for API responses and logs. */
-  constructor(code: string, message: string, retriable: boolean) {
+  constructor(code: string, message: string, retriable: boolean, retried = false) {
     super(message);
     this.name = "RouteProviderError";
     this.code = code;
+    this.retried = retried;
     this.retriable = retriable;
   }
 }

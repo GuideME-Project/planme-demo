@@ -8,7 +8,11 @@ import { resolveMissingItineraryCoordinates } from "./itinerary-coordinate-resol
 import { computeNaverDirectionsRoute } from "./route-providers/naver-directions";
 import { computeOdsayTransitRoute } from "./route-providers/odsay";
 import { formatRouteDuration } from "./route-providers/shared";
-import type { RouteProviderResult, RouteProviderStop } from "./route-providers/types";
+import {
+  RouteProviderError,
+  type RouteProviderResult,
+  type RouteProviderStop,
+} from "./route-providers/types";
 
 export const ROUTE_FINALIZATION_TIMEOUT_MS = 40_000;
 const ROUTE_FINALIZATION_CONCURRENCY = 2;
@@ -22,10 +26,37 @@ export class RouteFinalizationTimeoutError extends Error {
 }
 
 export class RouteFinalizationError extends Error {
+  readonly dayIndex?: number;
+  readonly internalCode: string;
+  readonly provider?: "naver-directions" | "odsay";
+  readonly retried: boolean;
+  readonly routeId?: "standard" | "carryme";
+  readonly stage:
+    | "coordinate_resolution"
+    | "route_provider"
+    | "route_result"
+    | "timeline_validation";
+
   /** Wraps a provider failure without exposing credentials or request URLs. */
-  constructor(message: string) {
+  constructor(
+    message: string,
+    context: {
+      dayIndex?: number;
+      internalCode?: string;
+      provider?: "naver-directions" | "odsay";
+      retried?: boolean;
+      routeId?: "standard" | "carryme";
+      stage?: RouteFinalizationError["stage"];
+    } = {},
+  ) {
     super(message);
     this.name = "RouteFinalizationError";
+    this.dayIndex = context.dayIndex;
+    this.internalCode = context.internalCode ?? "ROUTE_FINALIZATION_FAILED";
+    this.provider = context.provider;
+    this.retried = context.retried ?? false;
+    this.routeId = context.routeId;
+    this.stage = context.stage ?? "route_result";
   }
 }
 
@@ -59,10 +90,20 @@ export async function finalizeItineraryRoutes(
   );
 
   try {
-    const coordinateResolvedItinerary = await resolveMissingItineraryCoordinates(
-      itinerary,
-      controller.signal,
-    );
+    let coordinateResolvedItinerary: PlanmeItinerary;
+
+    try {
+      coordinateResolvedItinerary = await resolveMissingItineraryCoordinates(
+        itinerary,
+        controller.signal,
+      );
+    } catch {
+      // Place names and coordinates are intentionally removed from the propagated error context.
+      throw new RouteFinalizationError("일정 장소 좌표를 확인하지 못했습니다.", {
+        internalCode: "ITINERARY_COORDINATE_RESOLUTION_FAILED",
+        stage: "coordinate_resolution",
+      });
+    }
     const tasks = coordinateResolvedItinerary.days.flatMap((day, dayIndex): RouteTask[] => [
       { dayIndex, route: day.standard, routeId: "standard" },
       { dayIndex, route: day.carryme, routeId: "carryme" },
@@ -84,7 +125,10 @@ export async function finalizeItineraryRoutes(
     );
 
     if (serializeTimelineArrays(finalizedItinerary.days) !== timelineSnapshot) {
-      throw new RouteFinalizationError("경로 계산 중 AI 시간표가 변경되었습니다.");
+      throw new RouteFinalizationError("경로 계산 중 AI 시간표가 변경되었습니다.", {
+        internalCode: "ITINERARY_TIMELINE_CHANGED",
+        stage: "timeline_validation",
+      });
     }
 
     return finalizedItinerary;
@@ -154,9 +198,11 @@ async function runRouteTasks(
             results.push({ ...task, result });
           } catch (error) {
             if (!firstError) {
-              firstError = error instanceof Error
-                ? error
-                : new RouteFinalizationError("일부 일정 경로를 계산하지 못했습니다.");
+              firstError = createRouteTaskError(
+                error instanceof Error ? error : null,
+                task,
+                transportMode,
+              );
               // The first failed comparison route cancels every in-flight and unscheduled sibling.
               taskController.abort(firstError);
             }
@@ -173,6 +219,36 @@ async function runRouteTasks(
   }
 
   return results;
+}
+
+/** Preserves provider diagnostics while removing request payload and provider response details. */
+function createRouteTaskError(
+  error: Error | null,
+  task: RouteTask,
+  transportMode: PlanmeItinerary["transportMode"],
+) {
+  if (error instanceof RouteFinalizationError) {
+    return error;
+  }
+
+  if (error instanceof RouteProviderError) {
+    return new RouteFinalizationError("일부 일정 경로를 계산하지 못했습니다.", {
+      dayIndex: task.dayIndex,
+      internalCode: error.code,
+      provider: transportMode === "drive" ? "naver-directions" : "odsay",
+      retried: error.retried,
+      routeId: task.routeId,
+      stage: "route_provider",
+    });
+  }
+
+  return new RouteFinalizationError("일부 일정 경로를 계산하지 못했습니다.", {
+    dayIndex: task.dayIndex,
+    internalCode: "ROUTE_PROVIDER_UNCLASSIFIED_FAILURE",
+    provider: transportMode === "drive" ? "naver-directions" : "odsay",
+    routeId: task.routeId,
+    stage: "route_provider",
+  });
 }
 
 /** Applies successful provider results without changing the existing AI timeline fields. */
@@ -207,7 +283,12 @@ function getTaskResult(
   );
 
   if (!result) {
-    throw new RouteFinalizationError("일부 일정 경로 계산 결과가 누락되었습니다.");
+    throw new RouteFinalizationError("일부 일정 경로 계산 결과가 누락되었습니다.", {
+      dayIndex,
+      internalCode: "ROUTE_TASK_RESULT_MISSING",
+      routeId,
+      stage: "route_result",
+    });
   }
 
   return result;
@@ -301,7 +382,10 @@ function createFinalizedItinerary(itinerary: PlanmeItinerary, days: ItineraryDay
   const firstDay = days[0];
 
   if (!firstDay) {
-    throw new RouteFinalizationError("최종화할 일정 일차가 없습니다.");
+    throw new RouteFinalizationError("최종화할 일정 일차가 없습니다.", {
+      internalCode: "ITINERARY_DAY_MISSING",
+      stage: "route_result",
+    });
   }
 
   const savedDurationLabel =

@@ -23,7 +23,10 @@ import {
   type RecommendItineraryRequest,
 } from "@planme/core";
 import { createNaverGeocoder } from "../src/naver-geocoding.js";
-import { persistItineraryForDetailPage } from "../src/planme-mcp.js";
+import {
+  persistItineraryForDetailPage,
+  PreviewStoreHandoffError,
+} from "../src/planme-mcp.js";
 import { createPlanmeHttpServer } from "../src/server.js";
 import {
   clearMemoryUsageCounters,
@@ -2670,12 +2673,20 @@ async function assertPreviewStoreHandoffFailsClosed(): Promise<void> {
   const originalWebOrigin = process.env.PLANME_WEB_ORIGIN;
   const originalInternalToken = process.env.PLANME_INTERNAL_API_TOKEN;
   const originalFetch = globalThis.fetch;
+  const traceId = "019f7d3e-2e7f-7000-8000-000000000001";
+  let capturedTraceId = "";
 
   try {
     process.env.VERCEL = "1";
     process.env.PLANME_WEB_ORIGIN = "https://planme-demo.test";
     process.env.PLANME_INTERNAL_API_TOKEN = "mcp-contract-internal-token";
-    globalThis.fetch = async () => new Response("store unavailable", { status: 500 });
+    globalThis.fetch = async (_input, init) => {
+      capturedTraceId = new Headers(init?.headers).get("x-planme-trace-id") ?? "";
+      return new Response(JSON.stringify({ error: "PREVIEW_STORE_UNAVAILABLE" }), {
+        headers: { "Content-Type": "application/json" },
+        status: 500,
+      });
+    };
 
     await assert.rejects(
       () =>
@@ -2685,9 +2696,15 @@ async function assertPreviewStoreHandoffFailsClosed(): Promise<void> {
             durationDays: 2, transportMode: "drive",
             origin: "서울",
           }),
+          traceId,
         ),
-      /preview store/i,
+      (error) =>
+        error instanceof PreviewStoreHandoffError &&
+        error.internalCode === "PREVIEW_STORE_UNAVAILABLE" &&
+        error.status === 500 &&
+        error.traceId === traceId,
     );
+    assert.equal(capturedTraceId, traceId);
   } finally {
     if (originalVercel === undefined) {
       delete process.env.VERCEL;
@@ -2847,23 +2864,44 @@ async function assertGptsActionsRestFacade(): Promise<void> {
       ),
     );
 
-    const recommendationResponse = await fetch(`${origin}/api/gpt/itineraries/recommend`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        destination: "여수",
-        durationDays: 2,
-        transportMode: "자동차",
-        origin: "서울",
-      }),
-    });
-    const recommendationText = await recommendationResponse.text();
+    const originalConsoleInfo = console.info;
+    let responseLogText = "";
+    const [recommendationResponse, recommendationText] = await (async () => {
+      try {
+        console.info = (...data) => {
+          responseLogText += JSON.stringify(data);
+        };
+        const currentResponse = await fetch(`${origin}/api/gpt/itineraries/recommend`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            destination: "여수",
+            durationDays: 2,
+            transportMode: "자동차",
+            origin: "서울",
+          }),
+        });
+
+        return [currentResponse, await currentResponse.text()] as const;
+      } finally {
+        console.info = originalConsoleInfo;
+      }
+    })();
 
     // Required anchors fail closed before AI generation when provider coordinates are unavailable.
     assert.equal(recommendationResponse.status, 200);
     assert.match(recommendationText, /needs_clarification/);
     assert.match(recommendationText, /출발지|목적지/);
     assert.doesNotMatch(recommendationText, /\/itinerary\//);
+    assert.match(responseLogText, /planme_gpts_response/);
+    assert.match(
+      responseLogText,
+      new RegExp(`"responseBytes":${Buffer.byteLength(recommendationText, "utf8")}`),
+    );
+    assert.match(
+      responseLogText,
+      /"traceId":"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"/i,
+    );
   } finally {
     server.close();
 

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import {
@@ -17,7 +18,11 @@ import {
   createNaverGeocoder,
   hasNaverGeocoderRuntimeConfig,
 } from "./naver-geocoding.js";
-import { getPlanmeWebOrigin, persistItineraryForDetailPage } from "./planme-mcp.js";
+import {
+  getPlanmeWebOrigin,
+  persistItineraryForDetailPage,
+  PreviewStoreHandoffError,
+} from "./planme-mcp.js";
 import { createPlanmeUsageRecorder } from "./usage-counters.js";
 
 type BodyRequest = IncomingMessage & {
@@ -151,6 +156,8 @@ export async function handleGptsRecommendItineraryRequest(
     return;
   }
 
+  const traceId = randomUUID();
+
   try {
     const parsed = recommendationRequestSchema.safeParse(await readJsonBody(request));
 
@@ -177,12 +184,17 @@ export async function handleGptsRecommendItineraryRequest(
     );
 
     if (isPlanmeClarificationResponse(generated)) {
-      writeJson(response, 200, toRestRecommendationResponse(generated));
+      writeGptsRecommendationResponse(
+        response,
+        toRestRecommendationResponse(generated),
+        traceId,
+        "clarification",
+      );
       return;
     }
 
     // Do not return a usable detail URL unless the web handoff store accepted the itinerary.
-    const persisted = await persistItineraryForDetailPage(generated.itinerary);
+    const persisted = await persistItineraryForDetailPage(generated.itinerary, traceId);
     const finalized = {
       ...toGptActionItineraryResponse(
         persisted.itinerary,
@@ -192,9 +204,15 @@ export async function handleGptsRecommendItineraryRequest(
       validationIssues: generated.validationIssues,
     };
 
-    writeJson(response, 200, toRestRecommendationResponse(finalized));
+    writeGptsRecommendationResponse(
+      response,
+      toRestRecommendationResponse(finalized),
+      traceId,
+      "ready",
+    );
   } catch (error) {
     if (error instanceof PlanmeAiConfigurationError) {
+      logGptsRecommendationFailure(traceId, "ai_generation", "OPENAI_API_KEY_REQUIRED", 500);
       writeJson(response, 500, {
         error: "OPENAI_API_KEY_REQUIRED",
         message: "PlanME AI itinerary generation requires OPENAI_API_KEY.",
@@ -202,16 +220,60 @@ export async function handleGptsRecommendItineraryRequest(
       return;
     }
 
-    const message =
-      error instanceof Error ? formatPlanmeAiGenerationError(error) : "PlanME request failed";
+    const isHandoffError = error instanceof PreviewStoreHandoffError;
+    const message = isHandoffError
+      ? "PlanME itinerary store handoff failed."
+      : error instanceof Error
+        ? formatPlanmeAiGenerationError(error)
+        : "PlanME request failed";
 
-    // The API key and itinerary payload are never logged or echoed in REST errors.
-    console.error("PlanME GPTs Actions recommendation failed", message);
+    // The API key, itinerary payload, places, and coordinates never enter operational logs.
+    logGptsRecommendationFailure(
+      traceId,
+      isHandoffError ? "preview_store_handoff" : "ai_generation",
+      isHandoffError ? error.internalCode : "PLANME_RECOMMENDATION_FAILED",
+      isHandoffError ? error.status : 500,
+    );
     writeJson(response, 500, {
       error: "PLANME_RECOMMENDATION_FAILED",
       message,
     });
   }
+}
+
+/** Records response byte size without logging the GPTs payload itself. */
+function writeGptsRecommendationResponse(
+  response: ServerResponse,
+  payload: object,
+  traceId: string,
+  stage: "clarification" | "ready",
+) {
+  const responseBytes = Buffer.byteLength(JSON.stringify(payload), "utf8");
+
+  console.info("PlanME GPTs Actions response", {
+    event: "planme_gpts_response",
+    responseBytes,
+    stage,
+    status: 200,
+    traceId,
+  });
+  writeJson(response, 200, payload);
+}
+
+/** Records a redacted GPTs failure that can be correlated with the web handoff log. */
+function logGptsRecommendationFailure(
+  traceId: string,
+  stage: "ai_generation" | "preview_store_handoff",
+  internalCode: string,
+  status = 500,
+) {
+  console.error("PlanME GPTs Actions recommendation failure", {
+    event: "planme_gpts_recommendation_failure",
+    internalCode,
+    stage,
+    status,
+    traceId,
+  });
 }
 
 /**

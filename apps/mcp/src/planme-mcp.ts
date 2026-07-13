@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
   RESOURCE_MIME_TYPE,
@@ -43,6 +44,26 @@ type PersistedFinalizedItineraryResponse = {
   revision: number;
   status: "ready";
 };
+
+/** Represents a redacted MCP-to-web handoff failure with correlation metadata. */
+export class PreviewStoreHandoffError extends Error {
+  readonly internalCode: string;
+  readonly status?: number;
+  readonly traceId: string;
+
+  /** Creates an error that excludes itinerary content and upstream response bodies. */
+  constructor(traceId: string, internalCode: string, status?: number) {
+    super(
+      status === undefined
+        ? "PlanME preview store handoff request failed"
+        : `PlanME preview store handoff failed with status ${status}`,
+    );
+    this.name = "PreviewStoreHandoffError";
+    this.internalCode = internalCode;
+    this.status = status;
+    this.traceId = traceId;
+  }
+}
 
 const timelineEventSchema = z.object({
   time: z.string(),
@@ -245,6 +266,7 @@ function toWidgetMeta(itinerary: PlanmeItinerary, pageUrl: string) {
  */
 export async function persistItineraryForDetailPage(
   itinerary: PlanmeItinerary,
+  traceId = randomUUID(),
 ): Promise<PersistedFinalizedItineraryResponse> {
   const internalToken = getPlanmeInternalApiToken();
   const controller = new AbortController();
@@ -256,23 +278,44 @@ export async function persistItineraryForDetailPage(
       headers: {
         Authorization: `Bearer ${internalToken}`,
         "Content-Type": "application/json",
+        "X-PlanME-Trace-Id": traceId,
       },
       body: JSON.stringify({ itinerary }),
       signal: controller.signal,
     });
 
     if (!response.ok) {
-      // Do not log the itinerary payload; status is enough to diagnose handoff failures.
-      throw new Error(`PlanME preview store handoff failed with status ${response.status}`);
+      // Only the stable web error code crosses service boundaries; response messages stay private.
+      throw new PreviewStoreHandoffError(
+        traceId,
+        await readPreviewStoreErrorCode(response),
+        response.status,
+      );
     }
 
     return (await response.json()) as PersistedFinalizedItineraryResponse;
   } catch (error) {
-    const safeMessage = error instanceof Error ? error.message : "unknown error";
+    if (error instanceof PreviewStoreHandoffError) {
+      throw error;
+    }
 
-    throw new Error(`PlanME preview store handoff error: ${safeMessage}`);
+    throw new PreviewStoreHandoffError(traceId, "PREVIEW_STORE_HANDOFF_REQUEST_FAILED");
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+/** Reads only a stable error code from the web handoff response. */
+async function readPreviewStoreErrorCode(response: Response) {
+  try {
+    const body = (await response.json()) as { error?: string };
+    const errorCode = body.error?.trim() ?? "";
+
+    return /^[A-Z][A-Z0-9_]{2,80}$/.test(errorCode)
+      ? errorCode
+      : "PREVIEW_STORE_HANDOFF_FAILED";
+  } catch {
+    return "PREVIEW_STORE_HANDOFF_FAILED";
   }
 }
 
@@ -495,6 +538,7 @@ export function createPlanmeMcpServer(): McpServer {
       },
     },
     async (input: AppRecommendItineraryRequest) => {
+      const traceId = randomUUID();
       const normalizedInput: RecommendItineraryRequest = {
         ...input,
         transportMode: normalizeAppTransportMode(input.transportMode),
@@ -530,7 +574,12 @@ export function createPlanmeMcpServer(): McpServer {
           error instanceof Error ? formatPlanmeAiGenerationError(error) : "unknown error";
 
         // The API key is never logged; this message is needed to debug provider/schema failures.
-        console.error("PlanME AI itinerary generation failed", safeMessage);
+        console.error("PlanME itinerary request failure", {
+          event: "planme_itinerary_request_failure",
+          internalCode: "AI_ITINERARY_GENERATION_FAILED",
+          stage: "ai_generation",
+          traceId,
+        });
 
         return {
           isError: true,
@@ -558,17 +607,24 @@ export function createPlanmeMcpServer(): McpServer {
       }
 
       try {
-        const persisted = await persistItineraryForDetailPage(response.itinerary);
+        const persisted = await persistItineraryForDetailPage(response.itinerary, traceId);
         response = {
           ...toGptActionItineraryResponse(persisted.itinerary, getPlanmeWebRequestUrl()),
           resolutionLogs: response.resolutionLogs,
           validationIssues: response.validationIssues,
         };
       } catch (error) {
-        const safeMessage = error instanceof Error ? error.message : "unknown error";
-
         // Do not expose a detail URL when the web store could not persist the generated payload.
-        console.error("PlanME generated itinerary handoff failed", safeMessage);
+        console.error("PlanME itinerary request failure", {
+          event: "planme_itinerary_request_failure",
+          internalCode:
+            error instanceof PreviewStoreHandoffError
+              ? error.internalCode
+              : "PREVIEW_STORE_HANDOFF_FAILED",
+          stage: "preview_store_handoff",
+          status: error instanceof PreviewStoreHandoffError ? error.status : undefined,
+          traceId,
+        });
 
         return {
           isError: true,

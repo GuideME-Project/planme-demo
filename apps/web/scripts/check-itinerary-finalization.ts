@@ -5,6 +5,7 @@ import type {
   RoutePlan,
 } from "@planme/core";
 import {
+  RouteFinalizationError,
   RouteFinalizationTimeoutError,
   finalizeItineraryRoutes,
 } from "../lib/itinerary-route-finalizer";
@@ -14,6 +15,7 @@ import type {
   RouteProviderResult,
   RouteProviderStop,
 } from "../lib/route-providers/types";
+import { RouteProviderError } from "../lib/route-providers/types";
 
 /** Verifies concurrency, atomic failure, timeout, timeline invariance, and versioned storage. */
 async function main() {
@@ -51,13 +53,24 @@ async function main() {
           providerCalls += 1;
 
           if (providerCalls === 2) {
-            throw new Error("provider segment failed");
+            throw new RouteProviderError(
+              "NAVER_HTTP_503",
+              "provider response body must not enter the finalization log",
+              true,
+              true,
+            );
           }
 
           return createProviderResult(stops, 600);
         },
       }),
-    /provider segment failed/,
+    (error) =>
+      error instanceof RouteFinalizationError &&
+      error.internalCode === "NAVER_HTTP_503" &&
+      error.provider === "naver-directions" &&
+      error.dayIndex === 0 &&
+      error.routeId === "carryme" &&
+      error.retried,
   );
   assert.equal(providerCalls, 2);
 
@@ -286,6 +299,36 @@ async function assertFailedProviderLegRetriesOnce() {
 
     assert.equal(requestCount, 2);
     assert.equal(result.totalDurationSeconds, 600);
+
+    requestCount = 0;
+    globalThis.fetch = async () => {
+      requestCount += 1;
+      return new Response("temporary failure", { status: 503 });
+    };
+
+    await assert.rejects(
+      () =>
+        computeNaverDirectionsRoute(
+          [
+            {
+              coordinate: { lat: 37.2, lng: 127.1 },
+              id: "retry-failure-origin",
+              label: "출발지",
+            },
+            {
+              coordinate: { lat: 37.21, lng: 127.11 },
+              id: "retry-failure-destination",
+              label: "도착지",
+            },
+          ],
+          new AbortController().signal,
+        ),
+      (error) =>
+        error instanceof RouteProviderError &&
+        error.code === "NAVER_HTTP_503" &&
+        error.retried,
+    );
+    assert.equal(requestCount, 2);
   } finally {
     globalThis.fetch = originalFetch;
 

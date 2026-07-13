@@ -122,7 +122,21 @@ async function requestTransitSegmentWithRetry(
 
     // One short backoff prevents an immediate repeat of a provider burst response.
     await waitWithinSignal(400, signal);
-    return requestTransitSegment(origin, destination, segmentIndex, signal);
+    try {
+      return await requestTransitSegment(origin, destination, segmentIndex, signal);
+    } catch (retryError) {
+      if (retryError instanceof RouteProviderError) {
+        // Preserve that the provider failure was observed after the single allowed retry.
+        throw new RouteProviderError(
+          retryError.code,
+          retryError.message,
+          retryError.retriable,
+          true,
+        );
+      }
+
+      throw retryError;
+    }
   }
 }
 
