@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
+  assessPlanmePlanningInput,
   createAiRecommendedItineraryResponse as createCoreAiRecommendedItineraryResponse,
   createGeneratedItinerary,
   createPlanmeDraftPreview,
@@ -12,6 +13,9 @@ import {
   generatePlanmeDraftWithOpenAi,
   isPlanmeClarificationResponse,
   getPlanmeItineraryById,
+  PLANME_EXTERNAL_DURATION_ERROR_MESSAGE,
+  PLANME_EXTERNAL_MAX_DURATION_DAYS,
+  PlanmeOpenAiError,
   resolvePlanmeDraftCoordinates,
   searchAccommodationCandidates,
   searchPlanmePlaceCandidates,
@@ -20,8 +24,10 @@ import {
   type GptActionItineraryResponse,
   type AiRecommendedItineraryOptions,
   type PlanmeDraftGeocoder,
+  type PlanmeItinerary,
   type PlanmeRecommendationResponse,
   type RecommendItineraryRequest,
+  type RouteStop,
 } from "@planme/core";
 import { createNaverGeocoder } from "../src/naver-geocoding.js";
 import {
@@ -42,18 +48,65 @@ import {
 } from "../src/gpts-actions-api.js";
 
 type RecommendationContent = {
+  carrymeTotalMinutes?: number;
+  days?: GptActionItineraryResponse["days"];
   itineraryId?: string;
   pageUrl?: string;
   questions?: string[];
+  savingStatus?: "verified" | "hidden_estimated";
+  standardTotalMinutes?: number;
   status?: "ready" | "needs_clarification";
+  summary?: string;
   title?: string;
   savedMinutes?: number;
   timeline?: Array<{
     title?: string;
   }>;
+  transportMode?: "drive" | "transit";
   unresolvedStops?: string[];
   validationIssues?: string[];
 };
+
+type SharedRecommendationContract = Omit<
+  Pick<
+    RecommendationContent,
+    | "carrymeTotalMinutes"
+    | "days"
+    | "itineraryId"
+    | "pageUrl"
+    | "savedMinutes"
+    | "savingStatus"
+    | "standardTotalMinutes"
+    | "status"
+    | "summary"
+    | "title"
+    | "transportMode"
+    | "validationIssues"
+  >,
+  "status"
+> & {
+  status?: string;
+};
+
+/** Selects the fields that GPTs Actions and Apps must expose identically. */
+function toSharedRecommendationContract(
+  source: SharedRecommendationContract,
+): SharedRecommendationContract {
+  return {
+    carrymeTotalMinutes: source.carrymeTotalMinutes,
+    days: source.days,
+    itineraryId: source.itineraryId,
+    pageUrl: source.pageUrl,
+    savedMinutes: source.savedMinutes,
+    savingStatus: source.savingStatus,
+    standardTotalMinutes: source.standardTotalMinutes,
+    status: source.status,
+    summary: source.summary,
+    title: source.title,
+    transportMode: source.transportMode,
+    validationIssues: source.validationIssues,
+  };
+}
 
 type PlanningContent = {
   status?: "needs_input" | "ready";
@@ -96,6 +149,356 @@ function assertReadyRecommendation(
     false,
     `Expected ready itinerary response, got ${JSON.stringify(response)}`,
   );
+}
+
+/** Verifies model-facing totals and day summaries use the complete itinerary contract. */
+function assertGptActionMultiDayResponseContract(): void {
+  const itinerary = createGptActionMultiDayFixture();
+  const response = toGptActionItineraryResponse(
+    itinerary,
+    "https://planme.example/api/gpt/itineraries/recommend",
+  );
+
+  assert.equal(response.standardTotalMinutes, 540);
+  assert.equal(response.carrymeTotalMinutes, 470);
+  assert.equal(response.savingStatus, "verified");
+  assert.equal(response.savedMinutes, 70);
+  assert.equal(response.summary, "약 70분 절약");
+  assert.equal(response.days.length, 2);
+  assert.deepEqual(response.days[0], {
+    carryme: {
+      durationMinutes: 260,
+      end: "부산 숙소",
+      endTime: "17:00",
+      start: "동탄",
+      startTime: "08:00",
+    },
+    day: 1,
+    isFinalDay: false,
+    label: "Day 1",
+    luggageDelivery: {
+      target: "부산 숙소",
+      targetRole: "숙소",
+      time: "16:00",
+    },
+    returnsToTripOrigin: false,
+    sameEndpoints: true,
+    savedMinutes: 40,
+    savingStatus: "verified",
+    standard: {
+      durationMinutes: 300,
+      end: "부산 숙소",
+      endTime: "17:00",
+      start: "동탄",
+      startTime: "08:00",
+    },
+  });
+  assert.deepEqual(response.days[1], {
+    carryme: {
+      durationMinutes: 210,
+      end: "동탄",
+      endTime: "19:00",
+      start: "부산 숙소",
+      startTime: "09:00",
+    },
+    day: 2,
+    isFinalDay: true,
+    label: "Day 2",
+    luggageDelivery: {
+      target: "동탄",
+      targetRole: "복귀지",
+      time: "18:00",
+    },
+    returnsToTripOrigin: true,
+    sameEndpoints: true,
+    savedMinutes: 30,
+    savingStatus: "verified",
+    standard: {
+      durationMinutes: 240,
+      end: "동탄",
+      endTime: "19:00",
+      start: "부산 숙소",
+      startTime: "09:00",
+    },
+  });
+
+  const hiddenResponse = toGptActionItineraryResponse(
+    {
+      ...itinerary,
+      days: itinerary.days.map((day, index) =>
+        index === 1 ? { ...day, savingMinutes: undefined, savingStatus: "hidden_estimated" } : day,
+      ),
+    },
+    "https://planme.example/api/gpt/itineraries/recommend",
+  );
+
+  assert.equal(hiddenResponse.savingStatus, "hidden_estimated");
+  assert.equal(hiddenResponse.savedMinutes, undefined);
+  assert.equal(hiddenResponse.summary, "짐 없이 바로 이동 가능!");
+  assert.doesNotMatch(hiddenResponse.summary, /\d+분.*절약/);
+  assert.equal(hiddenResponse.days[0]?.savedMinutes, 40);
+  assert.equal(hiddenResponse.days[1]?.savedMinutes, undefined);
+  assert.equal(hiddenResponse.days[1]?.savingStatus, "hidden_estimated");
+
+  const inferredHiddenResponse = toGptActionItineraryResponse(
+    {
+      ...itinerary,
+      days: itinerary.days.map((day, index) =>
+        index === 1
+          ? {
+              ...day,
+              savingStatus: undefined,
+              standard: { ...day.standard, durationSource: "estimated" },
+            }
+          : day,
+      ),
+    },
+    "https://planme.example/api/gpt/itineraries/recommend",
+  );
+
+  assert.equal(inferredHiddenResponse.savingStatus, "hidden_estimated");
+  assert.equal(inferredHiddenResponse.savedMinutes, undefined);
+  assert.equal(inferredHiddenResponse.days[1]?.savingStatus, "hidden_estimated");
+
+  const mismatchedEndpointResponse = toGptActionItineraryResponse(
+    {
+      ...itinerary,
+      days: itinerary.days.map((day, index) =>
+        index === 1
+          ? {
+              ...day,
+              carryme: {
+                ...day.carryme,
+                routeText: "부산 숙소 → 부산 관광지",
+                stops: day.carryme.stops.slice(0, -1),
+              },
+            }
+          : day,
+      ),
+    },
+    "https://planme.example/api/gpt/itineraries/recommend",
+  );
+
+  assert.equal(mismatchedEndpointResponse.savingStatus, "hidden_estimated");
+  assert.equal(mismatchedEndpointResponse.savedMinutes, undefined);
+  assert.equal(mismatchedEndpointResponse.days[1]?.sameEndpoints, false);
+  assert.equal(mismatchedEndpointResponse.days[1]?.returnsToTripOrigin, false);
+}
+
+/** Verifies the public planning boundary without changing the internal draft limit. */
+function assertExternalDurationBoundaryContract(): void {
+  const unsupportedAssessment = assessPlanmePlanningInput({
+    destination: "부산",
+    durationDays: PLANME_EXTERNAL_MAX_DURATION_DAYS + 1,
+    origin: "동탄",
+    transportMode: "drive",
+  });
+
+  assert.equal(unsupportedAssessment.status, "needs_input");
+  assert.equal(unsupportedAssessment.normalizedInput.durationDays, null);
+  assert.deepEqual(unsupportedAssessment.missingSlots, ["durationDays"]);
+  assert.equal(
+    unsupportedAssessment.questions[0]?.text,
+    PLANME_EXTERNAL_DURATION_ERROR_MESSAGE,
+  );
+
+  const legacyDraft = createPlanmeDraftPreview({
+    days: Array.from({ length: 14 }, (_, index) => ({
+      day: index + 1,
+      label: `Day ${index + 1}`,
+      stops: [{ name: `레거시 장소 ${index + 1}`, caption: "방문" }],
+      timeline: [
+        {
+          category: "event" as const,
+          description: "내부 14일 초안 호환성을 확인합니다.",
+          time: "10:00",
+          title: `레거시 일정 ${index + 1}`,
+        },
+      ],
+    })),
+    duration: "13박 14일",
+    region: "레거시 테스트",
+    summary: "외부 기간 제한과 내부 초안 상한을 분리합니다.",
+    title: "내부 14일 초안",
+    transportMode: "drive",
+  });
+
+  assert.equal(legacyDraft.itinerary.days.length, 14);
+}
+
+/** Creates a compact stable-contract itinerary without provider or network dependencies. */
+function createGptActionMultiDayFixture(): PlanmeItinerary {
+  const origin: RouteStop = {
+    caption: "출발",
+    icon: "station" as const,
+    label: "동탄",
+    placeRef: "place:origin",
+    role: "출발지" as const,
+    stopRef: "day-1-origin",
+  };
+  const lodging: RouteStop = {
+    caption: "숙소",
+    icon: "hotel" as const,
+    label: "부산 숙소",
+    placeRef: "place:lodging",
+    role: "숙소" as const,
+    stopRef: "day-1-lodging",
+  };
+  const returnOrigin: RouteStop = {
+    ...origin,
+    caption: "복귀",
+    role: "복귀지" as const,
+    stopRef: "day-2-origin-return",
+  };
+  const visit: RouteStop = {
+    caption: "관광",
+    icon: "event" as const,
+    label: "부산 관광지",
+    placeRef: "place:visit",
+    role: "방문지" as const,
+    stopRef: "visit",
+  };
+  const createRoute = (
+    id: "standard" | "carryme",
+    durationMinutes: number,
+    stops: RouteStop[],
+  ) => ({
+    badge: id === "standard" ? "Standard" : "CarryME",
+    description: `${id} 테스트 경로`,
+    durationLabel: `약 ${durationMinutes}분`,
+    durationMinutes,
+    id,
+    label: id === "standard" ? "Standard" : "CarryME",
+    mapPath: [],
+    routeText: stops.map((stop) => stop.label).join(" → "),
+    stops,
+  });
+
+  return {
+    benefits: [],
+    carrymeSaving: "약 40분 절약",
+    days: [
+      {
+        carryme: createRoute("carryme", 260, [origin, visit, lodging]),
+        carrymeTimeline: [
+          {
+            category: "transit",
+            description: "동탄에서 출발합니다.",
+            eventKind: "traveler_stop",
+            stopRef: origin.stopRef,
+            time: "08:00",
+            title: "동탄 출발",
+          },
+          {
+            category: "carryme",
+            deliverySourcePlaceRef: origin.placeRef,
+            deliveryTargetPlaceRef: lodging.placeRef,
+            deliveryTargetStopRef: lodging.stopRef,
+            description: "짐은 여행자보다 먼저 숙소에 도착합니다.",
+            eventKind: "luggage_delivery",
+            time: "16:00",
+            title: "짐 부산 숙소 도착",
+          },
+          {
+            category: "hotel",
+            description: "숙소에 도착합니다.",
+            eventKind: "traveler_stop",
+            stopRef: lodging.stopRef,
+            time: "17:00",
+            title: "부산 숙소 도착",
+          },
+        ],
+        day: 1,
+        label: "Day 1",
+        savingMinutes: 40,
+        savingStatus: "verified",
+        standard: createRoute("standard", 300, [origin, visit, lodging]),
+        standardTimeline: [
+          {
+            category: "transit",
+            description: "동탄에서 출발합니다.",
+            eventKind: "traveler_stop",
+            stopRef: origin.stopRef,
+            time: "08:00",
+            title: "동탄 출발",
+          },
+          {
+            category: "hotel",
+            description: "숙소에 도착합니다.",
+            eventKind: "traveler_stop",
+            stopRef: lodging.stopRef,
+            time: "17:00",
+            title: "부산 숙소 도착",
+          },
+        ],
+        timeline: [],
+      },
+      {
+        carryme: createRoute("carryme", 210, [lodging, visit, returnOrigin]),
+        carrymeTimeline: [
+          {
+            category: "transit",
+            description: "숙소에서 출발합니다.",
+            eventKind: "traveler_stop",
+            stopRef: lodging.stopRef,
+            time: "09:00",
+            title: "부산 숙소 출발",
+          },
+          {
+            category: "carryme",
+            deliverySourcePlaceRef: lodging.placeRef,
+            deliveryTargetPlaceRef: returnOrigin.placeRef,
+            deliveryTargetStopRef: returnOrigin.stopRef,
+            description: "짐은 여행자보다 먼저 출발지에 도착합니다.",
+            eventKind: "luggage_delivery",
+            time: "18:00",
+            title: "짐 동탄 도착",
+          },
+          {
+            category: "arrival",
+            description: "최초 출발지에 도착합니다.",
+            eventKind: "traveler_stop",
+            stopRef: returnOrigin.stopRef,
+            time: "19:00",
+            title: "동탄 도착",
+          },
+        ],
+        day: 2,
+        label: "Day 2",
+        savingMinutes: 30,
+        savingStatus: "verified",
+        standard: createRoute("standard", 240, [lodging, visit, returnOrigin]),
+        standardTimeline: [
+          {
+            category: "transit",
+            description: "숙소에서 출발합니다.",
+            eventKind: "traveler_stop",
+            stopRef: lodging.stopRef,
+            time: "09:00",
+            title: "부산 숙소 출발",
+          },
+          {
+            category: "arrival",
+            description: "최초 출발지에 도착합니다.",
+            eventKind: "traveler_stop",
+            stopRef: returnOrigin.stopRef,
+            time: "19:00",
+            title: "동탄 도착",
+          },
+        ],
+        timeline: [],
+      },
+    ],
+    detailUrl: "/itinerary/response-parity-test",
+    duration: "1박 2일",
+    id: "response-parity-test",
+    region: "부산",
+    savedDurationLabel: "약 40분 절약",
+    summary: "동탄에서 부산을 여행하고 출발지로 복귀합니다.",
+    title: "부산 1박 2일 여행",
+    totalDurationLabel: "약 9시간 → 약 7시간 50분",
+    transportMode: "drive",
+  };
 }
 
 /**
@@ -374,22 +777,111 @@ async function assertOpenAiGeneratorContract(): Promise<void> {
   );
   assert.equal(generatedDraft.days[0]?.carrymeTimeline?.[1]?.title, "짐 숙소 도착");
   assert.match(capturedBody, /json_schema/);
+  assert.match(capturedBody, /planme_compact_itinerary_draft/);
   assert.match(capturedBody, /addressQuery/);
-  assert.match(capturedBody, /역\/터미널\/공항은 기본 수하물 보관·수령지가 아닙니다/);
-  assert.match(capturedBody, /standardStops/);
-  assert.match(capturedBody, /출발지/);
-  assert.match(capturedBody, /drive/);
+  assert.match(capturedBody, /days는 정확히 2개/);
+  assert.match(capturedBody, /숙소, 출발지, 복귀지, 짐 배송, 이동 경로와 시각은 서버가 추가/);
+  assert.doesNotMatch(capturedBody, /standardStops/);
+  assert.doesNotMatch(capturedBody, /carrymeTimeline/);
   assert.doesNotMatch(capturedBody, /luggageDestination/);
-  assert.match(capturedBody, /carrymeTimeline/);
-  assert.match(capturedBody, /중간 방문하여 체크인하는 경로/);
-  assert.match(capturedBody, /category는 반드시 carryme/);
-  assert.match(capturedBody, /category에 carryme를 사용하지 마세요/);
-  assert.match(capturedBody, /여행 마지막 날에는 Standard와 CarryME 모두/);
-  assert.match(capturedBody, /펜션 사랑가/);
-  assert.match(capturedBody, /아래 숙소 후보 중 하나/);
   assert.match(capturedBody, /PLANME_OPENAI_MODEL|test-model/);
   assert.doesNotMatch(capturedBody, /test-api-key/);
   assert.equal(fetchCallCount, 1);
+}
+
+/** Verifies the production compact outline expands without a second OpenAI request. */
+async function assertCompactOpenAiGeneratorContract(): Promise<void> {
+  let capturedBody = "";
+  let fetchCallCount = 0;
+  const generatedDraft = await generatePlanmeDraftWithOpenAi(
+    {
+      accommodationCandidates: [
+        {
+          address: "부산광역시 해운대구 해운대해변로 209번가길 27",
+          coordinate: { lat: 35.1601, lng: 129.1598 },
+          id: "hotel-busan",
+          name: "베이몬드호텔 해운대",
+          types: ["숙박"],
+        },
+      ],
+      destination: "부산",
+      durationDays: 2,
+      origin: "동탄",
+      preferences: [],
+      transportMode: "drive",
+    },
+    {
+      apiKey: "test-api-key",
+      model: "gpt-5.6-luna",
+      fetchImpl: async (_url, init) => {
+        fetchCallCount += 1;
+        capturedBody = String(init?.body ?? "");
+
+        return new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              days: [
+                {
+                  visits: [
+                    {
+                      addressQuery: "부산 해운대해수욕장",
+                      caption: "해변 산책",
+                      name: "해운대해수욕장",
+                      requiredPlaceKind: null,
+                      stayDurationMinutes: 90,
+                    },
+                  ],
+                },
+                {
+                  visits: [
+                    {
+                      addressQuery: "부산 감천문화마을",
+                      caption: "마을 관람",
+                      name: "감천문화마을",
+                      requiredPlaceKind: null,
+                      stayDurationMinutes: 90,
+                    },
+                  ],
+                },
+              ],
+              summary: "부산 대표 명소를 둘러보는 일정입니다.",
+              title: "동탄 출발 부산 2일 여행",
+            }),
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      },
+    },
+    {
+      requiredPlaces: {
+        destinations: [],
+        origin: {
+          address: "경기도 화성시 동탄",
+          coordinate: { lat: 37.2, lng: 127.1 },
+          inputText: "동탄",
+          kind: "origin",
+          name: "동탄",
+          source: "naver_geocode",
+          sourceRef: "naver_geocode:동탄:37.200000:127.100000",
+        },
+      },
+    },
+  );
+
+  assert.equal(fetchCallCount, 1);
+  assert.match(capturedBody, /"reasoning":\{"effort":"none"\}/);
+  assert.doesNotMatch(capturedBody, /search_naver_places|standardStops|carrymeTimeline/);
+  assert.equal(generatedDraft.days.length, 2);
+  assert.equal(generatedDraft.days[0]?.standardStops?.[0]?.name, "동탄");
+  assert.equal(generatedDraft.days[0]?.standardStops?.at(-1)?.name, "베이몬드호텔 해운대");
+  assert.equal(generatedDraft.days[1]?.standardStops?.[0]?.name, "베이몬드호텔 해운대");
+  assert.equal(generatedDraft.days[1]?.standardStops?.at(-1)?.name, "동탄");
+  assert.deepEqual(generatedDraft.days[0]?.standardStops, generatedDraft.days[0]?.carrymeStops);
+  assert.equal(
+    generatedDraft.days.flatMap((day) => day.carrymeTimeline ?? [])
+      .filter((event) => event.category === "carryme").length,
+    0,
+  );
 }
 
 /**
@@ -518,10 +1010,12 @@ async function assertOpenAiFunctionCallingContract(): Promise<void> {
   assert.equal(generatedDraft.days[0]?.stops?.[1]?.name, "거제바다낚시공원");
   assert.equal(requestBodies.length, 2);
   assert.match(requestBodies[0] ?? "", /search_naver_places/);
+  assert.match(requestBodies[0] ?? "", /"tool_choice":"required"/);
   assert.doesNotMatch(requestBodies[0] ?? "", /nearby|radiusMeters|center/);
   assertStrictOpenAiToolSchema(requestBodies[0] ?? "");
   assert.match(requestBodies[1] ?? "", /function_call_output/);
   assert.match(requestBodies[1] ?? "", /previous_response_id/);
+  assert.match(requestBodies[1] ?? "", /"tool_choice":"auto"/);
   assert.deepEqual(searchedQueries, ["거제 바다낚시"]);
 }
 
@@ -566,133 +1060,252 @@ function assertStrictOpenAiToolSchema(requestBody: string): void {
   assert.equal("radiusMeters" in (naverTool?.parameters?.properties ?? {}), false);
 }
 
-/**
- * Verifies generation retries once with required tool choice when the model skips place tools.
- */
-async function assertOpenAiMissingToolCallRetryContract(): Promise<void> {
+/** Verifies a required-tool protocol violation fails without discarding and regenerating output. */
+async function assertOpenAiMissingRequiredToolCallErrorContract(): Promise<void> {
   const requestBodies: string[] = [];
+
+  await assert.rejects(
+    () => generatePlanmeDraftWithOpenAi(
+      {
+        destination: "거제",
+        durationDays: 2,
+        transportMode: "drive",
+        origin: "강원도 양양",
+        preferences: ["낚시"],
+      },
+      {
+        apiKey: "test-api-key",
+        model: "test-model",
+        fetchImpl: async (_url, init) => {
+          requestBodies.push(String(init?.body ?? ""));
+
+          return new Response(
+            JSON.stringify({ output_text: JSON.stringify({ title: "도구 없는 초안" }) }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        },
+      },
+      {
+        placeCandidateSearcher: async () => ({ candidates: [], searchedQueries: [] }),
+      },
+    ),
+    (error) => {
+      assert.ok(error instanceof PlanmeOpenAiError);
+      assert.equal(error.code, "OPENAI_PLACE_TOOL_REQUIRED");
+      assert.equal(error.stage, "tool_execution");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+
+  assert.equal(requestBodies.length, 1);
+  assert.match(requestBodies[0] ?? "", /"tool_choice":"required"/);
+}
+
+/** Verifies equivalent searches run once, at most three at a time, without reordering outputs. */
+async function assertOpenAiToolConcurrencyAndDedupContract(): Promise<void> {
+  const requestBodies: string[] = [];
+  const searchedQueries: string[] = [];
+  let activeSearches = 0;
+  let maxActiveSearches = 0;
+  const toolQueries = [
+    "거제   바다낚시",
+    "거제 카페",
+    "  거제 바다낚시  ",
+    "거제 공원",
+    "거제 시장",
+  ];
   const generatedDraft = await generatePlanmeDraftWithOpenAi(
     {
       destination: "거제",
-      durationDays: 2, transportMode: "drive",
+      durationDays: 2,
+      transportMode: "drive",
       origin: "강원도 양양",
-      preferences: ["낚시"],
     },
     {
       apiKey: "test-api-key",
       model: "test-model",
       fetchImpl: async (_url, init) => {
-        const body = String(init?.body ?? "");
-        requestBodies.push(body);
+        requestBodies.push(String(init?.body ?? ""));
 
         if (requestBodies.length === 1) {
           return new Response(
             JSON.stringify({
-              output_text: JSON.stringify({
-                title: "도구 호출 없는 초안",
-                region: "거제",
-                duration: "1박 2일",
-                summary: "이 응답은 재시도되어야 합니다.",
-                origin: "강원도 양양",
-                assumptions: [],
-                savedMinutes: 0,
-                days: [],
-              }),
+              id: "resp_parallel_tools",
+              output: toolQueries.map((query, index) => ({
+                arguments: JSON.stringify({
+                  maxCandidates: 5,
+                  query,
+                  region: "거제",
+                  userIntent: "관광",
+                }),
+                call_id: `call_${index + 1}`,
+                name: "search_naver_places",
+                type: "function_call",
+              })),
             }),
             { status: 200, headers: { "Content-Type": "application/json" } },
           );
         }
 
-        if (requestBodies.length === 2) {
-          return new Response(
-            JSON.stringify({
-              id: "resp_required_tool_call",
-              output: [
-                {
-                  arguments: JSON.stringify({
-                    maxCandidates: 5,
-                    query: "거제 바다낚시",
-                    region: "거제",
-                    userIntent: "낚시",
-                  }),
-                  call_id: "call_required_naver_place",
-                  name: "search_naver_places",
-                  type: "function_call",
-                },
-              ],
-            }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          );
-        }
-
-        return new Response(
-          JSON.stringify({
-            output_text: JSON.stringify({
-              title: "거제 낚시 여행 1박 2일",
-              region: "거제",
-              duration: "1박 2일",
-              summary: "재시도 후 검색 후보를 반영한 일정입니다.",
-              origin: "강원도 양양",
-              assumptions: ["도구 호출 재시도 성공"],
-              savedMinutes: 20,
-              days: [
-                {
-                  day: 1,
-                  label: "Day 1",
-                  standardDurationMinutes: 620,
-                  carrymeDurationMinutes: 600,
-                  standardRouteText: "강원도 양양 → 거제바다낚시공원",
-                  carrymeRouteText: "강원도 양양 → 거제바다낚시공원",
-                  stops: [
-                    {
-                      name: "거제바다낚시공원",
-                      role: "visit",
-                      caption: "낚시",
-                      addressQuery: "경상남도 거제시 일운면 거제바다낚시공원",
-                    },
-                  ],
-                  timeline: [
-                    {
-                      time: "15:00",
-                      title: "거제바다낚시공원 방문",
-                      description: "바다 낚시를 즐깁니다.",
-                      category: "event",
-                      highlight: true,
-                      savingLabel: "약 20분 절약",
-                    },
-                  ],
-                },
-              ],
-            }),
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
+        return createOpenAiTestDraftResponse("병렬 검색 일정");
       },
     },
     {
-      placeCandidateSearcher: async ({ stop }) => ({
-        candidates: [
-          {
-            candidateId: "naver_local:geoje-retry-fishing:34.812300:128.702100",
-            id: "naver-geoje-retry-fishing",
-            name: "거제바다낚시공원",
-            address: "경상남도 거제시 일운면",
-            coordinate: { lat: 34.8123, lng: 128.7021 },
-            query: stop.name,
-            source: "naver_local",
-            sourceRef: "naver_local:geoje-retry-fishing:34.812300:128.702100",
-          },
-        ],
-        searchedQueries: [stop.name],
-      }),
+      placeCandidateSearcher: async ({ query }) => {
+        activeSearches += 1;
+        maxActiveSearches = Math.max(maxActiveSearches, activeSearches);
+        searchedQueries.push(query ?? "");
+        await new Promise<void>((resolve) => setTimeout(resolve, 5));
+        activeSearches -= 1;
+
+        return { candidates: [], searchedQueries: [query ?? ""] };
+      },
     },
   );
 
-  assert.equal(generatedDraft.title, "거제 낚시 여행 1박 2일");
-  assert.equal(requestBodies.length, 3);
-  assert.match(requestBodies[1] ?? "", /tool_choice":"required/);
-  assert.match(requestBodies[1] ?? "", /이전 응답에는 장소 검색 함수 호출이 없었습니다/);
-  assert.match(requestBodies[2] ?? "", /function_call_output/);
+  assert.equal(generatedDraft.title, "병렬 검색 일정");
+  assert.equal(searchedQueries.length, 4);
+  assert.equal(maxActiveSearches, 3);
+
+  const finalRequest = JSON.parse(requestBodies[1] ?? "{}") as {
+    input?: Array<{ call_id?: string }>;
+  };
+  assert.deepEqual(
+    finalRequest.input?.map((item) => item.call_id),
+    ["call_1", "call_2", "call_3", "call_4", "call_5"],
+  );
+}
+
+/** Verifies transient OpenAI failures retry once while permanent 4xx and deadlines do not. */
+async function assertOpenAiRetryAndTimeoutContract(): Promise<void> {
+  for (const status of [408, 429, 500]) {
+    let fetchCalls = 0;
+    const generatedDraft = await generatePlanmeDraftWithOpenAi(
+      { destination: "거제", durationDays: 2, transportMode: "drive", origin: "양양" },
+      {
+        apiKey: "test-api-key",
+        fetchImpl: async () => {
+          fetchCalls += 1;
+
+          if (fetchCalls === 1) {
+            return status === 500
+              ? new Response("temporary upstream failure", { status })
+              : new Response(JSON.stringify({ error: { message: "temporary failure" } }), {
+                  headers: status === 429 ? { "Retry-After": "0" } : undefined,
+                  status,
+                });
+          }
+
+          return createOpenAiTestDraftResponse(`재시도 성공 ${status}`);
+        },
+        retryDelayMs: 0,
+        timeoutMs: 1_000,
+      },
+    );
+
+    assert.equal(generatedDraft.title, `재시도 성공 ${status}`);
+    assert.equal(fetchCalls, 2);
+  }
+
+  let networkCalls = 0;
+  const networkRetryDraft = await generatePlanmeDraftWithOpenAi(
+    { destination: "거제", durationDays: 2, transportMode: "drive", origin: "양양" },
+    {
+      apiKey: "test-api-key",
+      fetchImpl: async () => {
+        networkCalls += 1;
+
+        if (networkCalls === 1) {
+          throw new Error("temporary network failure");
+        }
+
+        return createOpenAiTestDraftResponse("네트워크 재시도 성공");
+      },
+      retryDelayMs: 0,
+      timeoutMs: 1_000,
+    },
+  );
+
+  assert.equal(networkRetryDraft.title, "네트워크 재시도 성공");
+  assert.equal(networkCalls, 2);
+
+  let rejectedCalls = 0;
+  await assert.rejects(
+    () => generatePlanmeDraftWithOpenAi(
+      { destination: "거제", durationDays: 2, transportMode: "drive", origin: "양양" },
+      {
+        apiKey: "test-api-key",
+        fetchImpl: async () => {
+          rejectedCalls += 1;
+          return new Response(JSON.stringify({ error: { message: "bad request" } }), {
+            status: 400,
+          });
+        },
+        retryDelayMs: 0,
+        timeoutMs: 1_000,
+      },
+    ),
+    (error) => {
+      assert.ok(error instanceof PlanmeOpenAiError);
+      assert.equal(error.code, "OPENAI_REQUEST_REJECTED");
+      assert.equal(error.stage, "provider_response");
+      assert.equal(error.retryable, false);
+      assert.equal(error.status, 400);
+      return true;
+    },
+  );
+  assert.equal(rejectedCalls, 1);
+
+  let timeoutCalls = 0;
+  await assert.rejects(
+    () => generatePlanmeDraftWithOpenAi(
+      { destination: "거제", durationDays: 2, transportMode: "drive", origin: "양양" },
+      {
+        apiKey: "test-api-key",
+        fetchImpl: async (_url, init) => {
+          timeoutCalls += 1;
+
+          return await new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () => reject(new Error("aborted")),
+              { once: true },
+            );
+          });
+        },
+        retryDelayMs: 0,
+        timeoutMs: 10,
+      },
+    ),
+    (error) => {
+      assert.ok(error instanceof PlanmeOpenAiError);
+      assert.equal(error.code, "OPENAI_REQUEST_TIMEOUT");
+      assert.equal(error.stage, "request");
+      assert.equal(error.retryable, true);
+      return true;
+    },
+  );
+  assert.equal(timeoutCalls, 1);
+}
+
+/** Creates the smallest structured draft accepted by the generator normalization boundary. */
+function createOpenAiTestDraftResponse(title: string) {
+  return new Response(
+    JSON.stringify({
+      output_text: JSON.stringify({
+        assumptions: [],
+        days: [],
+        duration: "1박 2일",
+        origin: "양양",
+        region: "거제",
+        savedMinutes: 0,
+        summary: "테스트 일정",
+        title,
+      }),
+    }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
 }
 
 /**
@@ -1450,6 +2063,18 @@ async function assertThreeDayAiDraftContract(): Promise<void> {
   assertReadyRecommendation(response);
 
   assert.equal(response.itinerary.days.length, 3);
+  assert.equal(response.standardTotalMinutes, 1_080);
+  assert.equal(response.carrymeTotalMinutes, 940);
+  assert.equal(response.savedMinutes, 140);
+  assert.equal(response.days.length, 3);
+  assert.deepEqual(
+    response.days.map((day) => [day.standard.durationMinutes, day.carryme.durationMinutes]),
+    [
+      [420, 360],
+      [360, 320],
+      [300, 260],
+    ],
+  );
   assert.equal(response.itinerary.days[2]?.day, 3);
   assert.equal(response.itinerary.days[2]?.label, "셋째 날: 바다 산책 후 귀가");
   assert.equal(
@@ -1863,6 +2488,10 @@ function assertRequiredPlaceCandidateSelectionContract(): void {
   );
   const lakePark = createMockNaverPlaceCandidate("동탄호수공원", 1);
   const subwayStation = createMockNaverPlaceCandidate("강동역 5호선", 2);
+  const officeAmenity = {
+    ...createMockNaverPlaceCandidate("무더위쉼터 마포구청사무더위쉼터", 3),
+    address: "서울특별시 마포구 월드컵로 212 (마포구청)",
+  };
 
   assert.equal(
     selectPlanmeRequiredPlaceCandidate("동탄호수공원", [hairSalon, lakePark])?.name,
@@ -1876,10 +2505,49 @@ function assertRequiredPlaceCandidateSelectionContract(): void {
     selectPlanmeRequiredPlaceCandidate("강동역", [subwayStation])?.name,
     "강동역 5호선",
   );
+  assert.equal(
+    selectPlanmeRequiredPlaceCandidate("마포구청", [officeAmenity])?.name,
+    "마포구청",
+  );
 }
 
 /** Verifies a typed retry resolves a landmark after an unrelated branch ranks first. */
 async function assertRequiredPlaceQualifiedRetryContract(): Promise<void> {
+  let broadOriginName: string | undefined;
+
+  await assert.rejects(
+    createCoreAiRecommendedItineraryResponse(
+      "http://localhost:3000/api/gpt/itineraries/recommend",
+      {
+        destination: "부산",
+        destinationType: "region",
+        durationDays: 2,
+        origin: "동탄",
+        transportMode: "drive",
+      },
+      {
+        accommodationCandidateSearcher: async () => [],
+        aiItineraryGenerator: async (_input, context) => {
+          broadOriginName = context?.requiredPlaces?.origin.name;
+          throw new Error("broad-origin-display-verified");
+        },
+        draftGeocoder: async () => ({
+          coordinate: { lat: 37.196, lng: 127.098 },
+          matchedAddress: "경기도 화성시 오산동 967-152",
+          placeSource: "naver_geocode",
+          placeSourceRef: "naver_geocode:동탄:37.196000:127.098000",
+        }),
+        placeCandidateSearcher: async () => ({
+          candidates: [],
+          searchedQueries: [],
+        }),
+      },
+    ),
+    /broad-origin-display-verified/,
+  );
+
+  assert.equal(broadOriginName, "동탄 · 경기도 화성시 오산동 967-152");
+
   const queries: string[] = [];
   let resolvedOriginName: string | undefined;
   const hairSalon = createMockNaverPlaceCandidate(
@@ -1919,6 +2587,43 @@ async function assertRequiredPlaceQualifiedRetryContract(): Promise<void> {
 
   assert.deepEqual(queries, ["동탄호수공원", "동탄호수공원 공원"]);
   assert.equal(resolvedOriginName, "동탄호수공원");
+
+  const officeQueries: string[] = [];
+  const officeAmenity = {
+    ...createMockNaverPlaceCandidate("무더위쉼터 마포구청사무더위쉼터", 4),
+    address: "서울특별시 마포구 월드컵로 212 (마포구청)",
+  };
+
+  await assert.rejects(
+    createCoreAiRecommendedItineraryResponse(
+      "http://localhost:3000/api/gpt/itineraries/recommend",
+      {
+        destination: "남해",
+        destinationType: "region",
+        durationDays: 2,
+        origin: "마포구청",
+        transportMode: "drive",
+      },
+      {
+        accommodationCandidateSearcher: async () => [],
+        aiItineraryGenerator: async (_input, context) => {
+          assert.equal(context?.requiredPlaces?.origin.name, "마포구청");
+          throw new Error("government-office-retry-verified");
+        },
+        draftGeocoder: async () => null,
+        placeCandidateSearcher: async ({ query }) => {
+          officeQueries.push(query ?? "");
+          return {
+            candidates: query === "마포구청 청사" ? [officeAmenity] : [],
+            searchedQueries: [query ?? ""],
+          };
+        },
+      },
+    ),
+    /government-office-retry-verified/,
+  );
+
+  assert.deepEqual(officeQueries, ["마포구청", "마포구청 청사"]);
 }
 
 /**
@@ -2150,7 +2855,7 @@ async function assertIntermediateExclusionReindexesTimeline(): Promise<void> {
     {
       destination: "남해",
       destinationType: "region",
-      durationDays: 2,
+      durationDays: 1,
       origin: "강동역",
       transportMode: "transit",
     },
@@ -2247,7 +2952,7 @@ async function assertTimelineOrderRealignsRoute(): Promise<void> {
     {
       destination: "남해",
       destinationType: "region",
-      durationDays: 2,
+      durationDays: 1,
       origin: "강동역",
       transportMode: "transit",
     },
@@ -2654,6 +3359,48 @@ function assertDraftPreviewSlugContract(): void {
   assert.doesNotMatch(preview.previewId, /남해-남해/);
 }
 
+/** Keeps a timeline row aligned with the resolved stop instead of model-repeated region text. */
+function assertTimelineUsesCanonicalResolvedStopLabel(): void {
+  const preview = createPlanmeDraftPreview({
+    transportMode: "drive",
+    title: "부산 2일 핵심 명소 여행",
+    region: "부산",
+    duration: "1박 2일",
+    summary: "장소명 정규화 테스트",
+    days: [
+      {
+        day: 1,
+        label: "Day 1",
+        stops: [
+          { name: "동탄", caption: "출발", role: "출발지" },
+          { name: "부산자갈치시장", caption: "방문", role: "방문지" },
+        ],
+        timeline: [
+          {
+            category: "arrival",
+            description: "부산으로 출발합니다.",
+            stopIndex: 0,
+            time: "08:00",
+            title: "동탄 출발",
+          },
+          {
+            category: "event",
+            description: "시장을 둘러봅니다.",
+            stopIndex: 1,
+            time: "12:00",
+            title: "부산부산부산자갈치시장 방문",
+          },
+        ],
+      },
+    ],
+  });
+  const day = preview.itinerary.days[0];
+
+  assert.equal(day?.standardTimeline?.[1]?.title, "부산자갈치시장 방문");
+  assert.equal(day?.carrymeTimeline?.[1]?.title, "부산자갈치시장 방문");
+  assert.doesNotMatch(JSON.stringify(day), /부산부산/);
+}
+
 /**
  * Verifies that plain train or subway stations are not rendered as CarryME luggage handoff points.
  */
@@ -2896,7 +3643,8 @@ function assertRouteSpecificTimelineNormalization(): void {
   assert.match(JSON.stringify(firstDay?.standardTimeline), /파라다이스 호텔 부산 도착/);
   assert.doesNotMatch(JSON.stringify(finalDay?.standardTimeline), /호텔 부산 복귀/);
   assert.doesNotMatch(JSON.stringify(finalDay?.carrymeTimeline), /호텔 부산 숙박/);
-  assert.match(JSON.stringify(finalDay?.carrymeTimeline), /짐 파라다이스 호텔 부산 도착/);
+  assert.match(JSON.stringify(finalDay?.carrymeTimeline), /짐 동탄역 도착/);
+  assert.doesNotMatch(JSON.stringify(finalDay?.carrymeTimeline), /짐 파라다이스 호텔 부산 도착/);
   assert.match(JSON.stringify(finalDay?.standardTimeline), /동탄역 도착/);
   assert.match(JSON.stringify(finalDay?.carrymeTimeline), /동탄역 도착/);
 
@@ -3048,8 +3796,24 @@ async function assertGptsActionsRestFacade(): Promise<void> {
     assert.equal(openApiResponse.status, 200);
     assert.match(openApiText, /startPlanmePlanning/);
     assert.match(openApiText, /recommendPlanmeItinerary/);
+    assert.match(
+      openApiPayload.paths["/api/gpt/planning/start"].post.description,
+      /four required inputs.*Ask the returned required questions exactly once.*Do not ask for lodging or preferences/i,
+    );
+    assert.match(
+      openApiPayload.paths["/api/gpt/itineraries/recommend"].post.description,
+      /call immediately without additional research or optional questions.*Never turn an internal generation failure into a request for more user input/i,
+    );
     assert.match(openApiText, /\/api\/gpt\/planning\/start/);
     assert.match(openApiText, /\/api\/gpt\/itineraries\/recommend/);
+    assert.deepEqual(
+      openApiPayload.components.schemas.PlanmeErrorResponse.required,
+      ["error", "message", "retryable", "stage", "status", "traceId"],
+    );
+    assert.deepEqual(
+      openApiPayload.components.schemas.PlanmeErrorResponse.properties.status.enum,
+      ["error"],
+    );
     assert.ok(
       openApiPayload.components.schemas.RecommendItineraryRequest.properties
         .clarificationAnswers,
@@ -3078,6 +3842,19 @@ async function assertGptsActionsRestFacade(): Promise<void> {
         .default,
       "region",
     );
+    assert.equal(
+      openApiPayload.components.schemas.PlanmePlanningRequest.properties.durationDays.maximum,
+      PLANME_EXTERNAL_MAX_DURATION_DAYS,
+    );
+    assert.equal(
+      openApiPayload.components.schemas.RecommendItineraryRequest.properties.durationDays.maximum,
+      PLANME_EXTERNAL_MAX_DURATION_DAYS,
+    );
+    assert.equal(
+      openApiPayload.components.schemas.RecommendItineraryRequest.properties.durationDays
+        .description,
+      PLANME_EXTERNAL_DURATION_ERROR_MESSAGE,
+    );
     const actionResponseProperties =
       openApiPayload.components.schemas.ItineraryActionResponse.properties;
 
@@ -3088,6 +3865,22 @@ async function assertGptsActionsRestFacade(): Promise<void> {
       openApiPayload.components.schemas.ItineraryActionResponse.required.includes(
         "detailLinkMarkdown",
       ),
+    );
+    assert.ok(
+      openApiPayload.components.schemas.ItineraryActionResponse.required.includes("days"),
+    );
+    assert.equal(
+      openApiPayload.components.schemas.ItineraryActionResponse.properties.days.items.$ref,
+      "#/components/schemas/PlanmeItineraryDaySummary",
+    );
+    assert.equal(
+      openApiPayload.paths["/api/gpt/itineraries/recommend"].post.responses["400"]
+        .content["application/json"].schema.$ref,
+      "#/components/schemas/InvalidRecommendationRequestResponse",
+    );
+    assert.deepEqual(
+      openApiPayload.components.schemas.InvalidRecommendationRequestResponse.required,
+      ["error", "traceId", "validationIssues"],
     );
 
     const compactFixture = getPlanmeItineraryById("busan-bts-1d1n");
@@ -3104,6 +3897,11 @@ async function assertGptsActionsRestFacade(): Promise<void> {
     assert.equal("previewMarkdown" in compactActionPayload, false);
     assert.equal("resolutionLogs" in compactActionPayload, false);
     assert.equal("detailLinkMarkdown" in compactActionPayload, true);
+    assert.equal("days" in compactActionPayload, true);
+
+    if ("days" in compactActionPayload) {
+      assert.equal(compactActionPayload.days.length, compactFixture.days.length);
+    }
 
     if ("detailLinkMarkdown" in compactActionPayload) {
       assert.equal(
@@ -3126,6 +3924,52 @@ async function assertGptsActionsRestFacade(): Promise<void> {
     assert.equal(planningPayload.nextAction, "ask_user");
     assert.ok(planningPayload.missingSlots?.includes("origin"));
 
+    const unsupportedPlanningResponse = await fetch(`${origin}/api/gpt/planning/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        destination: "부산",
+        durationDays: PLANME_EXTERNAL_MAX_DURATION_DAYS + 1,
+        origin: "동탄",
+        transportMode: "drive",
+      }),
+    });
+    const unsupportedPlanningPayload = (await unsupportedPlanningResponse.json()) as {
+      error?: string;
+      validationIssues?: Array<{ message?: string; path?: string }>;
+    };
+
+    assert.equal(unsupportedPlanningResponse.status, 400);
+    assert.equal(unsupportedPlanningPayload.error, "INVALID_PLANME_PLANNING_REQUEST");
+    assert.ok(
+      unsupportedPlanningPayload.validationIssues?.some(
+        (issue) =>
+          issue.path === "durationDays" &&
+          issue.message === PLANME_EXTERNAL_DURATION_ERROR_MESSAGE,
+      ),
+    );
+
+    const transportOnlyPlanningResponse = await fetch(`${origin}/api/gpt/planning/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        destination: "부산",
+        durationDays: 2,
+        origin: "용산역",
+      }),
+    });
+    const transportOnlyPlanningPayload =
+      (await transportOnlyPlanningResponse.json()) as PlanningContent;
+
+    assert.equal(transportOnlyPlanningResponse.status, 200);
+    assert.equal(transportOnlyPlanningPayload.status, "needs_input");
+    assert.equal(transportOnlyPlanningPayload.nextAction, "ask_user");
+    assert.deepEqual(transportOnlyPlanningPayload.missingSlots, ["transportMode"]);
+    assert.deepEqual(
+      transportOnlyPlanningPayload.questions?.map((question) => question.slot),
+      ["transportMode"],
+    );
+
     const koreanPlanningResponse = await fetch(`${origin}/api/gpt/planning/start`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -3142,32 +3986,102 @@ async function assertGptsActionsRestFacade(): Promise<void> {
     assert.equal(koreanPlanningPayload.status, "ready");
     assert.equal(koreanPlanningPayload.normalizedInput?.transportMode, "transit");
     assert.equal(koreanPlanningPayload.normalizedInput?.destinationType, "region");
+    assert.deepEqual(koreanPlanningPayload.missingSlots, []);
+    assert.deepEqual(koreanPlanningPayload.questions, []);
 
-    const invalidRecommendationResponse = await fetch(
-      `${origin}/api/gpt/itineraries/recommend`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          destination: "부산",
-          durationDays: 2,
-          origin: "용산역",
-          transportMode: "도보",
-        }),
-      },
-    );
-    const invalidRecommendationPayload = (await invalidRecommendationResponse.json()) as {
+    const originalConsoleError = console.error;
+    let validationLogText = "";
+    const [invalidRecommendationResponse, invalidRecommendationPayload] = await (async () => {
+      try {
+        console.error = (...data) => {
+          validationLogText += JSON.stringify(data);
+        };
+        const currentResponse = await fetch(
+          `${origin}/api/gpt/itineraries/recommend`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              destination: "부산",
+              durationDays: 2,
+              origin: "용산역",
+              transportMode: "도보",
+            }),
+          },
+        );
+
+        return [currentResponse, await currentResponse.json()] as const;
+      } finally {
+        console.error = originalConsoleError;
+      }
+    })();
+    const typedInvalidRecommendationPayload = invalidRecommendationPayload as {
       error?: string;
+      traceId?: string;
       validationIssues?: Array<{ message?: string; path?: string }>;
     };
 
     assert.equal(invalidRecommendationResponse.status, 400);
-    assert.equal(invalidRecommendationPayload.error, "INVALID_PLANME_RECOMMENDATION_REQUEST");
+    assert.equal(
+      typedInvalidRecommendationPayload.error,
+      "INVALID_PLANME_RECOMMENDATION_REQUEST",
+    );
     assert.ok(
-      invalidRecommendationPayload.validationIssues?.some(
+      typedInvalidRecommendationPayload.validationIssues?.some(
         (issue) => issue.path === "transportMode",
       ),
     );
+    assert.match(
+      typedInvalidRecommendationPayload.traceId ?? "",
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    assert.match(validationLogText, /planme_gpts_request_validation_failure/);
+    assert.match(validationLogText, /"completionStage":"input_interpretation"/);
+    assert.match(validationLogText, /"internalCode":"INVALID_PLANME_RECOMMENDATION_REQUEST"/);
+    assert.match(validationLogText, /"stage":"request_validation"/);
+    assert.match(validationLogText, new RegExp(typedInvalidRecommendationPayload.traceId ?? "^$"));
+
+    const originalDurationConsoleError = console.error;
+    let durationValidationLogText = "";
+    const [unsupportedRecommendationResponse, unsupportedRecommendationPayload] = await (async () => {
+      try {
+        console.error = (...data) => {
+          durationValidationLogText += JSON.stringify(data);
+        };
+        const currentResponse = await fetch(`${origin}/api/gpt/itineraries/recommend`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            destination: "부산",
+            durationDays: PLANME_EXTERNAL_MAX_DURATION_DAYS + 1,
+            origin: "동탄",
+            transportMode: "drive",
+          }),
+        });
+
+        return [currentResponse, await currentResponse.json()] as const;
+      } finally {
+        console.error = originalDurationConsoleError;
+      }
+    })();
+    const typedUnsupportedRecommendationPayload = unsupportedRecommendationPayload as {
+      error?: string;
+      validationIssues?: Array<{ message?: string; path?: string }>;
+    };
+
+    assert.equal(unsupportedRecommendationResponse.status, 400);
+    assert.equal(
+      typedUnsupportedRecommendationPayload.error,
+      "INVALID_PLANME_RECOMMENDATION_REQUEST",
+    );
+    assert.ok(
+      typedUnsupportedRecommendationPayload.validationIssues?.some(
+        (issue) =>
+          issue.path === "durationDays" &&
+          issue.message === PLANME_EXTERNAL_DURATION_ERROR_MESSAGE,
+      ),
+    );
+    assert.match(durationValidationLogText, /planme_gpts_request_validation_failure/);
 
     const originalConsoleInfo = console.info;
     let responseLogText = "";
@@ -3193,16 +4107,15 @@ async function assertGptsActionsRestFacade(): Promise<void> {
       }
     })();
 
-    // Required anchors fail closed before AI generation when provider coordinates are unavailable.
-    assert.equal(recommendationResponse.status, 200);
-    assert.match(recommendationText, /needs_clarification/);
-    assert.match(recommendationText, /출발지|목적지/);
+    // Provider outages are internal failures and must not be presented as missing user input.
+    assert.equal(recommendationResponse.status, 500);
+    assert.match(recommendationText, /PLANME_RECOMMENDATION_FAILED/);
+    assert.match(recommendationText, /"stage":"place_resolution"/);
+    assert.match(recommendationText, /"retryable":false/);
+    assert.match(recommendationText, /"traceId":"[0-9a-f-]+"/i);
+    assert.doesNotMatch(recommendationText, /needs_clarification|정확한 장소명|주소를 알려/);
     assert.doesNotMatch(recommendationText, /\/itinerary\//);
-    assert.match(responseLogText, /planme_gpts_response/);
-    assert.match(
-      responseLogText,
-      new RegExp(`"responseBytes":${Buffer.byteLength(recommendationText, "utf8")}`),
-    );
+    assert.match(responseLogText, /planme_gpts_stage/);
     assert.match(
       responseLogText,
       /"traceId":"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"/i,
@@ -3242,9 +4155,14 @@ async function startServer() {
  * Verifies that PlanME MCP tools and resources satisfy the first GPT App PoC contract.
  */
 async function main(): Promise<void> {
+  assertGptActionMultiDayResponseContract();
+  assertExternalDurationBoundaryContract();
   await assertOpenAiGeneratorContract();
+  await assertCompactOpenAiGeneratorContract();
   await assertOpenAiFunctionCallingContract();
-  await assertOpenAiMissingToolCallRetryContract();
+  await assertOpenAiMissingRequiredToolCallErrorContract();
+  await assertOpenAiToolConcurrencyAndDedupContract();
+  await assertOpenAiRetryAndTimeoutContract();
   await assertOpenAiPlaceCandidateDecisionContract();
   await assertDraftCoordinateResolverContract();
   await assertNaverGeocoderContract();
@@ -3263,6 +4181,7 @@ async function main(): Promise<void> {
   await assertTimelineOrderRealignsRoute();
   await assertCoordinateOnlyIntermediateExclusionContract();
   assertDraftPreviewSlugContract();
+  assertTimelineUsesCanonicalResolvedStopLabel();
   assertDraftGeoPathRequiresCompleteCoordinates();
   assertStationLuggageGuardrail();
   assertRouteSpecificTimelineNormalization();
@@ -3298,8 +4217,21 @@ async function main(): Promise<void> {
     const startPlanningTool = tools.tools.find((tool) => tool.name === "start_planme_planning");
     const recommendInputSchema = recommendTool?.inputSchema as
       | {
-          properties?: Record<string, { enum?: string[]; description?: string }>;
+          properties?: Record<
+            string,
+            { enum?: string[]; description?: string; maximum?: number }
+          >;
           required?: string[];
+      }
+      | undefined;
+    const startPlanningInputSchema = startPlanningTool?.inputSchema as
+      | {
+          properties?: Record<string, { description?: string; maximum?: number }>;
+        }
+      | undefined;
+    const recommendOutputSchema = recommendTool?.outputSchema as
+      | {
+          properties?: Record<string, { enum?: string[] }>;
         }
       | undefined;
 
@@ -3312,8 +4244,30 @@ async function main(): Promise<void> {
       "대중교통",
     ]);
     assert.match(recommendInputSchema.properties.transportMode?.description ?? "", /자동차.*drive/);
+    assert.equal(
+      recommendInputSchema.properties.durationDays?.maximum,
+      PLANME_EXTERNAL_MAX_DURATION_DAYS,
+    );
+    assert.equal(
+      startPlanningInputSchema?.properties?.durationDays?.maximum,
+      PLANME_EXTERNAL_MAX_DURATION_DAYS,
+    );
+    assert.match(
+      recommendInputSchema.properties.durationDays?.description ?? "",
+      /최대 3일/,
+    );
     assert.equal(recommendInputSchema.required?.includes("destinationType"), false);
     assert.equal(recommendTool?.title, "PlanME 여행 일정 생성 및 저장");
+    assert.deepEqual(recommendOutputSchema?.properties?.status?.enum, [
+      "ready",
+      "needs_clarification",
+      "error",
+    ]);
+    assert.ok(recommendOutputSchema?.properties?.error);
+    assert.ok(recommendOutputSchema?.properties?.retryable);
+    assert.ok(recommendOutputSchema?.properties?.stage);
+    assert.ok(recommendOutputSchema?.properties?.traceId);
+    assert.ok(recommendOutputSchema?.properties?.days);
     assert.match(recommendTool?.description ?? "", /^Use this when/);
     assert.match(recommendTool?.description ?? "", /남해 1박 2일 여행 일정/);
     assert.match(recommendTool?.description ?? "", /before browsing or researching/);
@@ -3356,6 +4310,58 @@ async function main(): Promise<void> {
       planningDraftContent?.questions?.some((question) => question.slot === "durationDays"),
     );
 
+    const unsupportedDurationPlanning = await client.callTool({
+      name: "start_planme_planning",
+      arguments: {
+        destination: "부산",
+        durationDays: PLANME_EXTERNAL_MAX_DURATION_DAYS + 1,
+        origin: "동탄",
+        transportMode: "drive",
+      },
+    });
+    const unsupportedDurationPlanningText = JSON.stringify(unsupportedDurationPlanning);
+
+    assert.equal(unsupportedDurationPlanning.isError, true);
+    assert.match(unsupportedDurationPlanningText, /durationDays/);
+    assert.match(unsupportedDurationPlanningText, /최대 3일/);
+
+    const unsupportedDurationRecommendation = await client.callTool({
+      name: "recommend_planme_itinerary",
+      arguments: {
+        destination: "부산",
+        durationDays: PLANME_EXTERNAL_MAX_DURATION_DAYS + 1,
+        origin: "동탄",
+        transportMode: "drive",
+      },
+    });
+    const unsupportedDurationRecommendationText = JSON.stringify(
+      unsupportedDurationRecommendation,
+    );
+
+    assert.equal(unsupportedDurationRecommendation.isError, true);
+    assert.match(unsupportedDurationRecommendationText, /durationDays/);
+    assert.match(unsupportedDurationRecommendationText, /최대 3일/);
+
+    const transportOnlyPlanning = await client.callTool({
+      name: "start_planme_planning",
+      arguments: {
+        destination: "여수",
+        durationDays: 2,
+        origin: "서울",
+      },
+    });
+    const transportOnlyPlanningContent =
+      transportOnlyPlanning.structuredContent as PlanningContent | undefined;
+
+    assert.equal(transportOnlyPlanning.isError, undefined);
+    assert.equal(transportOnlyPlanningContent?.status, "needs_input");
+    assert.equal(transportOnlyPlanningContent?.nextAction, "ask_user");
+    assert.deepEqual(transportOnlyPlanningContent?.missingSlots, ["transportMode"]);
+    assert.deepEqual(
+      transportOnlyPlanningContent?.questions?.map((question) => question.slot),
+      ["transportMode"],
+    );
+
     const readyPlanning = await client.callTool({
       name: "start_planme_planning",
       arguments: {
@@ -3370,6 +4376,7 @@ async function main(): Promise<void> {
     assert.equal(readyPlanningContent?.status, "ready");
     assert.equal(readyPlanningContent?.nextAction, "recommend_planme_itinerary");
     assert.deepEqual(readyPlanningContent?.missingSlots, []);
+    assert.deepEqual(readyPlanningContent?.questions, []);
 
     const koreanPlanning = await client.callTool({
       name: "start_planme_planning",
@@ -3408,7 +4415,12 @@ async function main(): Promise<void> {
     try {
       process.env.PLANME_WEB_ORIGIN = "http://localhost:3000";
       const demoItinerary = getPlanmeItineraryById("busan-bts-1d1n");
+      const parityItinerary = createGptActionMultiDayFixture();
       assert.ok(demoItinerary);
+      const parityResponse = toGptActionItineraryResponse(
+        parityItinerary,
+        "http://localhost:3000/api/gpt/itineraries/response-parity-test",
+      );
       globalThis.fetch = async (input, init) => {
         if (String(input).includes("/api/gpt/itineraries/busan-bts-1d1n")) {
           return new Response(
@@ -3420,6 +4432,13 @@ async function main(): Promise<void> {
             ),
             { headers: { "Content-Type": "application/json" }, status: 200 },
           );
+        }
+
+        if (String(input).includes("/api/gpt/itineraries/response-parity-test")) {
+          return new Response(JSON.stringify(parityResponse), {
+            headers: { "Content-Type": "application/json" },
+            status: 200,
+          });
         }
 
         return originalClientFetch(input, init);
@@ -3436,6 +4455,26 @@ async function main(): Promise<void> {
       assert.equal(demoLookup.isError, undefined);
       assert.equal(demoLookupContent?.itineraryId, "busan-bts-1d1n");
       assert.equal(demoLookupContent?.pageUrl, "http://localhost:3000/itinerary/busan-bts-1d1n");
+      assert.equal(demoLookupContent?.days?.length, demoItinerary.days.length);
+
+      const parityLookup = await client.callTool({
+        name: "get_planme_itinerary",
+        arguments: {
+          itineraryId: "response-parity-test",
+        },
+      });
+      const parityAppContent = parityLookup.structuredContent as RecommendationContent | undefined;
+      const parityGptsContent = toGptsRestRecommendationResponse(parityResponse);
+
+      assert.equal(parityLookup.isError, undefined);
+      assert.ok(parityAppContent);
+      assert.equal("itineraryId" in parityGptsContent, true);
+      assert.deepEqual(
+        toSharedRecommendationContract(parityAppContent),
+        toSharedRecommendationContract(parityGptsContent),
+        "GPTs Actions와 Apps의 다일 일정 요약 계약이 다릅니다.",
+      );
+      assert.deepEqual(parityAppContent.days, parityResponse.days);
     } finally {
       if (originalClientWebOrigin === undefined) {
         delete process.env.PLANME_WEB_ORIGIN;

@@ -100,6 +100,22 @@ if (existsSync(itineraryDashboardFile)) {
   if (itineraryDashboardSource.includes("handleDestinationModeChange")) {
     failures.push("Destination rows must not expose per-segment transport mode changes.");
   }
+
+  const transportModeHandler = itineraryDashboardSource.match(
+    /const handleTransportModeChange = \(nextMode: PlanmeTransportMode\) => \{[\s\S]*?\n  \};/,
+  )?.[0];
+
+  if (!transportModeHandler) {
+    failures.push("ItineraryDashboard must keep one itinerary-wide transport mode handler.");
+  } else if (transportModeHandler.includes("setComputedRoutes")) {
+    failures.push(
+      "Changing the draft transport mode must preserve the last committed route until recalculation succeeds.",
+    );
+  }
+
+  if (!itineraryDashboardSource.includes("setTransportMode(committedTransportMode)")) {
+    failures.push("Failed route recalculation must restore the last committed transport mode.");
+  }
 }
 
 const gptActionsFile = join(root, "packages/planme-core/src/gpt-actions.ts");
@@ -130,6 +146,17 @@ if (existsSync(openAiGeneratorFile)) {
 
   if (openAiGeneratorSource.includes("search_places_nearby") || openAiGeneratorSource.includes("radiusMeters")) {
     failures.push("OpenAI place tools must not expose nearby or radius contracts.");
+  }
+
+  for (const requiredInstruction of [
+    "같은 day의 Standard와 CarryME는 반드시 같은 실제 장소에서 시작하고 같은 실제 장소에서 끝내세요.",
+    "여행 마지막 day는 두 경로 모두 최초 출발지로 복귀해 끝내고",
+    "여행 마지막 날 CarryME 타임라인에는 최초 출발지 복귀 시각과 같은 시각",
+    "사용자가 출발지를 집이라고 하지 않았다면 집이라고 바꾸지 마세요.",
+  ]) {
+    if (!openAiGeneratorSource.includes(requiredInstruction)) {
+      failures.push(`OpenAI generation must retain the itinerary boundary instruction: ${requiredInstruction}`);
+    }
   }
 }
 

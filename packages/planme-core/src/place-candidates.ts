@@ -46,7 +46,9 @@ export type PlanmePlaceCandidateSearchInput = {
   preferences?: string[];
   query?: string;
   region?: string;
+  signal?: AbortSignal;
   stop: PlanmeDraftStop;
+  timeoutMs?: number;
   userIntent?: string;
 };
 
@@ -77,10 +79,13 @@ type SearchPlanmePlaceCandidateOptions = {
   clientId?: string;
   clientSecret?: string;
   fetchImpl?: typeof fetch;
+  signal?: AbortSignal;
+  timeoutMs?: number;
   usageRecorder?: PlanmeUsageRecorder;
 };
 
 const NAVER_LOCAL_SEARCH_URL = "https://openapi.naver.com/v1/search/local.json";
+const DEFAULT_NAVER_LOCAL_TIMEOUT_MS = 4_000;
 const DEFAULT_PLANME_PLACE_CANDIDATE_LIMIT = 5;
 const MAX_PLANME_PLACE_CANDIDATE_LIMIT = 5;
 const NAVER_LOCAL_COORDINATE_SCALE = 10_000_000;
@@ -144,6 +149,11 @@ export async function searchPlanmePlaceCandidates(
       fetchImpl,
       maxCandidates,
       query,
+      signal: input.signal ?? options.signal,
+      timeoutMs: Math.min(
+        input.timeoutMs ?? DEFAULT_NAVER_LOCAL_TIMEOUT_MS,
+        options.timeoutMs ?? DEFAULT_NAVER_LOCAL_TIMEOUT_MS,
+      ),
       usageRecorder: options.usageRecorder,
     });
 
@@ -227,7 +237,26 @@ export function selectPlanmeRequiredPlaceCandidate(
       left.normalizedName.length - right.normalizedName.length || left.index - right.index,
     );
 
-  return boundaryCandidates[0]?.candidate ?? null;
+  const boundaryCandidate = boundaryCandidates[0]?.candidate;
+
+  if (boundaryCandidate) {
+    return boundaryCandidate;
+  }
+
+  // Government-office local searches can return an amenity inside the exact
+  // building instead of the building POI. Accept it only when the provider
+  // address itself names the requested office, and preserve the user's label.
+  if (/(?:구청|시청|군청|도청)$/.test(expectedName)) {
+    const addressCandidate = validCandidates.find((candidate) =>
+      normalizeRequiredPlaceName(candidate.address ?? "").includes(expectedName),
+    );
+
+    if (addressCandidate) {
+      return { ...addressCandidate, name: inputText.trim() };
+    }
+  }
+
+  return null;
 }
 
 /** Keeps exact landmarks and benign provider qualifiers while rejecting embedded branch names. */
@@ -262,6 +291,8 @@ async function requestNaverLocalCandidates({
   fetchImpl,
   maxCandidates,
   query,
+  signal,
+  timeoutMs,
   usageRecorder,
 }: {
   clientId: string;
@@ -269,6 +300,8 @@ async function requestNaverLocalCandidates({
   fetchImpl: typeof fetch;
   maxCandidates: number;
   query: string;
+  signal?: AbortSignal;
+  timeoutMs: number;
   usageRecorder?: PlanmeUsageRecorder;
 }) {
   const url = new URL(NAVER_LOCAL_SEARCH_URL);
@@ -279,21 +312,77 @@ async function requestNaverLocalCandidates({
 
   await recordPlanmeUsageSafely(usageRecorder, "naver_local_search_request");
 
-  const response = await fetchImpl(url, {
-    headers: {
-      "X-Naver-Client-Id": clientId,
-      "X-Naver-Client-Secret": clientSecret,
-    },
-    method: "GET",
-  });
-
-  if (!response.ok) {
-    throw new PlanmePlaceSearchProviderError(response.status);
-  }
+  const response = await requestNaverLocalSearch(
+    fetchImpl,
+    url,
+    clientId,
+    clientSecret,
+    signal,
+    timeoutMs,
+  );
 
   const payload = (await response.json()) as NaverLocalSearchResponse;
 
   return normalizeNaverLocalItems(payload.items ?? [], query).slice(0, maxCandidates);
+}
+
+/** Retries only transient local-search failures once and bounds every attempt. */
+async function requestNaverLocalSearch(
+  fetchImpl: typeof fetch,
+  url: URL,
+  clientId: string,
+  clientSecret: string,
+  signal: AbortSignal | undefined,
+  timeoutMs: number,
+) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const abortFromParent = () => controller.abort(signal?.reason);
+
+    if (signal?.aborted) {
+      abortFromParent();
+    } else {
+      signal?.addEventListener("abort", abortFromParent, { once: true });
+    }
+
+    try {
+      const response = await fetchImpl(url, {
+        headers: {
+          "X-Naver-Client-Id": clientId,
+          "X-Naver-Client-Secret": clientSecret,
+        },
+        method: "GET",
+        signal: controller.signal,
+      });
+      const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+
+      if (response.ok) {
+        return response;
+      }
+
+      if (!retryable || attempt === 1) {
+        throw new PlanmePlaceSearchProviderError(response.status);
+      }
+    } catch (error) {
+      if (signal?.aborted) {
+        throw new PlanmePlaceSearchProviderError(408);
+      }
+
+      if (error instanceof PlanmePlaceSearchProviderError) {
+        throw error;
+      }
+
+      if (attempt === 1) {
+        throw new PlanmePlaceSearchProviderError(503);
+      }
+    } finally {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", abortFromParent);
+    }
+  }
+
+  throw new PlanmePlaceSearchProviderError(503);
 }
 
 /**

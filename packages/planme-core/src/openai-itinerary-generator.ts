@@ -1,4 +1,8 @@
-import type { PlanmeDraftPreviewRequest } from "./draft-itineraries.js";
+import type {
+  PlanmeDraftPreviewRequest,
+  PlanmeDraftRouteStop,
+  PlanmeDraftTimelineEvent,
+} from "./draft-itineraries.js";
 import type {
   PlanmePlaceCandidateDecision,
   PlanmePlaceCandidateDecider,
@@ -28,12 +32,31 @@ export type AiItineraryGeneratorContext = {
   usageRecorder?: PlanmeUsageRecorder;
 };
 
-type OpenAiItineraryGeneratorOptions = {
+export type OpenAiItineraryGeneratorOptions = {
   apiKey?: string;
   fetchImpl?: typeof fetch;
   model?: string;
+  retryDelayMs?: number;
+  signal?: AbortSignal;
+  timeoutMs?: number;
   usageRecorder?: PlanmeUsageRecorder;
 };
+
+export type PlanmeOpenAiErrorCode =
+  | "OPENAI_INVALID_RESPONSE"
+  | "OPENAI_PLACE_TOOL_REQUIRED"
+  | "OPENAI_PROVIDER_ERROR"
+  | "OPENAI_RATE_LIMITED"
+  | "OPENAI_REQUEST_FAILED"
+  | "OPENAI_REQUEST_REJECTED"
+  | "OPENAI_REQUEST_TIMEOUT"
+  | "OPENAI_TOOL_LOOP_EXCEEDED";
+
+export type PlanmeOpenAiErrorStage =
+  | "output_parsing"
+  | "provider_response"
+  | "request"
+  | "tool_execution";
 
 type OpenAiResponsesApiResult = {
   error?: {
@@ -59,10 +82,44 @@ type OpenAiFunctionCallOutputItem = {
   type: "function_call_output";
 };
 
+type OpenAiFunctionCallItem = NonNullable<OpenAiResponsesApiResult["output"]>[number];
+
+type PreparedPlaceToolCall = {
+  args: PlanmePlaceSearchToolArgs;
+  functionCall: OpenAiFunctionCallItem;
+  searchKey: string;
+};
+
+type PlanmePlaceToolSearchResult = {
+  candidates: Awaited<ReturnType<PlanmePlaceCandidateSearcher>>["candidates"];
+  searchedQueries: string[];
+};
+
 type OpenAiPlaceCandidateDecisionInput = Parameters<PlanmePlaceCandidateDecider>[0];
 
+type OpenAiCompactVisit = {
+  addressQuery: string;
+  caption: string;
+  name: string;
+  requiredPlaceKind: "destination" | "must_visit" | null;
+  stayDurationMinutes: number;
+};
+
+type OpenAiCompactItineraryDraft = {
+  days: Array<{
+    visits: OpenAiCompactVisit[];
+  }>;
+  summary: string;
+  title: string;
+};
+
 const OPENAI_RESPONSES_API_URL = "https://api.openai.com/v1/responses";
-const DEFAULT_OPENAI_MODEL = "gpt-5.4-mini";
+const DEFAULT_OPENAI_MODEL = "gpt-5.6-luna";
+const DEFAULT_OPENAI_REQUEST_TIMEOUT_MS = 20_000;
+const DEFAULT_OPENAI_RETRY_DELAY_MS = 150;
+const MAX_OPENAI_RETRY_DELAY_MS = 1_000;
+const MAX_OPENAI_REQUEST_ATTEMPTS = 2;
+const MAX_PLACE_TOOL_CONCURRENCY = 3;
 // The widget supports longer drafts, but the schema still caps payload size for reliable MCP handoff.
 const MAX_GENERATED_ITINERARY_DAYS = 14;
 const MAX_OPENAI_TOOL_LOOP_COUNT = 3;
@@ -78,6 +135,31 @@ export class PlanmeAiConfigurationError extends Error {
 }
 
 /**
+ * Preserves a stable failure contract across OpenAI transport, response, and tool-loop failures.
+ */
+export class PlanmeOpenAiError extends Error {
+  readonly code: PlanmeOpenAiErrorCode;
+  readonly retryable: boolean;
+  readonly stage: PlanmeOpenAiErrorStage;
+  readonly status?: number;
+
+  constructor(
+    code: PlanmeOpenAiErrorCode,
+    stage: PlanmeOpenAiErrorStage,
+    retryable: boolean,
+    message: string,
+    status?: number,
+  ) {
+    super(message);
+    this.code = code;
+    this.name = "PlanmeOpenAiError";
+    this.retryable = retryable;
+    this.stage = stage;
+    this.status = status;
+  }
+}
+
+/**
  * Converts an AI generation failure into a safe operational message without secrets.
  */
 export function formatPlanmeAiGenerationError(error: Error): string {
@@ -85,6 +167,246 @@ export function formatPlanmeAiGenerationError(error: Error): string {
   return error.message
     .replace(/Bearer\s+[A-Za-z0-9._-]+/g, "Bearer [redacted]")
     .replace(/sk-[A-Za-z0-9._-]+/g, "sk-[redacted]");
+}
+
+/**
+ * Calls the Responses API within one caller-owned deadline and retries only transient failures.
+ */
+async function requestOpenAiResponse(
+  body: object,
+  apiKey: string,
+  options: OpenAiItineraryGeneratorOptions,
+  deadline: number,
+): Promise<OpenAiResponsesApiResult> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+
+  for (let attempt = 0; attempt < MAX_OPENAI_REQUEST_ATTEMPTS; attempt += 1) {
+    if (options.signal?.aborted) {
+      throw createOpenAiTimeoutError();
+    }
+
+    await recordPlanmeUsageSafely(options.usageRecorder, "openai_request");
+
+    const remainingMs = deadline - Date.now();
+
+    if (remainingMs <= 0) {
+      throw createOpenAiTimeoutError();
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), remainingMs);
+    const abortFromParent = () => controller.abort(options.signal?.reason);
+
+    if (options.signal?.aborted) {
+      abortFromParent();
+    } else {
+      options.signal?.addEventListener("abort", abortFromParent, { once: true });
+    }
+
+    try {
+      const response = await fetchImpl(OPENAI_RESPONSES_API_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      const payload = await readOpenAiResponsePayload(response);
+
+      if (response.ok) {
+        return payload;
+      }
+
+      const responseError = createOpenAiResponseError(response.status, payload.error?.message);
+
+      if (
+        attempt + 1 < MAX_OPENAI_REQUEST_ATTEMPTS &&
+        responseError.retryable &&
+        await waitForOpenAiRetry(response, options, deadline)
+      ) {
+        continue;
+      }
+
+      throw responseError;
+    } catch (error) {
+      if (error instanceof PlanmeOpenAiError) {
+        throw error;
+      }
+
+      const requestError = controller.signal.aborted
+        ? createOpenAiTimeoutError()
+        : new PlanmeOpenAiError(
+            "OPENAI_REQUEST_FAILED",
+            "request",
+            true,
+            "OpenAI request failed.",
+          );
+
+      if (
+        attempt + 1 < MAX_OPENAI_REQUEST_ATTEMPTS &&
+        requestError.retryable &&
+        !controller.signal.aborted &&
+        !options.signal?.aborted &&
+        await waitForOpenAiRetry(undefined, options, deadline)
+      ) {
+        continue;
+      }
+
+      throw requestError;
+    } finally {
+      clearTimeout(timeout);
+      options.signal?.removeEventListener("abort", abortFromParent);
+    }
+  }
+
+  throw new PlanmeOpenAiError(
+    "OPENAI_REQUEST_FAILED",
+    "request",
+    true,
+    "OpenAI request failed.",
+  );
+}
+
+/** Preserves retryable status handling even when an error response body is not JSON. */
+async function readOpenAiResponsePayload(response: Response): Promise<OpenAiResponsesApiResult> {
+  try {
+    return (await response.json()) as OpenAiResponsesApiResult;
+  } catch {
+    if (!response.ok) {
+      return {};
+    }
+
+    throw new PlanmeOpenAiError(
+      "OPENAI_INVALID_RESPONSE",
+      "provider_response",
+      false,
+      "OpenAI returned an invalid JSON response.",
+      response.status,
+    );
+  }
+}
+
+/** Maps provider status families into a stable retry contract. */
+function createOpenAiResponseError(status: number, providerMessage?: string) {
+  if (status === 408) {
+    return new PlanmeOpenAiError(
+      "OPENAI_REQUEST_TIMEOUT",
+      "provider_response",
+      true,
+      providerMessage ?? "OpenAI request timed out.",
+      status,
+    );
+  }
+
+  if (status === 429) {
+    return new PlanmeOpenAiError(
+      "OPENAI_RATE_LIMITED",
+      "provider_response",
+      true,
+      providerMessage ?? "OpenAI request was rate limited.",
+      status,
+    );
+  }
+
+  if (status >= 500) {
+    return new PlanmeOpenAiError(
+      "OPENAI_PROVIDER_ERROR",
+      "provider_response",
+      true,
+      providerMessage ?? "OpenAI provider request failed.",
+      status,
+    );
+  }
+
+  return new PlanmeOpenAiError(
+    "OPENAI_REQUEST_REJECTED",
+    "provider_response",
+    false,
+    providerMessage ?? "OpenAI rejected the request.",
+    status,
+  );
+}
+
+/** Creates the stable timeout used for both elapsed deadlines and aborted fetches. */
+function createOpenAiTimeoutError() {
+  return new PlanmeOpenAiError(
+    "OPENAI_REQUEST_TIMEOUT",
+    "request",
+    true,
+    "OpenAI request timed out.",
+  );
+}
+
+/** Waits only when a second attempt can start before the shared deadline. */
+async function waitForOpenAiRetry(
+  response: Response | undefined,
+  options: OpenAiItineraryGeneratorOptions,
+  deadline: number,
+) {
+  const delayMs = getOpenAiRetryDelayMs(response, options.retryDelayMs);
+
+  if (deadline - Date.now() <= delayMs) {
+    return false;
+  }
+
+  if (options.signal?.aborted) {
+    return false;
+  }
+
+  if (delayMs > 0) {
+    await waitForOpenAiRetryDelay(delayMs, options.signal);
+  }
+
+  return deadline > Date.now() && !options.signal?.aborted;
+}
+
+async function waitForOpenAiRetryDelay(delayMs: number, signal?: AbortSignal) {
+  await new Promise<void>((resolve) => {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const finish = () => {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+
+      signal?.removeEventListener("abort", finish);
+      resolve();
+    };
+
+    timeout = setTimeout(finish, delayMs);
+
+    if (signal?.aborted) {
+      finish();
+    } else {
+      signal?.addEventListener("abort", finish, { once: true });
+    }
+  });
+}
+
+/** Honors a short Retry-After value while bounding provider-controlled delay. */
+function getOpenAiRetryDelayMs(response: Response | undefined, configuredDelayMs?: number) {
+  const retryAfter = response?.headers.get("retry-after")?.trim();
+  const retryAfterSeconds = retryAfter ? Number(retryAfter) : Number.NaN;
+  const retryAfterDateMs = retryAfter && !Number.isFinite(retryAfterSeconds)
+    ? Date.parse(retryAfter) - Date.now()
+    : Number.NaN;
+  const requestedDelayMs = Number.isFinite(retryAfterSeconds)
+    ? retryAfterSeconds * 1_000
+    : Number.isFinite(retryAfterDateMs)
+      ? retryAfterDateMs
+      : configuredDelayMs ?? DEFAULT_OPENAI_RETRY_DELAY_MS;
+
+  return Math.max(0, Math.min(MAX_OPENAI_RETRY_DELAY_MS, Math.trunc(requestedDelayMs)));
+}
+
+/** Creates one total deadline shared by every Responses API call in an operation. */
+function createOpenAiDeadline(timeoutMs?: number) {
+  const normalizedTimeoutMs = typeof timeoutMs === "number" && Number.isFinite(timeoutMs)
+    ? Math.max(1, Math.trunc(timeoutMs))
+    : DEFAULT_OPENAI_REQUEST_TIMEOUT_MS;
+
+  return Date.now() + normalizedTimeoutMs;
 }
 
 /**
@@ -105,21 +427,13 @@ export function createOpenAiReplacementQuerySuggester(
   return async ({ attempt, itinerary, stop }) => {
     const apiKey = options.apiKey?.trim() || readRuntimeEnv("OPENAI_API_KEY");
     const model = options.model?.trim() || readRuntimeEnv("PLANME_OPENAI_MODEL") || DEFAULT_OPENAI_MODEL;
-    const fetchImpl = options.fetchImpl ?? fetch;
 
     if (!apiKey) {
       throw new PlanmeAiConfigurationError();
     }
 
-    await recordPlanmeUsageSafely(options.usageRecorder, "openai_request");
-
-    const response = await fetchImpl(OPENAI_RESPONSES_API_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    const payload = await requestOpenAiResponse(
+      {
         model,
         input: [
           "한국 국내 여행 일정의 실제 대체 장소 검색어 하나를 작성하세요.",
@@ -146,13 +460,11 @@ export function createOpenAiReplacementQuerySuggester(
             },
           },
         },
-      }),
-    });
-    const payload = (await response.json()) as OpenAiResponsesApiResult;
-
-    if (!response.ok) {
-      throw new Error(payload.error?.message ?? "OpenAI replacement query generation failed.");
-    }
+      },
+      apiKey,
+      options,
+      createOpenAiDeadline(options.timeoutMs),
+    );
 
     const outputText = extractOpenAiOutputText(payload);
 
@@ -160,7 +472,7 @@ export function createOpenAiReplacementQuerySuggester(
       return null;
     }
 
-    const parsed = JSON.parse(outputText) as { query?: string };
+    const parsed = parseOpenAiJsonOutput<{ query?: string }>(outputText);
 
     return parsed.query?.trim() || null;
   };
@@ -175,21 +487,13 @@ export async function decidePlanmePlaceCandidateWithOpenAi(
 ): Promise<PlanmePlaceCandidateDecision> {
   const apiKey = options.apiKey?.trim() || readRuntimeEnv("OPENAI_API_KEY");
   const model = options.model?.trim() || readRuntimeEnv("PLANME_OPENAI_MODEL") || DEFAULT_OPENAI_MODEL;
-  const fetchImpl = options.fetchImpl ?? fetch;
 
   if (!apiKey) {
     throw new PlanmeAiConfigurationError();
   }
 
-  await recordPlanmeUsageSafely(options.usageRecorder, "openai_request");
-
-  const response = await fetchImpl(OPENAI_RESPONSES_API_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
+  const payload = await requestOpenAiResponse(
+    {
       model,
       input: createPlaceCandidateDecisionPrompt(input),
       text: {
@@ -200,13 +504,11 @@ export async function decidePlanmePlaceCandidateWithOpenAi(
           schema: createPlaceCandidateDecisionJsonSchema(),
         },
       },
-    }),
-  });
-  const payload = (await response.json()) as OpenAiResponsesApiResult;
-
-  if (!response.ok) {
-    throw new Error(payload.error?.message ?? "OpenAI place candidate decision failed.");
-  }
+    },
+    apiKey,
+    options,
+    createOpenAiDeadline(options.timeoutMs),
+  );
 
   return normalizePlaceCandidateDecision(parseOpenAiDecisionPayload(payload));
 }
@@ -221,61 +523,59 @@ export async function generatePlanmeDraftWithOpenAi(
 ): Promise<PlanmeDraftPreviewRequest> {
   const apiKey = options.apiKey?.trim() || readRuntimeEnv("OPENAI_API_KEY");
   const model = options.model?.trim() || readRuntimeEnv("PLANME_OPENAI_MODEL") || DEFAULT_OPENAI_MODEL;
-  const fetchImpl = options.fetchImpl ?? fetch;
 
   if (!apiKey) {
     throw new PlanmeAiConfigurationError();
   }
 
-  const baseBody = createOpenAiItineraryRequestBody(model, input, context);
+  const deadline = createOpenAiDeadline(options.timeoutMs);
   const requiresPlaceSearchTools = Boolean(context.placeCandidateSearcher);
+  const usesCompactOutput = !requiresPlaceSearchTools;
+  const baseBody = createOpenAiItineraryRequestBody(model, input, context, usesCompactOutput);
   let hasExecutedPlaceToolCall = false;
   let previousResponseId: string | undefined;
   let pendingInput: string | OpenAiFunctionCallOutputItem[] = baseBody.input;
-  let retriedMissingToolCall = false;
 
   for (let attempt = 0; attempt < MAX_OPENAI_TOOL_LOOP_COUNT; attempt += 1) {
-    await recordPlanmeUsageSafely(options.usageRecorder, "openai_request");
-
-    const response = await fetchImpl(OPENAI_RESPONSES_API_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    const payload = await requestOpenAiResponse(
+      {
         ...baseBody,
         input: pendingInput,
-        ...(requiresPlaceSearchTools && retriedMissingToolCall && !hasExecutedPlaceToolCall
-          ? { tool_choice: "required" }
+        ...(requiresPlaceSearchTools
+          ? { tool_choice: hasExecutedPlaceToolCall ? "auto" : "required" }
           : {}),
         ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
-      }),
-    });
-
-    const payload = (await response.json()) as OpenAiResponsesApiResult;
-
-    if (!response.ok) {
-      throw new Error(payload.error?.message ?? "OpenAI itinerary generation failed.");
-    }
+      },
+      apiKey,
+      options,
+      deadline,
+    );
 
     const toolOutputs = await executePlanmePlaceToolCalls(payload, input, context);
 
     if (toolOutputs.length === 0) {
-      if (requiresPlaceSearchTools && !hasExecutedPlaceToolCall && !retriedMissingToolCall) {
-        retriedMissingToolCall = true;
-        pendingInput = createMissingToolCallRetryPrompt(input, context);
-        previousResponseId = undefined;
-        continue;
-      }
-
       if (requiresPlaceSearchTools && !hasExecutedPlaceToolCall) {
-        throw new Error("OpenAI itinerary generation did not request place search tools.");
+        throw new PlanmeOpenAiError(
+          "OPENAI_PLACE_TOOL_REQUIRED",
+          "tool_execution",
+          false,
+          "OpenAI itinerary generation did not request required place search tools.",
+        );
       }
 
-      return applyGeneratedTransportMode(
-        normalizeGeneratedDraft(parseOpenAiDraftPayload(payload)),
-        input.transportMode,
+      const generatedDraft = usesCompactOutput
+        ? parseAndExpandCompactDraftPayload(payload, input, context)
+        : normalizeGeneratedDraft(parseOpenAiDraftPayload(payload));
+
+      return applyGeneratedTransportMode(generatedDraft, input.transportMode);
+    }
+
+    if (!payload.id) {
+      throw new PlanmeOpenAiError(
+        "OPENAI_INVALID_RESPONSE",
+        "tool_execution",
+        false,
+        "OpenAI place tool response did not include a response id.",
       );
     }
 
@@ -284,7 +584,12 @@ export async function generatePlanmeDraftWithOpenAi(
     pendingInput = toolOutputs;
   }
 
-  throw new Error("OpenAI itinerary generation did not finish after place search tool calls.");
+  throw new PlanmeOpenAiError(
+    "OPENAI_TOOL_LOOP_EXCEEDED",
+    "tool_execution",
+    false,
+    "OpenAI itinerary generation did not finish after place search tool calls.",
+  );
 }
 
 /**
@@ -311,43 +616,44 @@ function applyGeneratedTransportMode(
 }
 
 /**
- * Builds a stricter retry prompt when the model skipped required place-search tools.
- */
-function createMissingToolCallRetryPrompt(
-  input: RecommendItineraryRequest,
-  context: AiItineraryGeneratorContext,
-) {
-  return [
-    createItineraryGenerationPrompt(input, true, context.requiredPlaces),
-    "",
-    "이전 응답에는 장소 검색 함수 호출이 없었습니다.",
-    "이번 응답에서는 일정 JSON을 바로 만들지 말고, 일정에 넣을 실제 장소 후보를 search_naver_places로 먼저 확인하세요.",
-  ].join("\n");
-}
-
-/**
  * Builds the Responses API body shared by the initial prompt and tool-output follow-ups.
  */
 function createOpenAiItineraryRequestBody(
   model: string,
   input: RecommendItineraryRequest,
   context: AiItineraryGeneratorContext,
+  usesCompactOutput: boolean,
 ) {
   const tools = context.placeCandidateSearcher ? createPlanmePlaceSearchTools() : undefined;
 
   return {
     model,
-    input: createItineraryGenerationPrompt(input, Boolean(tools), context.requiredPlaces),
-    ...(tools ? { tool_choice: "auto", tools } : {}),
+    ...createOpenAiReasoningConfig(model),
+    input: usesCompactOutput
+      ? createCompactItineraryGenerationPrompt(input, context.requiredPlaces)
+      : createItineraryGenerationPrompt(input, Boolean(tools), context.requiredPlaces),
+    ...(tools ? { tools } : {}),
     text: {
       format: {
         type: "json_schema",
-        name: "planme_itinerary_draft",
+        name: usesCompactOutput ? "planme_compact_itinerary_draft" : "planme_itinerary_draft",
         strict: true,
-        schema: createPlanmeDraftJsonSchema(),
+        schema: usesCompactOutput
+          ? createPlanmeCompactDraftJsonSchema(
+              input.durationDays ?? 2,
+              input.transportMode,
+            )
+          : createPlanmeDraftJsonSchema(),
       },
     },
   };
+}
+
+/** Uses the lowest supported reasoning effort for the production GPT-5.4/5.6 families. */
+function createOpenAiReasoningConfig(model: string) {
+  return /^gpt-5\.(?:4|6)(?:-|$)/.test(model)
+    ? { reasoning: { effort: "none" as const } }
+    : {};
 }
 
 /**
@@ -421,10 +727,15 @@ function parseOpenAiDecisionPayload(
   const outputText = extractOpenAiOutputText(payload);
 
   if (!outputText) {
-    throw new Error("OpenAI place candidate decision returned an empty response.");
+    throw new PlanmeOpenAiError(
+      "OPENAI_INVALID_RESPONSE",
+      "output_parsing",
+      false,
+      "OpenAI place candidate decision returned an empty response.",
+    );
   }
 
-  return JSON.parse(outputText) as PlanmePlaceCandidateDecision;
+  return parseOpenAiJsonOutput<PlanmePlaceCandidateDecision>(outputText);
 }
 
 /**
@@ -456,6 +767,38 @@ function readRuntimeEnv(name: string) {
 }
 
 /**
+ * Asks the model only for editorial choices; routing, lodging boundaries, and luggage are server-owned.
+ */
+function createCompactItineraryGenerationPrompt(
+  input: RecommendItineraryRequest,
+  requiredPlaces?: PlanmeResolvedRequiredPlaces,
+) {
+  const durationDays = input.durationDays ?? 2;
+  const requiredDestinations = requiredPlaces?.destinations ?? [];
+  const maximumVisitsPerDay = input.transportMode === "transit" ? 2 : 3;
+
+  return [
+    "한국 여행의 날짜별 방문지만 추천하세요.",
+    `days는 정확히 ${durationDays}개이고 배열 순서가 1일차부터 마지막 날입니다.`,
+    `각 day의 visits는 실제 운영 중인 관광지·식당·체험 장소 1~${maximumVisitsPerDay}개만 넣으세요.`,
+    "숙소, 출발지, 복귀지, 짐 배송, 이동 경로와 시각은 서버가 추가하므로 visits에 넣지 마세요.",
+    "name은 실제 고유 장소명, addressQuery는 네이버 검색 가능한 '<지역> <장소명>' 형식으로 작성하세요.",
+    "사용자가 지정한 필수 장소는 누락하지 말고 requiredPlaceKind를 destination 또는 must_visit으로 표시하세요.",
+    "그 밖의 AI 추천 장소는 requiredPlaceKind를 null로 두세요.",
+    "stayDurationMinutes는 현실적인 체류 분 단위이며 30~180 사이입니다.",
+    `목적지: ${input.destination ?? input.region ?? "미정"}`,
+    `출발지: ${input.origin ?? "미정"}`,
+    `기간: ${durationDays}일`,
+    `선호: ${(input.preferences ?? []).join(", ") || "없음"}`,
+    requiredDestinations.length > 0
+      ? `서버 확정 필수 장소: ${requiredDestinations
+          .map((place) => `${place.name}(${place.kind})`)
+          .join(", ")}`
+      : "서버 확정 필수 장소: 없음",
+  ].join("\n");
+}
+
+/**
  * Builds the prompt that asks OpenAI to draft concrete POIs with PlanME tool evidence.
  */
 function createItineraryGenerationPrompt(
@@ -484,14 +827,19 @@ function createItineraryGenerationPrompt(
     "role은 반드시 출발지, 방문지, 숙소, 복귀지 중 하나입니다.",
     "requiredPlaceKind는 사용자 출발지면 origin, destinationType=place인 목적지면 destination, mustVisitPlaces의 장소면 must_visit, 그 밖의 중간 장소면 null입니다.",
     `일정 전체 이동 수단은 ${input.transportMode}이며 모든 대표 구간에 동일하게 적용됩니다. stop별로 다른 이동 수단을 결정하지 마세요.`,
+    "같은 day의 Standard와 CarryME는 반드시 같은 실제 장소에서 시작하고 같은 실제 장소에서 끝내세요.",
+    "마지막 날이 아닌 모든 day는 두 경로 모두 같은 실제 숙소에서 끝내고, 다음 day는 그 숙소에서 시작하세요.",
+    "여행 마지막 day는 두 경로 모두 최초 출발지로 복귀해 끝내고, 호텔/숙소 복귀나 추가 숙박을 넣지 마세요.",
     "Standard 경로는 짐을 놓기 위해 호텔/숙소를 중간 방문하여 체크인하는 경로입니다.",
     "Standard의 첫 호텔/숙소 중간 방문은 '<호텔명> 체크인'으로 작성하고 통상적인 오후 시간대에 배치하세요.",
     "여행 마지막 날이 아니면 Standard에서 관광 후 같은 호텔/숙소로 돌아갈 때 '<호텔명> 복귀' 또는 숙박 의미로 작성하세요.",
     "여행 마지막 날에는 Standard와 CarryME 모두 관광 후 호텔/숙소 복귀·숙박 이벤트를 만들지 말고 최종 복귀지에서 일정을 끝내세요. 단, 사용자가 지정한 최종 목적지 자체가 호텔/숙소이면 유지하세요.",
     "Standard 타임라인에는 '짐 숙소 도착'이나 CarryME 배송 이벤트를 작성하지 말고 category에 carryme를 사용하지 마세요.",
     "CarryME 경로는 사람이 호텔/숙소 중간 방문 없이 바로 관광지 또는 최종 목적지로 이동하는 경로입니다.",
-    "CarryME 타임라인에는 Standard에서 사람이 호텔/숙소에 도착하는 시간과 같은 시간의 '짐 숙소 도착' 이벤트를 넣고 category는 반드시 carryme로 작성하세요.",
-    "'짐 숙소 도착'은 CarryME 타임라인 이벤트일 뿐 여행자의 행선지가 아니므로 carrymeStops에 넣지 마세요.",
+    "마지막 날이 아닌 CarryME 타임라인에는 Standard에서 사람이 그날 숙소에 도착하는 시각과 같은 시각의 '짐 <실제 숙소명> 도착' 이벤트를 하나 넣고 category는 반드시 carryme로 작성하세요.",
+    "여행 마지막 날 CarryME 타임라인에는 최초 출발지 복귀 시각과 같은 시각의 '짐 <최초 출발지명> 도착' 이벤트를 하나 넣고, 사용자가 출발지를 집이라고 하지 않았다면 집이라고 바꾸지 마세요.",
+    "짐 도착 이벤트는 출발/배송 접수 뒤에 배치하고 CarryME 여행자의 같은 목적지 도착보다 늦게 배치하지 마세요.",
+    "짐 도착은 CarryME 타임라인 이벤트일 뿐 여행자의 행선지가 아니므로 carrymeStops에 넣지 마세요.",
     "호텔/숙소가 최종 목적지이면 CarryME 경로의 최종 목적지로 유지하세요.",
     "역/터미널/공항은 기본 수하물 보관·수령지가 아닙니다. 호텔/숙소 또는 사용자가 명시한 CarryME 수령 지점만 사용하세요.",
     "부산역 짐 보관, 부산역 짐 수령처럼 교통 거점에서 짐을 맡기거나 찾는 표현을 만들지 마세요.",
@@ -553,49 +901,101 @@ function createPlanmePlaceSearchTools() {
 }
 
 /**
- * Executes all OpenAI-requested PlanME place search calls and serializes their outputs.
+ * Executes unique searches with bounded concurrency and restores the model's call order.
  */
 async function executePlanmePlaceToolCalls(
   payload: OpenAiResponsesApiResult,
   input: RecommendItineraryRequest,
   context: AiItineraryGeneratorContext,
 ): Promise<OpenAiFunctionCallOutputItem[]> {
-  if (!context.placeCandidateSearcher) {
+  const searcher = context.placeCandidateSearcher;
+
+  if (!searcher) {
     return [];
   }
 
   const functionCalls = (payload.output ?? []).filter(
     (item) => item.type === "function_call" && item.call_id && item.name,
   );
-  const outputs: OpenAiFunctionCallOutputItem[] = [];
+  const preparedCalls = functionCalls.map((functionCall) =>
+    preparePlaceToolCall(functionCall, input),
+  );
+  const uniqueCalls = preparedCalls.filter(
+    (preparedCall, index, calls) =>
+      calls.findIndex((candidate) => candidate.searchKey === preparedCall.searchKey) === index,
+  );
+  const resultsBySearchKey = new Map<string, PlanmePlaceToolSearchResult>();
+  let nextIndex = 0;
+  const workerCount = Math.min(MAX_PLACE_TOOL_CONCURRENCY, uniqueCalls.length);
 
-  for (const functionCall of functionCalls) {
-    const result = await executePlanmePlaceToolCall(functionCall, input, context);
+  const runWorker = async () => {
+    while (nextIndex < uniqueCalls.length) {
+      const preparedCall = uniqueCalls[nextIndex];
+      nextIndex += 1;
 
-    outputs.push({
+      if (!preparedCall) {
+        return;
+      }
+
+      const result = await executePlanmePlaceToolSearch(
+        preparedCall.args,
+        input,
+        searcher,
+        context.usageRecorder,
+      );
+      resultsBySearchKey.set(preparedCall.searchKey, result);
+    }
+  };
+
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+
+  return preparedCalls.map(({ functionCall, searchKey }) => {
+    const result = resultsBySearchKey.get(searchKey) ?? {
+      candidates: [],
+      searchedQueries: [],
+    };
+
+    return {
       call_id: functionCall.call_id ?? "",
-      output: JSON.stringify(result),
+      output: JSON.stringify({ ...result, toolName: functionCall.name }),
       type: "function_call_output",
-    });
-  }
-
-  return outputs;
+    };
+  });
 }
 
 /**
- * Routes one model function call into the configured PlanME place candidate searcher.
+ * Normalizes one model-authored search so equivalent calls share one provider request.
  */
-async function executePlanmePlaceToolCall(
-  functionCall: NonNullable<OpenAiResponsesApiResult["output"]>[number],
+function preparePlaceToolCall(
+  functionCall: OpenAiFunctionCallItem,
   input: RecommendItineraryRequest,
-  context: AiItineraryGeneratorContext,
-) {
+): PreparedPlaceToolCall {
   const args = parsePlanmePlaceSearchArgs(functionCall.arguments ?? "{}");
   const query = args.query || args.userIntent || input.destination || input.region || "장소 후보";
+  const preferences = args.userIntent ? [args.userIntent] : input.preferences ?? [];
+  const searchKey = [
+    normalizePlaceToolSearchKeyPart(query),
+    normalizePlaceToolSearchKeyPart(args.region || input.region || ""),
+    normalizePlaceToolSearchKeyPart(input.destination || ""),
+    preferences.map(normalizePlaceToolSearchKeyPart).join("|"),
+    String(args.maxCandidates ?? 5),
+  ].join("::");
 
-  await recordPlanmeUsageSafely(context.usageRecorder, "function_place_search_call");
+  return { args: { ...args, query }, functionCall, searchKey };
+}
 
-  const result = await context.placeCandidateSearcher?.({
+/** Routes one unique normalized search into the configured place provider. */
+async function executePlanmePlaceToolSearch(
+  args: PlanmePlaceSearchToolArgs,
+  input: RecommendItineraryRequest,
+  searcher: PlanmePlaceCandidateSearcher,
+  usageRecorder?: PlanmeUsageRecorder,
+): Promise<PlanmePlaceToolSearchResult> {
+  const query = args.query || args.userIntent || input.destination || input.region || "장소 후보";
+
+  await recordPlanmeUsageSafely(usageRecorder, "function_place_search_call");
+
+  const result = await searcher({
     destination: input.destination,
     maxCandidates: args.maxCandidates ?? undefined,
     preferences: args.userIntent ? [args.userIntent] : input.preferences,
@@ -609,10 +1009,14 @@ async function executePlanmePlaceToolCall(
   });
 
   return {
-    candidates: (result?.candidates ?? []).slice(0, args.maxCandidates ?? 5),
-    searchedQueries: result?.searchedQueries ?? [],
-    toolName: functionCall.name,
+    candidates: result.candidates.slice(0, args.maxCandidates ?? 5),
+    searchedQueries: result.searchedQueries,
   };
+}
+
+/** Makes whitespace, case, and Unicode-equivalent search text share one key. */
+function normalizePlaceToolSearchKeyPart(value: string) {
+  return value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("ko-KR");
 }
 
 type PlanmePlaceSearchToolArgs = {
@@ -673,6 +1077,67 @@ function createAccommodationCandidatePromptSection(
       ].join(" | "),
     ),
   ].join("\n");
+}
+
+/** Keeps model output small by limiting it to day-level editorial visit choices. */
+function createPlanmeCompactDraftJsonSchema(
+  durationDays: number,
+  transportMode: RecommendItineraryRequest["transportMode"],
+) {
+  const exactDayCount = Math.max(1, Math.min(MAX_GENERATED_ITINERARY_DAYS, durationDays));
+  const maximumVisitsPerDay = transportMode === "transit" ? 2 : 3;
+
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["title", "summary", "days"],
+    properties: {
+      title: { type: "string" },
+      summary: { type: "string" },
+      days: {
+        type: "array",
+        minItems: exactDayCount,
+        maxItems: exactDayCount,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["visits"],
+          properties: {
+            visits: {
+              type: "array",
+              minItems: 1,
+              maxItems: maximumVisitsPerDay,
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: [
+                  "name",
+                  "caption",
+                  "addressQuery",
+                  "requiredPlaceKind",
+                  "stayDurationMinutes",
+                ],
+                properties: {
+                  name: { type: "string" },
+                  caption: { type: "string" },
+                  addressQuery: { type: "string" },
+                  requiredPlaceKind: {
+                    type: ["string", "null"],
+                    enum: ["destination", "must_visit", null],
+                  },
+                  stayDurationMinutes: {
+                    type: "integer",
+                    minimum: 30,
+                    maximum: 180,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
 }
 
 /**
@@ -798,6 +1263,197 @@ function createTimelineSchema() {
   };
 }
 
+/** Parses the compact outline and expands server-owned route boundaries deterministically. */
+function parseAndExpandCompactDraftPayload(
+  payload: OpenAiResponsesApiResult,
+  input: RecommendItineraryRequest,
+  context: AiItineraryGeneratorContext,
+): PlanmeDraftPreviewRequest {
+  const outputText = extractOpenAiOutputText(payload);
+
+  if (!outputText) {
+    throw new PlanmeOpenAiError(
+      "OPENAI_INVALID_RESPONSE",
+      "output_parsing",
+      false,
+      "OpenAI itinerary generation returned an empty response.",
+    );
+  }
+
+  const parsed = parseOpenAiJsonOutput<OpenAiCompactItineraryDraft | PlanmeDraftPreviewRequest>(
+    outputText,
+  );
+
+  // Preserve compatibility with injected generators and older mocked Responses fixtures.
+  if (isExpandedDraftPayload(parsed)) {
+    return normalizeGeneratedDraft(parsed);
+  }
+
+  return expandCompactDraft(parsed, input, context);
+}
+
+/** Detects the previous full draft shape without trusting an arbitrary payload blindly. */
+function isExpandedDraftPayload(
+  draft: OpenAiCompactItineraryDraft | PlanmeDraftPreviewRequest,
+): draft is PlanmeDraftPreviewRequest {
+  const firstDay = draft.days?.[0] as
+    | PlanmeDraftPreviewRequest["days"][number]
+    | { visits?: OpenAiCompactVisit[] }
+    | undefined;
+
+  return Boolean(
+    firstDay &&
+      ("standardStops" in firstDay || "carrymeStops" in firstDay || "stops" in firstDay),
+  );
+}
+
+/**
+ * Turns one compact visit outline into the canonical route that the domain normalizer expands.
+ */
+function expandCompactDraft(
+  outline: OpenAiCompactItineraryDraft,
+  input: RecommendItineraryRequest,
+  context: AiItineraryGeneratorContext,
+): PlanmeDraftPreviewRequest {
+  const durationDays = input.durationDays ?? outline.days.length;
+  const origin = createCompactOriginStop(input, context.requiredPlaces);
+  const lodging = createCompactLodgingStop(input);
+  const days = outline.days.map((day, dayIndex) => {
+    const isFinalDay = dayIndex === durationDays - 1;
+    const start = dayIndex === 0
+      ? origin
+      : { ...lodging, caption: "숙소 출발", role: "숙소" as const };
+    const end = isFinalDay
+      ? { ...origin, caption: "여행 종료", role: "복귀지" as const }
+      : { ...lodging, caption: "숙박", role: "숙소" as const };
+    const visits = day.visits.map(createCompactVisitStop);
+    const canonicalStops = [start, ...visits, end];
+    const canonicalTimeline = createCompactCanonicalTimeline(
+      canonicalStops,
+      day.visits,
+      dayIndex === 0 ? 8 * 60 : 9 * 60,
+    );
+    const durationMinutes = Math.max(
+      0,
+      (canonicalStops.length - 1) * 15 +
+        day.visits.reduce((total, visit) => total + visit.stayDurationMinutes, 0),
+    );
+
+    return {
+      day: dayIndex + 1,
+      label: `Day ${dayIndex + 1}`,
+      standardStops: canonicalStops.map((stop) => ({ ...stop })),
+      carrymeStops: canonicalStops.map((stop) => ({ ...stop })),
+      stops: canonicalStops.map((stop) => ({ ...stop })),
+      standardTimeline: canonicalTimeline.map((event) => ({ ...event })),
+      carrymeTimeline: canonicalTimeline.map((event) => ({ ...event })),
+      timeline: canonicalTimeline.map((event) => ({ ...event })),
+      standardDurationMinutes: durationMinutes,
+      carrymeDurationMinutes: durationMinutes,
+      standardRouteText: canonicalStops.map((stop) => stop.name).join(" → "),
+      carrymeRouteText: canonicalStops.map((stop) => stop.name).join(" → "),
+    };
+  });
+
+  return normalizeGeneratedDraft({
+    assumptions: [],
+    days,
+    duration: `${durationDays}일`,
+    origin: origin.name,
+    region: input.destination ?? input.region,
+    savedMinutes: 0,
+    summary: outline.summary,
+    title: outline.title,
+    transportMode: input.transportMode,
+  });
+}
+
+/** Uses only server-resolved origin evidence when it is available. */
+function createCompactOriginStop(
+  input: RecommendItineraryRequest,
+  requiredPlaces?: PlanmeResolvedRequiredPlaces,
+): PlanmeDraftRouteStop {
+  const origin = requiredPlaces?.origin;
+
+  return {
+    addressQuery: origin?.address ?? origin?.inputText ?? input.origin,
+    caption: "여행 출발",
+    coordinate: origin?.coordinate,
+    mode: input.transportMode,
+    name: origin?.name ?? input.origin?.trim() ?? "출발지 확인 필요",
+    placeSource: origin?.source,
+    placeSourceRef: origin?.sourceRef,
+    requiredPlaceKind: "origin",
+    role: "출발지",
+  };
+}
+
+/** Selects a concrete pre-searched lodging label; the caller applies its provider evidence next. */
+function createCompactLodgingStop(input: RecommendItineraryRequest): PlanmeDraftRouteStop {
+  const candidate = input.accommodationCandidates?.[0];
+  const destination = input.destination ?? input.region ?? "여행지";
+
+  return {
+    addressQuery: candidate?.address ?? input.hotelName ?? `${destination} 숙소`,
+    caption: "숙박",
+    coordinate: candidate?.coordinate,
+    mode: input.transportMode,
+    name: input.hotelName?.trim() || candidate?.name || `${destination} 숙소`,
+    placeId: candidate?.placeId,
+    role: "숙소",
+  };
+}
+
+/** Converts one AI-authored visit into an unresolved provider-gated route stop. */
+function createCompactVisitStop(visit: OpenAiCompactVisit): PlanmeDraftRouteStop {
+  return {
+    addressQuery: visit.addressQuery.trim(),
+    caption: visit.caption.trim(),
+    name: visit.name.trim(),
+    requiredPlaceKind: visit.requiredPlaceKind ?? undefined,
+    role: "방문지",
+  };
+}
+
+/** Creates only traveler anchors; luggage delivery is synthesized after route normalization. */
+function createCompactCanonicalTimeline(
+  stops: readonly PlanmeDraftRouteStop[],
+  visits: readonly OpenAiCompactVisit[],
+  startMinutes: number,
+): PlanmeDraftTimelineEvent[] {
+  return stops.map((stop, stopIndex) => {
+    const visit = stopIndex > 0 && stopIndex < stops.length - 1
+      ? visits[stopIndex - 1]
+      : undefined;
+    const isStart = stopIndex === 0;
+    const isEnd = stopIndex === stops.length - 1;
+    const title = isStart
+      ? `${stop.name} 출발`
+      : stop.role === "복귀지"
+        ? `${stop.name} 복귀`
+        : stop.role === "숙소"
+          ? `${stop.name} 도착`
+          : `${stop.name} 방문`;
+
+    return {
+      category: stop.role === "숙소" ? "hotel" : isStart || isEnd ? "arrival" : "event",
+      description: visit?.caption.trim() || stop.caption || title,
+      highlight: Boolean(visit),
+      savingLabel: "",
+      stayDurationMinutes: visit?.stayDurationMinutes ?? 0,
+      stopIndex,
+      time: formatCompactTimelineTime(startMinutes + stopIndex * 15),
+      title,
+    };
+  });
+}
+
+/** Formats bounded provisional minutes; the web route finalizer later replaces them. */
+function formatCompactTimelineTime(totalMinutes: number) {
+  const normalized = Math.max(0, Math.min(23 * 60 + 59, Math.trunc(totalMinutes)));
+  return `${String(Math.floor(normalized / 60)).padStart(2, "0")}:${String(normalized % 60).padStart(2, "0")}`;
+}
+
 /**
  * Extracts the JSON string from a Responses API result.
  */
@@ -805,10 +1461,29 @@ function parseOpenAiDraftPayload(payload: OpenAiResponsesApiResult): PlanmeDraft
   const outputText = extractOpenAiOutputText(payload);
 
   if (!outputText) {
-    throw new Error("OpenAI itinerary generation returned an empty response.");
+    throw new PlanmeOpenAiError(
+      "OPENAI_INVALID_RESPONSE",
+      "output_parsing",
+      false,
+      "OpenAI itinerary generation returned an empty response.",
+    );
   }
 
-  return JSON.parse(outputText) as PlanmeDraftPreviewRequest;
+  return parseOpenAiJsonOutput<PlanmeDraftPreviewRequest>(outputText);
+}
+
+/** Converts malformed structured output into the same stable error contract. */
+function parseOpenAiJsonOutput<T>(outputText: string): T {
+  try {
+    return JSON.parse(outputText) as T;
+  } catch {
+    throw new PlanmeOpenAiError(
+      "OPENAI_INVALID_RESPONSE",
+      "output_parsing",
+      false,
+      "OpenAI returned malformed structured output.",
+    );
+  }
 }
 
 /**

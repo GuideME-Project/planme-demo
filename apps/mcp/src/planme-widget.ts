@@ -66,7 +66,7 @@ export function createPlanmeWidgetHtml(): string {
         color: var(--ink);
         background: var(--surface);
       }
-      .wrap { max-width: 720px; padding: 22px; }
+      .wrap { max-width: 760px; padding: 22px; }
       .head {
         display: flex;
         justify-content: space-between;
@@ -117,18 +117,58 @@ export function createPlanmeWidgetHtml(): string {
         color: var(--muted);
         font-size: 13px;
       }
-      .timeline {
+      .days {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .day-card {
         border: 1px solid var(--line);
         border-radius: 16px;
-        margin-top: 14px;
-        padding: 18px 18px 8px;
+        padding: 16px;
+      }
+      .day-head {
+        align-items: center;
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .day-head strong {
+        font-size: 18px;
+      }
+      .day-head span {
+        color: var(--muted);
+        font-size: 13px;
+        text-align: right;
+      }
+      .day-routes {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 12px;
+      }
+      .day-route {
+        background: var(--soft);
+        border-radius: 10px;
+        color: var(--muted);
+        font-size: 12px;
+        padding: 10px;
+      }
+      .day-route b {
+        color: var(--ink);
+        display: block;
+        margin-bottom: 4px;
+      }
+      .timeline {
+        margin-top: 16px;
+        padding: 0 2px;
       }
       ul { list-style: none; margin: 0; padding: 0; }
       li {
         display: grid;
         grid-template-columns: 58px 30px 1fr;
         gap: 12px;
-        min-height: 86px;
+        min-height: 76px;
         position: relative;
       }
       li::after {
@@ -160,7 +200,7 @@ export function createPlanmeWidgetHtml(): string {
         display: inline-flex;
         align-items: center;
         min-height: 30px;
-        font-size: 20px;
+        font-size: 17px;
       }
       li p {
         margin: 4px 0 0;
@@ -199,7 +239,9 @@ export function createPlanmeWidgetHtml(): string {
       @media (max-width: 560px) {
         .wrap { padding: 16px; }
         .head, .footer { flex-direction: column; align-items: stretch; }
-        .summary { grid-template-columns: 1fr; }
+        .summary, .day-routes { grid-template-columns: 1fr; }
+        .day-head { align-items: flex-start; flex-direction: column; }
+        .day-head span { text-align: left; }
         h1 { font-size: 23px; }
       }
     </style>
@@ -215,16 +257,16 @@ export function createPlanmeWidgetHtml(): string {
       </section>
       <section class="summary" aria-label="동선 비교 요약">
         <div class="card">
-          <strong>Standard</strong>
+          <strong>Standard 전체</strong>
           <p data-planme-standard>일정 데이터를 불러오는 중</p>
         </div>
         <div class="card">
-          <strong>CarryME</strong>
+          <strong>CarryME 전체</strong>
           <p data-planme-carryme>일정 데이터를 불러오는 중</p>
         </div>
       </section>
-      <section class="timeline" aria-label="CarryME 일정 타임라인">
-        <ul data-planme-timeline><li><span class="time">--:--</span><span class="dot"></span><div><strong>일정 확인 중</strong><p>PlanME 일정 데이터를 불러오고 있습니다.</p></div></li></ul>
+      <section class="days" data-planme-days aria-label="일차별 CarryME 일정">
+        <section class="day-card"><div class="empty">PlanME 일정 데이터를 불러오고 있습니다.</div></section>
       </section>
       <section class="footer">
         <div>
@@ -280,29 +322,78 @@ export function createPlanmeWidgetHtml(): string {
 	        return latestToolResultItinerary || metadataItinerary || outputItinerary || fallbackItinerary;
 	      }
 
-	      function renderTimeline(timeline) {
-	        const timelineElement = document.querySelector("[data-planme-timeline]");
+	      function formatDurationMinutes(minutes) {
+	        const roundedMinutes = Math.max(0, Math.round(Number(minutes) || 0));
+	        const hours = Math.floor(roundedMinutes / 60);
+	        const remainder = roundedMinutes % 60;
+
+	        if (roundedMinutes === 0) {
+	          return "0분";
+	        }
+
+	        if (hours === 0) {
+	          return "약 " + remainder + "분";
+	        }
+
+	        return remainder === 0
+	          ? "약 " + hours + "시간"
+	          : "약 " + hours + "시간 " + remainder + "분";
+	      }
+
+	      function getTotalDuration(days, routeId, fallbackLabel) {
+	        const durations = days
+	          .map((day) => Number(day?.[routeId]?.durationMinutes))
+	          .filter((duration) => Number.isFinite(duration));
+
+	        return durations.length === days.length && days.length > 0
+	          ? formatDurationMinutes(durations.reduce((sum, duration) => sum + duration, 0))
+	          : String(fallbackLabel ?? "확인 중");
+	      }
+
+	      function renderTimelineMarkup(timeline) {
 	        const items = Array.isArray(timeline) ? timeline : [];
 
-	        if (!timelineElement) {
-	          return;
-	        }
-
 	        if (items.length === 0) {
-	          timelineElement.innerHTML = '<li><span class="time">--:--</span><span class="dot"></span><div><strong>일정 확인 중</strong><p>PlanME 일정 데이터를 불러오고 있습니다.</p></div></li>';
+	          return '<li><span class="time">--:--</span><span class="dot"></span><div><strong>일정 확인 중</strong><p>PlanME 일정 데이터를 불러오고 있습니다.</p></div></li>';
+	        }
+
+	        return items
+	          .map((event) => '<li class="' + (event.highlight ? "highlight" : "") + '"><span class="time">' + escapeText(event.time) + '</span><span class="dot"></span><div><strong>' + escapeText(event.title) + '</strong><p>' + escapeText(event.description) + '</p></div></li>')
+	          .join("");
+	      }
+
+	      function renderDays(days) {
+	        const daysElement = document.querySelector("[data-planme-days]");
+
+	        if (!daysElement) {
 	          return;
 	        }
 
-	        timelineElement.innerHTML = items
-	          .map((event) => '<li class="' + (event.highlight ? "highlight" : "") + '"><span class="time">' + escapeText(event.time) + '</span><span class="dot"></span><div><strong>' + escapeText(event.title) + '</strong><p>' + escapeText(event.description) + '</p></div></li>')
+	        daysElement.innerHTML = days
+	          .map((day, index) => {
+	            const standard = day.standard || fallbackItinerary.days[0].standard;
+	            const carryme = day.carryme || fallbackItinerary.days[0].carryme;
+	            const timeline = day.carrymeTimeline || day.timeline || [];
+	            const dayNumber = Number(day.day) || index + 1;
+
+	            return '<section class="day-card" data-planme-day="' + dayNumber + '">' +
+	              '<div class="day-head"><strong>' + dayNumber + '일차</strong><span>Standard ' + escapeText(standard.durationLabel) + ' · CarryME ' + escapeText(carryme.durationLabel) + '</span></div>' +
+	              '<div class="day-routes"><div class="day-route"><b>Standard</b>' + escapeText(standard.routeText) + '</div><div class="day-route"><b>CarryME</b>' + escapeText(carryme.routeText) + '</div></div>' +
+	              '<div class="timeline"><ul>' + renderTimelineMarkup(timeline) + '</ul></div>' +
+	              '</section>';
+	          })
 	          .join("");
 	      }
 
 	      function renderPlanmeWidget() {
 	        const itinerary = getWidgetItinerary();
-	        const firstDay = itinerary.days?.[0] || fallbackItinerary.days[0];
-	        const standard = firstDay.standard || fallbackItinerary.days[0].standard;
-	        const carryme = firstDay.carryme || fallbackItinerary.days[0].carryme;
+	        const days = Array.isArray(itinerary.days) && itinerary.days.length > 0
+	          ? itinerary.days.slice(0, 3)
+	          : fallbackItinerary.days;
+	        const firstDay = days[0] || fallbackItinerary.days[0];
+	        const totalLabels = String(itinerary.totalDurationLabel ?? "").split("→");
+	        const standardTotal = getTotalDuration(days, "standard", totalLabels[0]?.trim() || firstDay.standard?.durationLabel);
+	        const carrymeTotal = getTotalDuration(days, "carryme", totalLabels[1]?.trim() || firstDay.carryme?.durationLabel);
 
 	        setText("[data-planme-title]", String(itinerary.region ?? "") + " " + String(itinerary.duration ?? ""));
 	        const savingElement = document.querySelector("[data-planme-saving]");
@@ -314,9 +405,9 @@ export function createPlanmeWidgetHtml(): string {
 	            savingElement.textContent = String(savingLabel);
 	          }
 	        }
-	        setText("[data-planme-standard]", String(standard.routeText ?? "") + " · " + String(standard.durationLabel ?? ""));
-	        setText("[data-planme-carryme]", String(carryme.routeText ?? "") + " · " + String(carryme.durationLabel ?? ""));
-        setText("[data-planme-carryme-duration]", carryme.durationLabel);
+	        setText("[data-planme-standard]", standardTotal);
+	        setText("[data-planme-carryme]", carrymeTotal);
+        setText("[data-planme-carryme-duration]", carrymeTotal);
 
         const link = document.querySelector("[data-planme-link]");
 
@@ -324,7 +415,7 @@ export function createPlanmeWidgetHtml(): string {
           link.href = String(itinerary.detailUrl ?? fallbackItinerary.detailUrl);
         }
 
-        renderTimeline(firstDay.timeline);
+        renderDays(days);
       }
 
 	      function handleToolResultMessage(event) {

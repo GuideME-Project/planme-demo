@@ -553,9 +553,9 @@ function buildDraftItinerary(
   const originReplacement =
     explicitOrigin ?? (draftContainsDefaultAirportOrigin(input) ? UNKNOWN_ORIGIN_LABEL : null);
   const luggageFallbackLabel = createRegionLuggageFallbackLabel(region);
-  const days = input.days.length > 0
-    ? input.days
-        .slice(0, MAX_DRAFT_DAYS)
+  const boundedDraftDays = input.days.slice(0, MAX_DRAFT_DAYS);
+  const days = boundedDraftDays.length > 0
+    ? boundedDraftDays
         .map((day, index) =>
           buildDraftDay(
             day,
@@ -563,6 +563,7 @@ function buildDraftItinerary(
             input.savedMinutes ?? 0,
             index === 0 ? originReplacement : null,
             luggageFallbackLabel,
+            index === boundedDraftDays.length - 1,
           ),
         )
     : [buildEmptyDraftDay(input.savedMinutes ?? 0)];
@@ -599,6 +600,7 @@ function buildDraftDay(
   savedMinutes: number,
   explicitOrigin: string | null = null,
   luggageFallbackLabel = "숙소",
+  isFinalDay = false,
 ): ItineraryDay {
   const hasStableTimelineContract = [
     ...(day.standardTimeline ?? []),
@@ -625,6 +627,8 @@ function buildDraftDay(
         )
       : buildCarrymeStops(standardStops),
   );
+  const deliverySourceStop = standardStops[0];
+  const deliveryTargetStop = selectDeliveryTargetStop(standardStops, isFinalDay);
   let routeLikeTimelineIndex = 0;
   const routeText = standardStops.map((stop) => stop.label).join(" → ") || "일정 초안 확인 중";
   const carrymeRouteText =
@@ -664,14 +668,28 @@ function buildDraftDay(
       day.carrymeTimeline ?? day.timeline ?? [],
       carrymeStops,
       explicitOrigin,
+      0,
+      { deliverySourceStop, deliveryTargetStop },
     ),
     timeline: buildDraftTimelineEvents(
       day.carrymeTimeline ?? day.timeline ?? [],
       carrymeStops,
       explicitOrigin,
       routeLikeTimelineIndex,
+      { deliverySourceStop, deliveryTargetStop },
     ),
   };
+}
+
+/** Selects the exact Standard visit used to anchor one luggage delivery time. */
+function selectDeliveryTargetStop(stops: RouteStop[], isFinalDay: boolean) {
+  if (isFinalDay) {
+    const finalStop = stops.at(-1);
+
+    return finalStop?.role === "복귀지" ? finalStop : undefined;
+  }
+
+  return stops.find((stop) => stop.role === "숙소");
 }
 
 /**
@@ -890,6 +908,10 @@ function buildDraftTimelineEvents(
   stops: RouteStop[],
   explicitOrigin: string | null,
   routeLikeTimelineStartIndex = 0,
+  delivery?: {
+    deliverySourceStop?: RouteStop;
+    deliveryTargetStop?: RouteStop;
+  },
 ): TimelineEvent[] {
   let routeLikeTimelineIndex = routeLikeTimelineStartIndex;
 
@@ -909,7 +931,7 @@ function buildDraftTimelineEvents(
       routeLikeTimelineIndex += 1;
     }
 
-    return toTimelineEvent(event, fallbackStop);
+    return toTimelineEvent(event, fallbackStop, delivery);
   });
 }
 
@@ -962,6 +984,7 @@ function toRouteStop(
     icon: getIconForStopRole(role, caption),
     mode,
     placeId,
+    placeRef: createDraftStopIdentity(stop),
     placeSource: stop.placeSource,
     placeSourceRef: stop.placeSourceRef,
     role,
@@ -975,15 +998,33 @@ function toRouteStop(
 function toTimelineEvent(
   event: PlanmeDraftTimelineEvent,
   fallbackStop?: RouteStop,
+  delivery?: {
+    deliverySourceStop?: RouteStop;
+    deliveryTargetStop?: RouteStop;
+  },
 ): TimelineEvent {
+  const luggageDelivery = isCarrymeDeliveryEvent(event);
+  const deliveryTarget = luggageDelivery ? delivery?.deliveryTargetStop : undefined;
+
   return {
     time: event.time,
-    title: normalizeTimelineTitle(event, fallbackStop),
-    description: event.description,
+    title: deliveryTarget
+      ? `짐 ${deliveryTarget.label} 도착`
+      : normalizeTimelineTitle(event, fallbackStop),
+    description: deliveryTarget
+      ? `짐은 여행자보다 먼저 ${deliveryTarget.label}에 도착합니다.`
+      : event.description,
     category: event.category ?? "event",
+    deliverySourcePlaceRef: luggageDelivery
+      ? delivery?.deliverySourceStop?.placeRef
+      : undefined,
+    deliveryTargetPlaceRef: deliveryTarget?.placeRef,
+    deliveryTargetStopRef: deliveryTarget?.stopRef,
+    eventKind: luggageDelivery ? "luggage_delivery" : "traveler_stop",
     highlight: event.highlight,
+    movementMode: luggageDelivery ? undefined : fallbackStop?.mode,
     savingLabel: event.savingLabel,
-    stopRef: fallbackStop?.stopRef,
+    stopRef: luggageDelivery ? undefined : fallbackStop?.stopRef,
     stayDurationMinutes: event.stayDurationMinutes,
   };
 }
@@ -1344,11 +1385,24 @@ function selectTimelineStop(
  * Replaces whole-route timeline titles with a single stop plus action label.
  */
 function normalizeTimelineTitle(event: PlanmeDraftTimelineEvent, fallbackStop?: RouteStop) {
-  if (!fallbackStop || !isRouteLikeText(event.title)) {
-    return normalizeDraftPlaceAliases(event.title);
+  const normalizedTitle = normalizeDraftPlaceAliases(event.title);
+
+  if (!fallbackStop) {
+    return normalizedTitle;
   }
 
-  return `${getPrimaryRouteLabel(fallbackStop.label)} ${inferTimelineActionLabel(event)}`.trim();
+  const canonicalLabel = fallbackStop.label.trim();
+
+  // A stopIndex is the stable identity contract. Keep good authored copy, but repair repeated
+  // region tokens and other titles that no longer identify the resolved stop shown beside it.
+  if (
+    canonicalLabel &&
+    (normalizedTitle === canonicalLabel || normalizedTitle.startsWith(`${canonicalLabel} `))
+  ) {
+    return normalizedTitle;
+  }
+
+  return `${canonicalLabel || getPrimaryRouteLabel(fallbackStop.label)} ${inferTimelineActionLabel(event)}`.trim();
 }
 
 /**

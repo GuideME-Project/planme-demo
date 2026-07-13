@@ -45,6 +45,7 @@ export class RouteFinalizationError extends Error {
   readonly placeConstraint?: RouteProviderStop["placeConstraint"];
   readonly provider?: "naver-directions" | "odsay";
   readonly retried: boolean;
+  readonly retriable: boolean;
   readonly routeId?: "standard" | "carryme";
   readonly stopRef?: string;
   readonly transitAccessReason?: TransitAccessDecisionError["reason"];
@@ -68,6 +69,7 @@ export class RouteFinalizationError extends Error {
       placeConstraint?: RouteProviderStop["placeConstraint"];
       provider?: "naver-directions" | "odsay";
       retried?: boolean;
+      retriable?: boolean;
       routeId?: "standard" | "carryme";
       stopRef?: string;
       transitAccessReason?: TransitAccessDecisionError["reason"];
@@ -86,6 +88,7 @@ export class RouteFinalizationError extends Error {
     this.placeConstraint = context.placeConstraint;
     this.provider = context.provider;
     this.retried = context.retried ?? false;
+    this.retriable = context.retriable ?? false;
     this.routeId = context.routeId;
     this.stopRef = context.stopRef;
     this.transitAccessReason = context.transitAccessReason;
@@ -158,6 +161,7 @@ export async function finalizeItineraryRoutes(
       coordinateResolvedItinerary,
       options,
     );
+    validateComparableRouteEndpoints(coordinateResolvedItinerary.days);
     validateRecoveryStopContracts(tasks, recoveryRuntime);
     const results = await runRouteTasks(
       tasks,
@@ -333,6 +337,35 @@ function validateRecoveryStopContracts(
   }
 }
 
+/** Rejects new generated comparisons whose routes do not cover the same journey. */
+function validateComparableRouteEndpoints(days: ItineraryDay[]) {
+  days.forEach((day, dayIndex) => {
+    if (!hasStableDayTimelineContract(day)) {
+      return;
+    }
+
+    const standardStart = day.standard.stops[0];
+    const carrymeStart = day.carryme.stops[0];
+    const standardEnd = day.standard.stops.at(-1);
+    const carrymeEnd = day.carryme.stops.at(-1);
+
+    if (
+      !standardStart ||
+      !carrymeStart ||
+      !standardEnd ||
+      !carrymeEnd ||
+      !isSamePhysicalPlace(standardStart, carrymeStart) ||
+      !isSamePhysicalPlace(standardEnd, carrymeEnd)
+    ) {
+      throw new RouteFinalizationError("비교 경로의 출발지와 도착지가 일치하지 않습니다.", {
+        dayIndex,
+        internalCode: "INVALID_ROUTE_COMPARISON_ENDPOINTS",
+        stage: "route_result",
+      });
+    }
+  });
+}
+
 /** Runs at most two complete comparison routes concurrently. */
 async function runRouteTasks(
   tasks: RouteTask[],
@@ -416,8 +449,12 @@ function createRouteTaskError(
   }
 
   if (error instanceof TransitAccessDecisionError) {
+    const destination = createLoggableFailureStop(error.destinationStop);
+
     return new RouteFinalizationError(error.message, {
       dayIndex: task.dayIndex,
+      destinationCoordinate: destination?.coordinate,
+      destinationPlaceName: destination?.label,
       internalCode:
         error.status === "replacement_required"
           ? "TRANSIT_PLACE_REPLACEMENT_REQUIRED"
@@ -437,6 +474,7 @@ function createRouteTaskError(
       dayIndex: task.dayIndex,
       internalCode: error.code,
       provider: "odsay",
+      retriable: error.code === "PROVIDER_CALL_BUDGET_EXCEEDED",
       routeId: task.routeId,
       stage: "route_provider",
     });
@@ -449,6 +487,7 @@ function createRouteTaskError(
       internalCode: error.code,
       provider: transportMode === "drive" ? "naver-directions" : "odsay",
       retried: error.retried,
+      retriable: error.retriable,
       routeId: task.routeId,
       stage: "route_provider",
     });
@@ -458,6 +497,7 @@ function createRouteTaskError(
     dayIndex: task.dayIndex,
     internalCode: "ROUTE_PROVIDER_UNCLASSIFIED_FAILURE",
     provider: transportMode === "drive" ? "naver-directions" : "odsay",
+    retriable: true,
     routeId: task.routeId,
     stage: "route_provider",
   });
@@ -469,7 +509,7 @@ function compareRouteFinalizationErrors(
   right: RouteFinalizationError,
 ) {
   return (
-    Number(isTransitDomainDecision(left)) - Number(isTransitDomainDecision(right)) ||
+    Number(isTransitDomainDecision(right)) - Number(isTransitDomainDecision(left)) ||
     (left.dayIndex ?? Number.MAX_SAFE_INTEGER) -
       (right.dayIndex ?? Number.MAX_SAFE_INTEGER) ||
     routeIdPriority(left.routeId) - routeIdPriority(right.routeId) ||
@@ -548,10 +588,20 @@ function applyRouteTaskResults(
         })
       : day.timeline;
     const carrymeTimeline = stableContract
-      ? alignCarrymeDeliveryTimes(adjustedCarrymeTimeline ?? [], standardTimeline ?? [])
+      ? alignCarrymeDeliveryTimes(adjustedCarrymeTimeline ?? [], standardTimeline ?? [], {
+          carrymeRoute,
+          dayIndex,
+          isFinalDay: dayIndex === days.length - 1,
+          standardRoute,
+        })
       : adjustedCarrymeTimeline;
     const timeline = stableContract
-      ? alignCarrymeDeliveryTimes(adjustedTimeline, standardTimeline ?? [])
+      ? alignCarrymeDeliveryTimes(adjustedTimeline, standardTimeline ?? [], {
+          carrymeRoute,
+          dayIndex,
+          isFinalDay: dayIndex === days.length - 1,
+          standardRoute,
+        })
       : adjustedTimeline;
     const hasEstimatedDuration = stableContract &&
       (standardRoute.durationSource === "estimated" ||
@@ -658,6 +708,15 @@ function normalizeRouteStops(stops: RouteStop[], transportMode: PlanmeItinerary[
 
 /** Compares adjacent route stops by provider identity, coordinate, then label. */
 function isSameRouteStop(left: RouteStop, right: RouteStop) {
+  return isSamePhysicalPlace(left, right);
+}
+
+/** Compares physical place identity without mixing it with one route visit occurrence. */
+function isSamePhysicalPlace(left: RouteStop, right: RouteStop) {
+  if (left.placeRef && right.placeRef) {
+    return left.placeRef === right.placeRef;
+  }
+
   if (left.placeSourceRef && right.placeSourceRef) {
     return left.placeSourceRef === right.placeSourceRef;
   }
@@ -704,7 +763,7 @@ function hasStableDayTimelineContract(day: ItineraryDay) {
     events.some((event) => event.stopRef !== undefined || event.stayDurationMinutes !== undefined);
 }
 
-/** Recomputes displayed event times from provider legs while preserving order and copy. */
+/** Recomputes displayed event times and transport copy from provider legs. */
 function adjustTimelineEvents(
   events: TimelineEvent[],
   route: RoutePlan,
@@ -723,6 +782,8 @@ function adjustTimelineEvents(
   let lastStopIndex: number | null = null;
 
   return events.map((event, eventIndex) => {
+    let referencedStop: RouteStop | undefined;
+
     if (!Number.isInteger(event.stayDurationMinutes) || (event.stayDurationMinutes ?? -1) < 0) {
       throw new RouteFinalizationError("시간표 체류시간 계약이 올바르지 않습니다.", {
         dayIndex: context.dayIndex,
@@ -771,6 +832,7 @@ function adjustTimelineEvents(
         cursorMinutes += Math.round(travelSeconds / 60);
       }
 
+      referencedStop = route.stops[stopIndex];
       lastStopIndex = stopIndex;
     }
 
@@ -784,11 +846,77 @@ function adjustTimelineEvents(
       });
     }
 
-    return {
+    const adjustedEvent: TimelineEvent = {
       ...event,
+      movementMode:
+        event.eventKind === "luggage_delivery" || event.category === "carryme"
+          ? undefined
+          : route.stops[0]?.mode,
       time: formatTimelineMinutes(cursorMinutes),
     };
+
+    return normalizeTravelerMovementPresentation(
+      adjustedEvent,
+      referencedStop,
+      route.stops[0]?.mode,
+    );
   });
+}
+
+/** Rewrites only traveler movement rows so every rendered surface shows the committed mode. */
+function normalizeTravelerMovementPresentation(
+  event: TimelineEvent,
+  stop: RouteStop | undefined,
+  transportMode: PlanmeItinerary["transportMode"] | undefined,
+): TimelineEvent {
+  if (!stop || !transportMode || !isTravelerMovementEvent(event)) {
+    return event;
+  }
+
+  const modeLabel = transportMode === "drive" ? "자동차" : "대중교통";
+  const action = inferTravelerMovementAction(event, stop);
+  const description =
+    action === "출발"
+      ? `${modeLabel} 경로로 이동을 시작합니다.`
+      : action === "도착"
+        ? `${modeLabel} 경로로 ${stop.label}에 도착합니다.`
+        : `${modeLabel} 경로로 다음 일정까지 이동합니다.`;
+
+  return {
+    ...event,
+    category: transportMode,
+    description,
+    title: `${stop.label} ${action}`,
+  };
+}
+
+/** Detects movement rows by stable references and visible movement semantics, not old mode alone. */
+function isTravelerMovementEvent(event: TimelineEvent) {
+  if (!event.stopRef || isLuggageDeliveryTimelineEvent(event)) {
+    return false;
+  }
+
+  return (
+    event.category === "arrival" ||
+    event.category === "drive" ||
+    event.category === "transit" ||
+    /출발|도착|복귀|이동|탑승|하차|운전|주행|drive|driving|transit|자동차|차량|자가용|대중교통/i.test(
+      `${event.title} ${event.description}`,
+    )
+  );
+}
+
+/** Keeps departure and arrival intent while removing stale vehicle-specific wording. */
+function inferTravelerMovementAction(event: TimelineEvent, stop: RouteStop) {
+  if (stop.role === "출발지" || /출발|이동\s*시작|운행\s*시작/i.test(event.title)) {
+    return "출발";
+  }
+
+  if (stop.role === "복귀지" || /도착|복귀|하차|체크인/i.test(event.title)) {
+    return "도착";
+  }
+
+  return "이동";
 }
 
 /** Maps a timeline reference through adjacent same-place route normalization. */
@@ -820,22 +948,152 @@ function hideTimelineSavings(
   return events?.map((event) => ({ ...event, savingLabel: undefined }));
 }
 
-/** Keeps luggage arrival at the same lodging time shown in the Standard schedule. */
+/** Anchors luggage arrival to the Standard target visit and validates traveler ordering. */
 function alignCarrymeDeliveryTimes(
   carrymeEvents: TimelineEvent[],
   standardEvents: TimelineEvent[],
+  context: {
+    carrymeRoute: RoutePlan;
+    dayIndex: number;
+    isFinalDay: boolean;
+    standardRoute: RoutePlan;
+  },
 ) {
-  const standardTimes = new Map(
-    standardEvents
-      .filter((event) => event.stopRef)
-      .map((event) => [event.stopRef!, event.time]),
+  const deliveryEvents = carrymeEvents.filter(isLuggageDeliveryTimelineEvent);
+  const expectedSourceStop = context.standardRoute.stops[0];
+  const expectedTargetStop = context.isFinalDay
+    ? context.standardRoute.stops.at(-1)
+    : context.standardRoute.stops.find(
+        (stop, stopIndex) => stopIndex > 0 && stop.role === "숙소",
+      );
+  const requiresDelivery = Boolean(
+    expectedSourceStop &&
+      expectedTargetStop &&
+      !isSamePhysicalPlace(expectedSourceStop, expectedTargetStop),
   );
 
-  return carrymeEvents.map((event) =>
-    event.category === "carryme" && event.stopRef && standardTimes.has(event.stopRef)
-      ? { ...event, time: standardTimes.get(event.stopRef)! }
-      : event,
+  if (!requiresDelivery) {
+    if (deliveryEvents.length > 0) {
+      throw new RouteFinalizationError("출발지와 배송지가 같으면 짐 배송을 만들지 않습니다.", {
+        dayIndex: context.dayIndex,
+        internalCode: "CARRYME_DELIVERY_UNEXPECTED",
+        routeId: "carryme",
+        stage: "timeline_validation",
+      });
+    }
+
+    return carrymeEvents;
+  }
+
+  if (deliveryEvents.length !== 1) {
+    throw new RouteFinalizationError("CarryME 짐 배송 이벤트는 일차별로 하나여야 합니다.", {
+      dayIndex: context.dayIndex,
+      internalCode: "CARRYME_DELIVERY_COUNT_INVALID",
+      routeId: "carryme",
+      stage: "timeline_validation",
+    });
+  }
+
+  const deliveryEvent = deliveryEvents[0] as TimelineEvent;
+  const carrymeSourceStop = context.carrymeRoute.stops[0];
+  const targetStopRef = deliveryEvent.deliveryTargetStopRef;
+  const carrymeTargetStop = context.carrymeRoute.stops.find(
+    (stop) => stop.stopRef === targetStopRef,
   );
+
+  if (
+    !expectedTargetStop ||
+    !targetStopRef ||
+    expectedTargetStop.stopRef !== targetStopRef ||
+    !expectedTargetStop.placeRef ||
+    deliveryEvent.deliveryTargetPlaceRef !== expectedTargetStop.placeRef ||
+    !carrymeTargetStop ||
+    !isSamePhysicalPlace(carrymeTargetStop, expectedTargetStop)
+  ) {
+    throw new RouteFinalizationError("CarryME 짐 배송 대상 참조가 일정 도착지와 다릅니다.", {
+      dayIndex: context.dayIndex,
+      internalCode: "CARRYME_DELIVERY_TARGET_INVALID",
+      routeId: "carryme",
+      stage: "timeline_validation",
+      stopRef: targetStopRef,
+    });
+  }
+
+  if (
+    !expectedSourceStop?.placeRef ||
+    !carrymeSourceStop ||
+    !isSamePhysicalPlace(expectedSourceStop, carrymeSourceStop) ||
+    deliveryEvent.deliverySourcePlaceRef !== expectedSourceStop.placeRef
+  ) {
+    throw new RouteFinalizationError("CarryME 짐 배송 출발지 참조가 여행자 출발지와 다릅니다.", {
+      dayIndex: context.dayIndex,
+      internalCode: "CARRYME_DELIVERY_SOURCE_INVALID",
+      routeId: "carryme",
+      stage: "timeline_validation",
+    });
+  }
+
+  const standardTargetEvent = standardEvents.find((event) => event.stopRef === targetStopRef);
+  const carrymeDepartureEvent = carrymeEvents.find(
+    (event) => !isLuggageDeliveryTimelineEvent(event) &&
+      event.stopRef === carrymeSourceStop.stopRef,
+  );
+  const carrymeTargetEvent = carrymeEvents.find(
+    (event) => !isLuggageDeliveryTimelineEvent(event) && event.stopRef === targetStopRef,
+  );
+
+  if (!standardTargetEvent || !carrymeDepartureEvent || !carrymeTargetEvent) {
+    throw new RouteFinalizationError("CarryME 짐 배송 시각을 맞출 여행자 일정 참조가 없습니다.", {
+      dayIndex: context.dayIndex,
+      internalCode: "CARRYME_DELIVERY_TIMELINE_REFERENCE_MISSING",
+      routeId: "carryme",
+      stage: "timeline_validation",
+      stopRef: targetStopRef,
+    });
+  }
+
+  const alignedDeliveryTime = standardTargetEvent.time;
+  const departureMinutes = parseTimelineMinutes(carrymeDepartureEvent.time);
+  const deliveryMinutes = parseTimelineMinutes(alignedDeliveryTime);
+  const travelerArrivalMinutes = parseTimelineMinutes(carrymeTargetEvent.time);
+
+  if (deliveryMinutes <= departureMinutes) {
+    throw new RouteFinalizationError("짐 도착 시각은 여행자 출발 이후여야 합니다.", {
+      dayIndex: context.dayIndex,
+      internalCode: "CARRYME_DELIVERY_NOT_AFTER_DEPARTURE",
+      routeId: "carryme",
+      stage: "timeline_validation",
+      stopRef: targetStopRef,
+    });
+  }
+
+  if (deliveryMinutes > travelerArrivalMinutes) {
+    throw new RouteFinalizationError("짐은 여행자보다 늦게 도착할 수 없습니다.", {
+      dayIndex: context.dayIndex,
+      internalCode: "CARRYME_DELIVERY_AFTER_TRAVELER_ARRIVAL",
+      routeId: "carryme",
+      stage: "timeline_validation",
+      stopRef: targetStopRef,
+    });
+  }
+
+  const alignedEvents = carrymeEvents.map((event) =>
+    event === deliveryEvent ? { ...event, time: alignedDeliveryTime } : event,
+  );
+
+  return alignedEvents
+    .map((event, index) => ({ event, index }))
+    .sort((left, right) =>
+      parseTimelineMinutes(left.event.time) - parseTimelineMinutes(right.event.time) ||
+      Number(right.event.eventKind === "luggage_delivery") -
+        Number(left.event.eventKind === "luggage_delivery") ||
+      left.index - right.index,
+    )
+    .map(({ event }) => event);
+}
+
+function isLuggageDeliveryTimelineEvent(event: TimelineEvent) {
+  return event.eventKind === "luggage_delivery" || event.category === "carryme";
 }
 
 function parseTimelineMinutes(value: string) {
@@ -861,31 +1119,39 @@ function formatTimelineMinutes(value: number) {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
-/** Updates itinerary-level comparison labels from the first finalized day. */
+/** Updates itinerary-level comparison labels from all finalized days. */
 function createFinalizedItinerary(itinerary: PlanmeItinerary, days: ItineraryDay[]) {
-  const firstDay = days[0];
-
-  if (!firstDay) {
+  if (days.length === 0) {
     throw new RouteFinalizationError("최종화할 일정 일차가 없습니다.", {
       internalCode: "ITINERARY_DAY_MISSING",
       stage: "route_result",
     });
   }
 
-  const hideSavings = firstDay.savingStatus === "hidden_estimated";
-  const savingMinutes = firstDay.savingMinutes ?? 0;
+  const standardMinutes = days.reduce(
+    (total, day) => total + day.standard.durationMinutes,
+    0,
+  );
+  const carrymeMinutes = days.reduce(
+    (total, day) => total + day.carryme.durationMinutes,
+    0,
+  );
+  const hideSavings = days.some((day) => day.savingStatus === "hidden_estimated");
+  const savingMinutes = Math.max(0, standardMinutes - carrymeMinutes);
   const savedDurationLabel = hideSavings
     ? undefined
     : savingMinutes > 0
       ? `${formatRouteDuration(savingMinutes * 60)} 절약`
-      : "시간 절약 없음 · 짐 없이 바로 이동";
+      : "시간 절약 없음";
 
   return {
     ...itinerary,
     carrymeSaving: hideSavings ? undefined : savedDurationLabel,
     days,
     savedDurationLabel,
-    totalDurationLabel: `${firstDay.standard.durationLabel} → ${firstDay.carryme.durationLabel}`,
+    totalDurationLabel:
+      `${formatRouteDuration(standardMinutes * 60)} → ` +
+      formatRouteDuration(carrymeMinutes * 60),
   };
 }
 

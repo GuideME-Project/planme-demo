@@ -2,6 +2,10 @@ import {
   DEFAULT_RECOMMENDATION_DESTINATION_TYPE,
   type RecommendItineraryRequest,
 } from "./gpt-actions.js";
+import {
+  PLANME_EXTERNAL_DURATION_ERROR_MESSAGE,
+  PLANME_EXTERNAL_MAX_DURATION_DAYS,
+} from "./external-duration-contract.js";
 import type { PlanmeTransportMode } from "./mock-data.js";
 
 export type PlanmePlanningSlot =
@@ -59,14 +63,7 @@ export function assessPlanmePlanningInput(
     transportMode: normalizeTransportMode(input.transportMode),
   };
   const missingSlots = getMissingRequiredSlots(normalizedInput);
-  const requiredQuestions = missingSlots.map(createRequiredQuestion);
-  const optionalQuestion = createOptionalQuestion(normalizedInput);
-  const questions =
-    requiredQuestions.length > 0
-      ? requiredQuestions
-      : optionalQuestion
-        ? [optionalQuestion]
-        : [];
+  const questions = missingSlots.map(createRequiredQuestion);
   const status = missingSlots.length > 0 ? "needs_input" : "ready";
 
   // The MCP server uses this action hint to decide whether ChatGPT should ask or draft.
@@ -92,7 +89,12 @@ function normalizeOptionalText(value: string | undefined) {
  * Normalizes trip length into full days because PlanME labels 당일 as 1 day.
  */
 function normalizeDurationDays(value: number | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 1) {
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value < 1 ||
+    value > PLANME_EXTERNAL_MAX_DURATION_DAYS
+  ) {
     return null;
   }
 
@@ -165,7 +167,7 @@ function createRequiredQuestion(slot: PlanmePlanningSlot): PlanmePlanningQuestio
   if (slot === "durationDays") {
     return {
       slot,
-      text: "일정은 당일인가요, 1박 2일인가요?",
+      text: PLANME_EXTERNAL_DURATION_ERROR_MESSAGE,
       required: true,
       examples: ["당일", "1박 2일", "2박 3일"],
     };
@@ -186,31 +188,4 @@ function createRequiredQuestion(slot: PlanmePlanningSlot): PlanmePlanningQuestio
     required: true,
     examples: ["서울", "부산", "인천공항"],
   };
-}
-
-/**
- * Offers at most one optional question so the GPT conversation stays lightweight.
- */
-function createOptionalQuestion(
-  normalizedInput: PlanmePlanningAssessment["normalizedInput"],
-): PlanmePlanningQuestion | null {
-  if (!normalizedInput.hotelName) {
-    return {
-      slot: "hotelName",
-      text: "짐을 받을 숙소나 보관 지점이 정해져 있나요?",
-      required: false,
-      examples: ["여수 베네치아 호텔", "아직 미정"],
-    };
-  }
-
-  if (normalizedInput.preferences.length === 0) {
-    return {
-      slot: "preferences",
-      text: "꼭 포함하고 싶은 장소나 여행 테마가 있나요?",
-      required: false,
-      examples: ["밤바다", "공연", "맛집"],
-    };
-  }
-
-  return null;
 }

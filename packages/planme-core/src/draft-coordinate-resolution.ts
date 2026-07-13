@@ -11,8 +11,10 @@ export type PlanmeDraftGeocoderInput = {
   query: string;
   stop: PlanmeDraftStop;
   region?: string;
+  signal?: AbortSignal;
   dayIndex: number;
   stopIndex: number;
+  timeoutMs?: number;
 };
 
 export type PlanmeDraftGeocoderResult = {
@@ -38,8 +40,13 @@ export type PlanmeDraftCoordinateResolutionResult = {
 export async function resolvePlanmeDraftCoordinates(
   draft: PlanmeDraftPreviewRequest,
   geocoder: PlanmeDraftGeocoder,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<PlanmeDraftCoordinateResolutionResult> {
   const validationIssues: PlanmeDraftValidationIssue[] = [];
+  const logicalResolutions = new Map<
+    string,
+    Promise<PlanmeDraftGeocoderResult>
+  >();
   const days = await Promise.all(
     draft.days.map(async (day, dayIndex) => {
       const standardStops = await resolveDraftStopList(
@@ -48,6 +55,8 @@ export async function resolvePlanmeDraftCoordinates(
         dayIndex,
         geocoder,
         validationIssues,
+        logicalResolutions,
+        options,
       );
       const carrymeStops = await resolveDraftStopList(
         day.carrymeStops,
@@ -55,6 +64,8 @@ export async function resolvePlanmeDraftCoordinates(
         dayIndex,
         geocoder,
         validationIssues,
+        logicalResolutions,
+        options,
       );
       const stops = await resolveDraftStopList(
         day.stops,
@@ -62,6 +73,8 @@ export async function resolvePlanmeDraftCoordinates(
         dayIndex,
         geocoder,
         validationIssues,
+        logicalResolutions,
+        options,
       );
 
       return { ...day, standardStops, carrymeStops, stops };
@@ -83,6 +96,8 @@ async function resolveDraftStopList<T extends PlanmeDraftRouteStop | PlanmeDraft
   dayIndex: number,
   geocoder: PlanmeDraftGeocoder,
   validationIssues: PlanmeDraftValidationIssue[],
+  logicalResolutions: Map<string, Promise<PlanmeDraftGeocoderResult>>,
+  options: { signal?: AbortSignal; timeoutMs?: number },
 ) {
   if (!stops) {
     return undefined;
@@ -96,9 +111,25 @@ async function resolveDraftStopList<T extends PlanmeDraftRouteStop | PlanmeDraft
 
       // Use the model-provided address query first; fall back to region-qualified place text.
       const query = createDraftGeocodeQuery(region, stop);
-      const result = query
-        ? await geocoder({ query, stop, region, dayIndex, stopIndex })
-        : null;
+      const resolutionKey = query
+        ? `${region?.trim().toLowerCase() ?? ""}|${query.trim().toLowerCase()}`
+        : "";
+      let resolution = resolutionKey ? logicalResolutions.get(resolutionKey) : undefined;
+
+      if (query && resolutionKey && !resolution) {
+        resolution = geocoder({
+          query,
+          stop,
+          region,
+          dayIndex,
+          signal: options.signal,
+          stopIndex,
+          timeoutMs: options.timeoutMs,
+        });
+        logicalResolutions.set(resolutionKey, resolution);
+      }
+
+      const result = resolution ? await resolution : null;
 
       if (!result) {
         validationIssues.push({

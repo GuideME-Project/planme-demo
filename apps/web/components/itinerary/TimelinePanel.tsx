@@ -1,4 +1,5 @@
 import AttractionsRoundedIcon from "@mui/icons-material/AttractionsRounded";
+import DirectionsCarRoundedIcon from "@mui/icons-material/DirectionsCarRounded";
 import FlightTakeoffRoundedIcon from "@mui/icons-material/FlightTakeoffRounded";
 import HotelRoundedIcon from "@mui/icons-material/HotelRounded";
 import LocalShippingRoundedIcon from "@mui/icons-material/LocalShippingRounded";
@@ -30,6 +31,7 @@ type TimelinePanelProps = {
 const categoryIcons: Record<TimelineEvent["category"], ReactNode> = {
   arrival: <FlightTakeoffRoundedIcon fontSize="small" />,
   carryme: <LocalShippingRoundedIcon fontSize="small" />,
+  drive: <DirectionsCarRoundedIcon fontSize="small" />,
   transit: <TrainRoundedIcon fontSize="small" />,
   meal: <RestaurantRoundedIcon fontSize="small" />,
   hotel: <HotelRoundedIcon fontSize="small" />,

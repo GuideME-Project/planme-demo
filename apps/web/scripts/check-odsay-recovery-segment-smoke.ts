@@ -60,7 +60,7 @@ async function main() {
     policy: {
       aiWalkLimitMinutes: 30,
       fixedWalkLimitMinutes: 90,
-      maxStationCandidates: 3,
+      maxStationCandidates: 2,
       policyVersion: "smoke-20260713-v1",
       searchRadiiMeters: [500, 1_000],
     },

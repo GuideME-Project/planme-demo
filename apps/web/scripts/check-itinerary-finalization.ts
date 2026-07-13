@@ -4,14 +4,25 @@ import type {
   PlanmeItinerary,
   RoutePlan,
 } from "@planme/core";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { ImageResponse } from "next/og";
 import {
   RouteFinalizationError,
   RouteFinalizationTimeoutError,
   finalizeItineraryRoutes,
 } from "../lib/itinerary-route-finalizer";
+import {
+  createItineraryOgViewModel,
+  ItineraryOgPresentation,
+} from "../lib/itinerary-og-presentation";
 import { validateEditedItineraryPlaces } from "../lib/edited-itinerary-validator";
 import { computeNaverDirectionsRoute } from "../lib/route-providers/naver-directions";
 import { computeOdsayTransitRoute } from "../lib/route-providers/odsay";
+import {
+  createPlanmeRouteFailureLog,
+  mapPlanmeWebFailureToCompletionStage,
+} from "../lib/route-failure-observability";
 import {
   MemoryRouteProviderCallBudget,
   MemoryRouteSegmentCache,
@@ -49,19 +60,29 @@ async function main() {
   assert.equal(finalized.days[0].standard.durationMinutes, 10);
   assert.equal(finalized.days[0].standard.geoPath, undefined);
   assert.equal(finalized.days[0].standard.geoSegments?.length, 1);
+  assert.equal(finalized.totalDurationLabel, "약 20분 → 약 20분");
+  assert.equal(finalized.savedDurationLabel, "시간 절약 없음");
+  assert.equal(finalized.carrymeSaving, "시간 절약 없음");
 
   await assertFailedProviderLegRetriesOnce();
   await assertShortTransitLegSkipsOdsay();
   await assertOdsayStationRecoveryAndCacheContract();
+  await assertOdsayConcurrentSingleFlightContract();
+  await assertOdsayOriginStationRecoveryContract();
   await assertOdsayEstimatedWalkAndPolicyLimits();
   await assertOdsayCallBudgetFailsClosed();
   await assertStableTimelineAdjustmentAndHiddenSavings();
+  await assertSameEndpointDayTripSkipsDelivery();
+  await assertCarrymeDeliveryAlignmentContract();
   await assertDeterministicTransitFailureSelection();
   await assertOdsayFailureIncludesSegmentContext();
   await assertMissingCoordinatesUseRepresentativeNaverCandidate();
   await assertEditedItineraryPreservesAiFields();
+  await assertEditedItineraryPreservesStableStopContractAndModeCopy();
   await assertDuplicateOnlyRouteNeedsNoProviderCall();
   await assertDuplicateStableTimelineReferences();
+  await assertRouteFailureObservabilityContract();
+  await assertMultiDayOgPresentationContract();
 
   let providerCalls = 0;
   await assert.rejects(
@@ -94,6 +115,7 @@ async function main() {
       error.dayIndex === 0 &&
       error.routeId === "carryme" &&
       error.retried &&
+      error.retriable &&
       error.segmentIndex === 0 &&
       error.originPlaceName === undefined &&
       error.originCoordinate === undefined &&
@@ -138,7 +160,337 @@ async function main() {
   console.log("PlanME finalized route contract passed");
 }
 
-/** Verifies route order is stable and operational failures outrank repair decisions. */
+/** Verifies the actual React OG tree contains every day and all-day totals. */
+async function assertMultiDayOgPresentationContract() {
+  const itinerary = createTestItinerary();
+  const standardMinutes = [180, 200, 220];
+  const carrymeMinutes = [150, 170, 190];
+  const sourceDays = itinerary.days;
+
+  itinerary.duration = "2박 3일";
+  itinerary.savedDurationLabel = "약 1시간 30분 절약";
+  itinerary.days = [1, 2, 3].map((dayNumber, index) => {
+    const source = sourceDays[index % sourceDays.length];
+
+    assert(source, `${dayNumber}일차 OG 테스트 원본이 필요합니다.`);
+    const timeline = [
+      {
+        category: "arrival" as const,
+        description: `${dayNumber}일차를 시작합니다.`,
+        time: "08:00",
+        title: `${dayNumber}일차 출발`,
+      },
+      {
+        category: "event" as const,
+        description: `${dayNumber}일차 핵심 장소를 방문합니다.`,
+        time: "12:00",
+        title: `${dayNumber}일차 대표 일정`,
+      },
+      {
+        category: "hotel" as const,
+        description: `${dayNumber}일차를 마칩니다.`,
+        time: "18:00",
+        title: `${dayNumber}일차 도착`,
+      },
+    ];
+
+    return {
+      ...structuredClone(source),
+      carryme: {
+        ...structuredClone(source.carryme),
+        durationMinutes: carrymeMinutes[index] ?? 0,
+      },
+      carrymeTimeline: timeline,
+      day: dayNumber,
+      label: `Day ${dayNumber}`,
+      savingStatus: "verified" as const,
+      standard: {
+        ...structuredClone(source.standard),
+        durationMinutes: standardMinutes[index] ?? 0,
+      },
+      standardTimeline: timeline,
+      timeline,
+    };
+  });
+
+  const view = createItineraryOgViewModel(itinerary);
+  const markup = renderToStaticMarkup(
+    createElement(ItineraryOgPresentation, { itinerary }),
+  );
+
+  assert.equal(view.standardTotalLabel, "약 10시간");
+  assert.equal(view.carrymeTotalLabel, "약 8시간 30분");
+  assert.equal(view.savingLabel, "약 1시간 30분 절약");
+  assert.equal(view.days.length, 3);
+  assert(Buffer.byteLength(markup) < 80_000, "OG 렌더 결과가 80KB 미만이어야 합니다.");
+
+  for (const day of view.days) {
+    assert.match(markup, new RegExp(day.dayLabel));
+    assert.match(markup, new RegExp(`${day.dayLabel.replace("일차", "")}일차 대표 일정`));
+  }
+
+  const imageResponse = new ImageResponse(
+    createElement(ItineraryOgPresentation, { itinerary }),
+    { height: 1120, width: 768 },
+  );
+  const imageBytes = await imageResponse.arrayBuffer();
+
+  assert.match(imageResponse.headers.get("content-type") ?? "", /image\/png/);
+  assert(imageBytes.byteLength > 1_000, "3일 OG PNG가 실제로 렌더되어야 합니다.");
+  assert(imageBytes.byteLength < 1_000_000, "3일 OG PNG가 1MB 미만이어야 합니다.");
+}
+
+/** Verifies failure stages are mapped and user-origin details are redacted on either leg side. */
+async function assertRouteFailureObservabilityContract() {
+  const itinerary = createSameEndpointDayTripItinerary();
+  const userOrigin = itinerary.days[0].standard.stops[0];
+  const aiVisit = itinerary.days[0].standard.stops[1];
+  const outboundError = new RouteFinalizationError("outbound provider failure", {
+    destinationCoordinate: aiVisit.coordinate,
+    destinationPlaceName: aiVisit.label,
+    internalCode: "NAVER_HTTP_503",
+    originCoordinate: userOrigin.coordinate,
+    originPlaceName: userOrigin.label,
+    provider: "naver-directions",
+    segmentIndex: 0,
+    stage: "route_provider",
+  });
+  const outboundLog = createPlanmeRouteFailureLog({
+    error: outboundError,
+    event: "planme_preview_store_failure",
+    internalCode: outboundError.internalCode,
+    itinerary,
+    stage: outboundError.stage,
+    status: 422,
+    traceId: "00000000-0000-4000-8000-000000000401",
+  });
+
+  assert.equal(outboundLog.completionStage, "route_calculation");
+  assert.equal(outboundLog.originPlaceName, undefined);
+  assert.equal(outboundLog.originCoordinate, undefined);
+  assert.equal(outboundLog.destinationPlaceName, aiVisit.label);
+  assert.deepEqual(outboundLog.destinationCoordinate, aiVisit.coordinate);
+
+  const returnError = new RouteFinalizationError("return provider failure", {
+    destinationCoordinate: userOrigin.coordinate,
+    destinationPlaceName: userOrigin.label,
+    internalCode: "NAVER_HTTP_503",
+    originCoordinate: aiVisit.coordinate,
+    originPlaceName: aiVisit.label,
+    provider: "naver-directions",
+    segmentIndex: 1,
+    stage: "route_provider",
+  });
+  const returnLog = createPlanmeRouteFailureLog({
+    error: returnError,
+    event: "planme_route_finalization_failure",
+    internalCode: returnError.internalCode,
+    itinerary,
+    stage: returnError.stage,
+    status: 422,
+    traceId: "00000000-0000-4000-8000-000000000402",
+  });
+
+  assert.equal(returnLog.destinationPlaceName, undefined);
+  assert.equal(returnLog.destinationCoordinate, undefined);
+  assert.equal(returnLog.originPlaceName, aiVisit.label);
+  assert.deepEqual(returnLog.originCoordinate, aiVisit.coordinate);
+  assert.doesNotMatch(JSON.stringify(outboundLog), /동탄호수공원|37\.2|127\.1/);
+  assert.doesNotMatch(JSON.stringify(returnLog), /동탄호수공원|37\.2|127\.1/);
+  assert.deepEqual(
+    [
+      "request_validation",
+      "coordinate_resolution",
+      "route_provider",
+      "timeline_validation",
+      "preview_persistence",
+    ].map((stage) =>
+      mapPlanmeWebFailureToCompletionStage(
+        stage as Parameters<typeof mapPlanmeWebFailureToCompletionStage>[0],
+      ),
+    ),
+    [
+      "input_interpretation",
+      "place_resolution",
+      "route_calculation",
+      "itinerary_finalization",
+      "storage",
+    ],
+  );
+
+  await assert.rejects(
+    () => finalizeItineraryRoutes(itinerary, {
+      computeDriveRoute: async (stops) => {
+        throw new RouteProviderError(
+          "NAVER_HTTP_503",
+          "provider body",
+          true,
+          true,
+          {
+            destinationStop: stops[2],
+            originStop: stops[1],
+            segmentIndex: 1,
+          },
+        );
+      },
+    }),
+    (error) =>
+      error instanceof RouteFinalizationError &&
+      error.destinationPlaceName === undefined &&
+      error.destinationCoordinate === undefined &&
+      error.originPlaceName === aiVisit.label &&
+      error.originCoordinate?.lat === aiVisit.coordinate?.lat &&
+      error.originCoordinate?.lng === aiVisit.coordinate?.lng,
+  );
+
+  const transitItinerary = createSameEndpointDayTripItinerary();
+  transitItinerary.transportMode = "transit";
+  const transitAiVisit = transitItinerary.days[0].standard.stops[1];
+  const transitUserOrigin = transitItinerary.days[0].standard.stops[0];
+  const retainedTransitFailure = await finalizeItineraryRoutes(transitItinerary, {
+      computeTransitRoute: async () => {
+        throw new TransitAccessDecisionError(
+          { ...transitAiVisit, id: "transit-ai-visit" },
+          0,
+          "destination_station_missing",
+        );
+      },
+    }).then(
+      () => null,
+      (error) => error instanceof RouteFinalizationError ? error : null,
+    );
+  assert(retainedTransitFailure instanceof RouteFinalizationError);
+  assert.equal(retainedTransitFailure.destinationPlaceName, transitAiVisit.label);
+  assert.deepEqual(retainedTransitFailure.destinationCoordinate, transitAiVisit.coordinate);
+  const retainedTransitLog = createPlanmeRouteFailureLog({
+    error: retainedTransitFailure,
+    event: "planme_route_finalization_failure",
+    internalCode: retainedTransitFailure.internalCode,
+    itinerary: transitItinerary,
+    stage: retainedTransitFailure.stage,
+    status: 422,
+    traceId: "00000000-0000-4000-8000-000000000403",
+  });
+
+  assert.equal(retainedTransitLog.destinationPlaceName, transitAiVisit.label);
+  assert.deepEqual(retainedTransitLog.destinationCoordinate, transitAiVisit.coordinate);
+
+  await assert.rejects(
+    () => finalizeItineraryRoutes(transitItinerary, {
+      computeTransitRoute: async () => {
+        throw new TransitAccessDecisionError(
+          { ...transitUserOrigin, id: "transit-user-origin" },
+          0,
+          "origin_station_missing",
+        );
+      },
+    }),
+    (error) =>
+      error instanceof RouteFinalizationError &&
+      error.destinationPlaceName === undefined &&
+      error.destinationCoordinate === undefined,
+  );
+}
+
+/** Verifies a final-day return to the same physical origin has no parcel side event. */
+async function assertSameEndpointDayTripSkipsDelivery() {
+  const itinerary = createSameEndpointDayTripItinerary();
+  const finalized = await finalizeItineraryRoutes(itinerary, {
+    computeDriveRoute: async (stops) => createProviderResult(stops, 600),
+  });
+
+  assert.equal(
+    finalized.days[0].carrymeTimeline?.some(isTestLuggageDeliveryEvent),
+    false,
+  );
+  assert.equal(finalized.days[0].timeline.some(isTestLuggageDeliveryEvent), false);
+
+  const unexpectedDelivery = createSameEndpointDayTripItinerary();
+  const deliveryEvent = {
+    category: "carryme" as const,
+    deliverySourcePlaceRef: "day-1-origin",
+    deliveryTargetPlaceRef: "day-1-origin",
+    deliveryTargetStopRef: "day-1-stop-3",
+    description: "같은 출발지로 짐을 보냅니다.",
+    eventKind: "luggage_delivery" as const,
+    stayDurationMinutes: 0,
+    time: "08:10",
+    title: "짐 동탄호수공원 도착",
+  };
+
+  unexpectedDelivery.days[0].carrymeTimeline?.splice(1, 0, deliveryEvent);
+  unexpectedDelivery.days[0].timeline.splice(1, 0, structuredClone(deliveryEvent));
+  await assert.rejects(
+    () => finalizeItineraryRoutes(unexpectedDelivery, {
+      computeDriveRoute: async (stops) => createProviderResult(stops, 600),
+    }),
+    (error) =>
+      error instanceof RouteFinalizationError &&
+      error.internalCode === "CARRYME_DELIVERY_UNEXPECTED",
+  );
+}
+
+/** Verifies final route timing cannot make luggage arrive before departure or after the traveler. */
+async function assertCarrymeDeliveryAlignmentContract() {
+  const itinerary = createStableFinalDayDeliveryItinerary();
+  const finalized = await finalizeItineraryRoutes(itinerary, {
+    computeDriveRoute: async (stops) => createProviderResult(stops, 600),
+  });
+  const day = finalized.days[0];
+  const deliveryEvent = day.carrymeTimeline?.find(
+    (event) => event.eventKind === "luggage_delivery",
+  );
+  const departureEvent = day.carrymeTimeline?.find(
+    (event) => event.stopRef === "day-1-stop-1",
+  );
+  const travelerArrivalEvent = day.carrymeTimeline?.find(
+    (event) => event.stopRef === "day-1-stop-3",
+  );
+  const standardTargetEvent = day.standardTimeline?.find(
+    (event) => event.stopRef === "day-1-stop-3",
+  );
+
+  assert.equal(deliveryEvent?.stopRef, undefined);
+  assert.equal(deliveryEvent?.deliveryTargetPlaceRef, "day-1-origin");
+  assert.equal(deliveryEvent?.deliveryTargetStopRef, "day-1-stop-3");
+  assert.equal(deliveryEvent?.time, standardTargetEvent?.time);
+  assert.ok(parseTestTimelineMinutes(deliveryEvent?.time) > parseTestTimelineMinutes(departureEvent?.time));
+  assert.ok(parseTestTimelineMinutes(deliveryEvent?.time) <= parseTestTimelineMinutes(travelerArrivalEvent?.time));
+
+  await assert.rejects(
+    () => finalizeItineraryRoutes(createStableFinalDayDeliveryItinerary(), {
+      computeDriveRoute: async (stops) =>
+        createProviderResult(stops, stops[0]?.id.startsWith("standard") ? 1_200 : 600),
+    }),
+    (error) =>
+      error instanceof RouteFinalizationError &&
+      error.internalCode === "CARRYME_DELIVERY_AFTER_TRAVELER_ARRIVAL" &&
+      error.dayIndex === 0,
+  );
+
+  const duplicateDelivery = createStableFinalDayDeliveryItinerary();
+  const duplicate = structuredClone(duplicateDelivery.days[0].carrymeTimeline?.[1]);
+
+  assert(duplicate !== undefined);
+  duplicateDelivery.days[0].carrymeTimeline?.push(duplicate);
+  duplicateDelivery.days[0].timeline.push(structuredClone(duplicate));
+  await assert.rejects(
+    () => finalizeItineraryRoutes(duplicateDelivery, {
+      computeDriveRoute: async (stops) => createProviderResult(stops, 600),
+    }),
+    (error) =>
+      error instanceof RouteFinalizationError &&
+      error.internalCode === "CARRYME_DELIVERY_COUNT_INVALID",
+  );
+}
+
+function isTestLuggageDeliveryEvent(
+  event: NonNullable<PlanmeItinerary["days"][number]["carrymeTimeline"]>[number],
+) {
+  return event.eventKind === "luggage_delivery" || event.category === "carryme";
+}
+
+/** Verifies recovery decisions outrank generic failures and remain deterministic. */
 async function assertDeterministicTransitFailureSelection() {
   const itinerary = createTestItinerary();
   itinerary.transportMode = "transit";
@@ -181,8 +533,44 @@ async function assertDeterministicTransitFailureSelection() {
     }),
     (error) =>
       error instanceof RouteFinalizationError &&
+      error.routeId === "standard" &&
+      error.internalCode === "TRANSIT_PLACE_REPLACEMENT_REQUIRED" &&
+      !error.retriable,
+  );
+
+  await assert.rejects(
+    () => finalizeItineraryRoutes(itinerary, {
+      computeTransitRoute: async (stops) => {
+        const isStandard = stops[0]?.id.startsWith("standard");
+
+        if (isStandard) {
+          throw new RouteProviderError(
+            "ODSAY_HTTP_503",
+            "generic provider failure",
+            true,
+            false,
+            {
+              destinationStop: stops[1],
+              originStop: stops[0],
+              segmentIndex: 0,
+            },
+          );
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        throw new TransitAccessDecisionError(
+          { ...stops[1], placeConstraint: "replaceable", stopRef: "carryme-recovery" },
+          0,
+          "destination_station_missing",
+        );
+      },
+    }),
+    (error) =>
+      error instanceof RouteFinalizationError &&
       error.routeId === "carryme" &&
-      error.internalCode === "ROUTE_PROVIDER_CONFIGURATION_ERROR",
+      error.stopRef === "carryme-recovery" &&
+      error.internalCode === "TRANSIT_PLACE_REPLACEMENT_REQUIRED" &&
+      !error.retriable,
   );
 }
 
@@ -196,6 +584,7 @@ async function assertStableTimelineAdjustmentAndHiddenSavings() {
       stops: route.stops.map((stop, index) => ({
         ...stop,
         mode: "transit",
+        placeRef: `day-1-place-${index + 1}`,
         placeConstraint: index === 0 ? "fixed" : "replaceable",
         stopRef: `day-1-stop-${index + 1}`,
       })),
@@ -220,14 +609,29 @@ async function assertStableTimelineAdjustmentAndHiddenSavings() {
         title: "방문",
       },
     ];
+    const carrymeTimeline = [
+      timeline[0],
+      {
+        category: "carryme" as const,
+        deliverySourcePlaceRef: "day-1-place-1",
+        deliveryTargetPlaceRef: "day-1-place-2",
+        deliveryTargetStopRef: "day-1-stop-2",
+        description: "짐이 먼저 도착합니다.",
+        eventKind: "luggage_delivery" as const,
+        stayDurationMinutes: 0,
+        time: "08:20",
+        title: "짐 도착",
+      },
+      timeline[1],
+    ];
 
     return {
       ...day,
       carryme: addContract(day.carryme),
-      carrymeTimeline: timeline,
+      carrymeTimeline,
       standard: addContract(day.standard),
       standardTimeline: timeline,
-      timeline,
+      timeline: carrymeTimeline,
     };
   });
 
@@ -242,7 +646,8 @@ async function assertStableTimelineAdjustmentAndHiddenSavings() {
   const day = finalized.days[0];
 
   assert.equal(day.standardTimeline?.[1].time, "08:40");
-  assert.equal(day.carrymeTimeline?.[1].time, "08:45");
+  assert.equal(day.carrymeTimeline?.[1].time, "08:40");
+  assert.equal(day.carrymeTimeline?.[2].time, "08:45");
   assert.equal(day.savingStatus, "hidden_estimated");
   assert.equal(day.savingMinutes, undefined);
   assert.equal(day.timeline[1].savingLabel, undefined);
@@ -265,7 +670,119 @@ async function assertStableTimelineAdjustmentAndHiddenSavings() {
   );
 }
 
-/** Verifies code 4 evaluates only three stations and shares the winning segment by trace. */
+/** Verifies concurrent Standard/CarryME-equivalent requests share one provider call and failure. */
+async function assertOdsayConcurrentSingleFlightContract() {
+  const originalApiKey = process.env.NEXT_PUBLIC_ODSAY_API_KEY;
+  const origin = createRecoveryOrigin();
+  const destination = createRecoveryDestination("replaceable");
+  const successRuntime = createTestRecoveryRuntime(
+    "00000000-0000-4000-8000-000000000112",
+  );
+  let successBudgetCalls = 0;
+  let successProviderCalls = 0;
+
+  successRuntime.budget = {
+    async consume() {
+      successBudgetCalls += 1;
+
+      if (successBudgetCalls > 1) {
+        throw new RouteProviderRuntimeError("PROVIDER_CALL_BUDGET_EXCEEDED");
+      }
+    },
+  };
+
+  try {
+    process.env.NEXT_PUBLIC_ODSAY_API_KEY = "test-odsay-key";
+    const successFetch: typeof fetch = async () => {
+      successProviderCalls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return jsonResponse({
+        result: { path: [{ info: { totalDistance: 2_000, totalTime: 10 } }] },
+      });
+    };
+    const computeSuccess = () => computeOdsayTransitRoute(
+      [origin, destination],
+      new AbortController().signal,
+      {
+        fetchImpl: successFetch,
+        recoveryRuntime: successRuntime,
+        skipRequestSpacing: true,
+      },
+    );
+    const [standard, carryme] = await Promise.all([computeSuccess(), computeSuccess()]);
+
+    assert.equal(successProviderCalls, 1);
+    assert.equal(successBudgetCalls, 1);
+    assert.equal(standard.totalDurationSeconds, carryme.totalDurationSeconds);
+
+    await computeSuccess();
+    assert.equal(successProviderCalls, 1);
+    assert.equal(successBudgetCalls, 1);
+
+    const failureRuntime = createTestRecoveryRuntime(
+      "00000000-0000-4000-8000-000000000113",
+    );
+    let failureBudgetCalls = 0;
+    let failureProviderCalls = 0;
+
+    failureRuntime.budget = {
+      async consume() {
+        failureBudgetCalls += 1;
+      },
+    };
+    const failureFetch: typeof fetch = async () => {
+      failureProviderCalls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return jsonResponse({ error: { code: "7", message: "route unavailable" } });
+    };
+    const computeFailure = () => computeOdsayTransitRoute(
+      [origin, destination],
+      new AbortController().signal,
+      {
+        fetchImpl: failureFetch,
+        recoveryRuntime: failureRuntime,
+        skipRequestSpacing: true,
+      },
+    );
+    const failures = await Promise.all(
+      [computeFailure(), computeFailure()].map((promise) =>
+        promise.then(
+          () => null,
+          (error: unknown) => error,
+        ),
+      ),
+    );
+
+    assert.equal(failureProviderCalls, 1);
+    assert.equal(failureBudgetCalls, 1);
+    assert.ok(failures.every(
+      (error) => error instanceof RouteProviderError && error.code === "7",
+    ));
+
+    let retryProviderCalls = 0;
+    await computeOdsayTransitRoute(
+      [origin, destination],
+      new AbortController().signal,
+      {
+        fetchImpl: async () => {
+          retryProviderCalls += 1;
+          return jsonResponse({
+            result: { path: [{ info: { totalDistance: 2_000, totalTime: 10 } }] },
+          });
+        },
+        recoveryRuntime: failureRuntime,
+        skipRequestSpacing: true,
+      },
+    );
+    assert.equal(failureProviderCalls, 1);
+    assert.equal(failureBudgetCalls, 2);
+    assert.equal(retryProviderCalls, 1);
+  } finally {
+    restoreEnv("NEXT_PUBLIC_ODSAY_API_KEY", originalApiKey);
+  }
+}
+
+/** Verifies code 4 evaluates only two stations and shares the winning segment by trace. */
 async function assertOdsayStationRecoveryAndCacheContract() {
   const originalApiKey = process.env.NEXT_PUBLIC_ODSAY_API_KEY;
   const destination = createRecoveryDestination("replaceable");
@@ -339,8 +856,8 @@ async function assertOdsayStationRecoveryAndCacheContract() {
     );
     const firstCallCount = providerCalls;
 
-    assert.equal(stationTransitCalls, 3);
-    assert.equal(walkCalls, 3);
+    assert.equal(stationTransitCalls, 2);
+    assert.equal(walkCalls, 2);
     assert.equal(first.totalDurationSeconds, 18 * 60);
     assert.equal(first.segments[0].durationSource, "provider");
 
@@ -352,6 +869,64 @@ async function assertOdsayStationRecoveryAndCacheContract() {
 
     assert.equal(providerCalls, firstCallCount);
     assert.equal(cached.totalDurationSeconds, first.totalDurationSeconds);
+  } finally {
+    restoreEnv("NEXT_PUBLIC_ODSAY_API_KEY", originalApiKey);
+  }
+}
+
+/** Verifies code 3 prepends a bounded origin walk before the transit segment. */
+async function assertOdsayOriginStationRecoveryContract() {
+  const originalApiKey = process.env.NEXT_PUBLIC_ODSAY_API_KEY;
+  const origin = createRecoveryOrigin();
+  const destination = createRecoveryDestination("replaceable");
+  const runtime = createTestRecoveryRuntime("00000000-0000-4000-8000-000000000111");
+  let walkCalls = 0;
+  let transitCalls = 0;
+
+  try {
+    process.env.NEXT_PUBLIC_ODSAY_API_KEY = "test-odsay-key";
+    const result = await computeOdsayTransitRoute(
+      [origin, destination],
+      new AbortController().signal,
+      {
+        fetchImpl: async (request) => {
+          const url = new URL(String(request));
+
+          if (url.pathname.endsWith("/pointSearch")) {
+            return jsonResponse({
+              result: { station: [createStationFixture(11, 127.0005, 37.0005)] },
+            });
+          }
+
+          if (url.pathname.endsWith("/searchWalkPathV2")) {
+            walkCalls += 1;
+            return jsonResponse({
+              result: { path: [{ info: { totalDistance: 300, totalTime: 5 } }] },
+            });
+          }
+
+          if (url.pathname.endsWith("/searchPubTransPathT")) {
+            transitCalls += 1;
+            const originLongitude = Number(url.searchParams.get("SX"));
+
+            return originLongitude === origin.coordinate?.lng
+              ? jsonResponse({ error: { code: "3", message: "origin station missing" } })
+              : jsonResponse({
+                  result: { path: [{ info: { totalDistance: 2_000, totalTime: 10 } }] },
+                });
+          }
+
+          throw new Error(`Unexpected ODsay test path: ${url.pathname}`);
+        },
+        recoveryRuntime: runtime,
+        skipRequestSpacing: true,
+      },
+    );
+
+    assert.equal(walkCalls, 1);
+    assert.equal(transitCalls, 2);
+    assert.equal(result.totalDurationSeconds, 15 * 60);
+    assert.equal(result.segments[0]?.durationSource, "provider");
   } finally {
     restoreEnv("NEXT_PUBLIC_ODSAY_API_KEY", originalApiKey);
   }
@@ -463,7 +1038,7 @@ function createTestRecoveryRuntime(
   const policy: OdsayStationRecoveryPolicy = {
     aiWalkLimitMinutes: 30,
     fixedWalkLimitMinutes: 90,
-    maxStationCandidates: 3,
+    maxStationCandidates: 2,
     policyVersion: "test-v1",
     searchRadiiMeters: [500, 1_000],
   };
@@ -690,6 +1265,7 @@ async function assertDuplicateStableTimelineReferences() {
   const createStableRoute = (route: RoutePlan): RoutePlan => {
     const origin = {
       ...route.stops[0],
+      placeRef: "day-1-origin",
       placeConstraint: "fixed" as const,
       stopRef: "day-1-stop-1",
     };
@@ -697,6 +1273,7 @@ async function assertDuplicateStableTimelineReferences() {
       ...route.stops[1],
       mode: "transit" as const,
       placeConstraint: "replaceable" as const,
+      placeRef: "day-1-visit",
       placeSourceRef: "naver_local:same-place",
       stopRef: "day-1-stop-2",
     };
@@ -734,15 +1311,31 @@ async function assertDuplicateStableTimelineReferences() {
       title: "다음 일정",
     },
   ];
+  const carrymeTimeline = [
+    timeline[0],
+    timeline[1],
+    {
+      category: "carryme" as const,
+      deliverySourcePlaceRef: "day-1-origin",
+      deliveryTargetPlaceRef: "day-1-visit",
+      deliveryTargetStopRef: "day-1-stop-3",
+      description: "짐이 먼저 도착합니다.",
+      eventKind: "luggage_delivery" as const,
+      stayDurationMinutes: 0,
+      time: "09:30",
+      title: "짐 도착",
+    },
+    timeline[2],
+  ];
 
   itinerary.transportMode = "transit";
   itinerary.days = itinerary.days.slice(0, 1).map((day) => ({
     ...day,
     carryme: createStableRoute(day.carryme),
-    carrymeTimeline: timeline,
+    carrymeTimeline,
     standard: createStableRoute(day.standard),
     standardTimeline: timeline,
-    timeline,
+    timeline: carrymeTimeline,
   }));
 
   const finalized = await finalizeItineraryRoutes(itinerary, {
@@ -753,6 +1346,8 @@ async function assertDuplicateStableTimelineReferences() {
   assert.equal(finalized.days[0].standard.stops.length, 2);
   assert.equal(finalized.days[0].standardTimeline?.[1].time, "08:40");
   assert.equal(finalized.days[0].standardTimeline?.[2].time, "09:40");
+  assert.equal(finalized.days[0].carrymeTimeline?.[2].time, "09:40");
+  assert.equal(finalized.days[0].carrymeTimeline?.[2].eventKind, "luggage_delivery");
 }
 
 /** Verifies browser edits cannot replace stored AI copy, Standard order, or timeline arrays. */
@@ -787,6 +1382,98 @@ async function assertEditedItineraryPreservesAiFields() {
     stored.days[0].carryme.stops[1].placeSourceRef,
   );
   assert.equal(validated.transportMode, "transit");
+}
+
+/** Verifies an opposite-mode edit keeps stable visits, delivery references, and visible mode copy. */
+async function assertEditedItineraryPreservesStableStopContractAndModeCopy() {
+  const driveStored = createStableFinalDayDeliveryItinerary();
+  const fixedPlaceSwap = structuredClone(driveStored);
+  fixedPlaceSwap.days[0].carryme.stops[0] = {
+    ...fixedPlaceSwap.days[0].carryme.stops[0],
+    label: driveStored.days[0].carryme.stops[1].label,
+    placeRef: driveStored.days[0].carryme.stops[1].placeRef,
+    placeSourceRef: driveStored.days[0].carryme.stops[1].placeSourceRef,
+  };
+  await assert.rejects(
+    () => validateEditedItineraryPlaces(
+      fixedPlaceSwap,
+      driveStored,
+      new AbortController().signal,
+    ),
+    (error) =>
+      error instanceof RouteFinalizationError &&
+      /고정 장소는 변경할 수 없습니다/.test(error.message),
+  );
+
+  const transitCandidate = structuredClone(driveStored);
+  const originalStopContracts = driveStored.days[0].carryme.stops.map((stop) => ({
+    placeConstraint: stop.placeConstraint,
+    placeRef: stop.placeRef,
+    stopRef: stop.stopRef,
+  }));
+
+  transitCandidate.transportMode = "transit";
+  const validatedTransit = await validateEditedItineraryPlaces(
+    transitCandidate,
+    driveStored,
+    new AbortController().signal,
+  );
+
+  assert.deepEqual(
+    validatedTransit.days[0].carryme.stops.map((stop) => ({
+      placeConstraint: stop.placeConstraint,
+      placeRef: stop.placeRef,
+      stopRef: stop.stopRef,
+    })),
+    originalStopContracts,
+  );
+
+  const transitFinalized = await finalizeItineraryRoutes(validatedTransit, {
+    computeTransitRoute: async (stops) =>
+      createTransitProviderResult(stops, 600, "provider"),
+  });
+  const transitTimeline = transitFinalized.days[0].timeline;
+  const transitDelivery = transitTimeline.find(
+    (event) => event.eventKind === "luggage_delivery",
+  );
+  const transitMovements = transitTimeline.filter(
+    (event) => event.stopRef && event.category === "transit",
+  );
+
+  assert.ok(transitMovements.length >= 2);
+  assert.ok(transitMovements.every((event) => event.movementMode === "transit"));
+  assert.match(JSON.stringify(transitMovements), /대중교통 경로/);
+  assert.doesNotMatch(JSON.stringify(transitMovements), /자동차|차량|drive/i);
+  assert.equal(transitDelivery?.deliverySourcePlaceRef, "day-1-hotel");
+  assert.equal(transitDelivery?.deliveryTargetPlaceRef, "day-1-origin");
+  assert.equal(transitDelivery?.deliveryTargetStopRef, "day-1-stop-3");
+
+  const driveCandidate = structuredClone(transitFinalized);
+  driveCandidate.transportMode = "drive";
+  const validatedDrive = await validateEditedItineraryPlaces(
+    driveCandidate,
+    transitFinalized,
+    new AbortController().signal,
+  );
+  const driveFinalized = await finalizeItineraryRoutes(validatedDrive, {
+    computeDriveRoute: async (stops) => createProviderResult(stops, 600),
+  });
+  const driveMovements = driveFinalized.days[0].timeline.filter(
+    (event) => event.stopRef && event.category === "drive",
+  );
+
+  assert.deepEqual(
+    driveFinalized.days[0].carryme.stops.map((stop) => ({
+      placeConstraint: stop.placeConstraint,
+      placeRef: stop.placeRef,
+      stopRef: stop.stopRef,
+    })),
+    originalStopContracts,
+  );
+  assert.ok(driveMovements.length >= 2);
+  assert.ok(driveMovements.every((event) => event.movementMode === "drive"));
+  assert.match(JSON.stringify(driveMovements), /자동차 경로/);
+  assert.doesNotMatch(JSON.stringify(driveMovements), /대중교통|transit/i);
 }
 
 /** Verifies a missing AI stop is resolved once and reused across comparison routes. */
@@ -955,6 +1642,165 @@ async function assertFailedProviderLegRetriesOnce() {
       process.env.NAVER_MAPS_CLIENT_SECRET = originalClientSecret;
     }
   }
+}
+
+function createStableFinalDayDeliveryItinerary(): PlanmeItinerary {
+  const itinerary = createTestItinerary();
+  const createRoute = (id: RoutePlan["id"]): RoutePlan => ({
+    ...itinerary.days[0][id],
+    stops: [
+      {
+        caption: "출발",
+        coordinate: { lat: 35.16, lng: 129.16 },
+        icon: "hotel",
+        label: "베이몬드호텔 해운대",
+        mode: "drive",
+        placeConstraint: "fixed",
+        placeRef: "day-1-hotel",
+        placeSourceRef: "naver:baymond-hotel-haeundae",
+        role: "숙소",
+        stopRef: "day-1-stop-1",
+      },
+      {
+        caption: "관광",
+        coordinate: { lat: 35.1, lng: 129.03 },
+        icon: "attraction",
+        label: "자갈치시장",
+        mode: "drive",
+        placeConstraint: "replaceable",
+        placeRef: "day-1-visit",
+        placeSourceRef: "naver:jagalchi-market",
+        role: "방문지",
+        stopRef: "day-1-stop-2",
+      },
+      {
+        caption: "여행 종료",
+        coordinate: { lat: 37.2, lng: 127.1 },
+        icon: "station",
+        label: "동탄호수공원",
+        mode: "drive",
+        placeConstraint: "fixed",
+        placeRef: "day-1-origin",
+        placeSourceRef: "input:origin:dongtan-lake-park",
+        role: "복귀지",
+        stopRef: "day-1-stop-3",
+      },
+    ],
+  });
+  const standardTimeline = [
+    {
+      category: "arrival" as const,
+      description: "차량으로 이동을 시작합니다.",
+      eventKind: "traveler_stop" as const,
+      stayDurationMinutes: 0,
+      stopRef: "day-1-stop-1",
+      time: "08:00",
+      title: "베이몬드호텔 해운대 출발",
+    },
+    {
+      category: "event" as const,
+      description: "관광합니다.",
+      eventKind: "traveler_stop" as const,
+      stayDurationMinutes: 60,
+      stopRef: "day-1-stop-2",
+      time: "09:00",
+      title: "자갈치시장 관광",
+    },
+    {
+      category: "arrival" as const,
+      description: "일정을 마칩니다.",
+      eventKind: "traveler_stop" as const,
+      stayDurationMinutes: 0,
+      stopRef: "day-1-stop-3",
+      time: "17:00",
+      title: "동탄호수공원 도착",
+    },
+  ];
+  const deliveryEvent = {
+    category: "carryme" as const,
+    deliverySourcePlaceRef: "day-1-hotel",
+    deliveryTargetPlaceRef: "day-1-origin",
+    deliveryTargetStopRef: "day-1-stop-3",
+    description: "짐은 원출발지에 먼저 도착합니다.",
+    eventKind: "luggage_delivery" as const,
+    stayDurationMinutes: 0,
+    time: "08:10",
+    title: "짐 동탄호수공원 도착",
+  };
+  const carrymeTimeline = [
+    standardTimeline[0],
+    deliveryEvent,
+    standardTimeline[1],
+    standardTimeline[2],
+  ];
+
+  return {
+    ...itinerary,
+    days: [
+      {
+        ...itinerary.days[0],
+        carryme: createRoute("carryme"),
+        carrymeTimeline,
+        standard: createRoute("standard"),
+        standardTimeline,
+        timeline: carrymeTimeline,
+      },
+    ],
+    duration: "당일",
+  };
+}
+
+/** Creates a stable day-trip whose return stop is the same physical place as its start. */
+function createSameEndpointDayTripItinerary(): PlanmeItinerary {
+  const itinerary = createStableFinalDayDeliveryItinerary();
+  const returnStop = itinerary.days[0].standard.stops.at(-1);
+
+  assert(returnStop, "당일치기 복귀지가 필요합니다.");
+
+  const createOriginStop = () => ({
+    ...structuredClone(returnStop),
+    caption: "출발",
+    role: "출발지" as const,
+    stopRef: "day-1-stop-1",
+  });
+  const standardTimeline = structuredClone(itinerary.days[0].standardTimeline ?? []);
+
+  assert(standardTimeline[0], "당일치기 출발 이벤트가 필요합니다.");
+  standardTimeline[0] = {
+    ...standardTimeline[0],
+    description: "일정을 시작합니다.",
+    stopRef: "day-1-stop-1",
+    title: "동탄호수공원 출발",
+  };
+  const carrymeTimeline = structuredClone(standardTimeline);
+
+  return {
+    ...itinerary,
+    days: [
+      {
+        ...itinerary.days[0],
+        carryme: {
+          ...itinerary.days[0].carryme,
+          stops: [createOriginStop(), ...itinerary.days[0].carryme.stops.slice(1)],
+        },
+        carrymeTimeline,
+        standard: {
+          ...itinerary.days[0].standard,
+          stops: [createOriginStop(), ...itinerary.days[0].standard.stops.slice(1)],
+        },
+        standardTimeline,
+        timeline: structuredClone(carrymeTimeline),
+      },
+    ],
+  };
+}
+
+function parseTestTimelineMinutes(value: string | undefined) {
+  assert(value, "테스트 시간 값이 필요합니다.");
+  const match = /^(\d{2}):(\d{2})$/.exec(value);
+
+  assert(match, `테스트 시간 형식이 올바르지 않습니다: ${value}`);
+  return Number(match[1]) * 60 + Number(match[2]);
 }
 
 /** Creates a deterministic two-day comparison itinerary for pure server tests. */

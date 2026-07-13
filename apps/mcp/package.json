@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "vercel-build": "cd ../.. && npm --workspace @planme/core run build",
     "pretest:mcp": "npm --workspace @planme/core run build",
-    "test:mcp": "tsx scripts/check-planme-mcp.ts && tsx scripts/check-itinerary-recommendation-flow.ts",
+    "test:mcp": "tsx scripts/check-planme-mcp.ts && tsx scripts/check-itinerary-recommendation-flow.ts && tsx scripts/check-recommendation-boundaries.ts",
     "smoke:external": "tsx scripts/check-planme-external-smoke.ts",
     "smoke:transit-recovery": "tsx scripts/check-planme-transit-recovery-smoke.ts"
   },

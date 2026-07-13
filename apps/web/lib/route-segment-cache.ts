@@ -8,7 +8,7 @@ export type TransitRecoveryMode = "off" | "on" | "smoke";
 export type OdsayStationRecoveryPolicy = {
   aiWalkLimitMinutes: number;
   fixedWalkLimitMinutes: number;
-  maxStationCandidates: 3;
+  maxStationCandidates: number;
   policyVersion: string;
   searchRadiiMeters: number[];
 };
@@ -50,9 +50,9 @@ const ROUTE_PROVIDER_BUDGET_PREFIX = "planme:route-provider-budget";
 const memorySegments = new Map<string, { expiresAt: number; value: RouteProviderSegment }>();
 const memoryBudgets = new Map<string, { count: number; expiresAt: number }>();
 
-/** Reads the deployment mode without enabling recovery by default. */
+/** Keeps local and deployed transit recovery behavior aligned unless explicitly disabled. */
 export function getTransitRecoveryMode(): TransitRecoveryMode {
-  const raw = process.env.PLANME_TRANSIT_ACCESS_RECOVERY_MODE?.trim() || "off";
+  const raw = process.env.PLANME_TRANSIT_ACCESS_RECOVERY_MODE?.trim() || "on";
 
   if (raw === "off" || raw === "smoke" || raw === "on") {
     return raw;
@@ -247,7 +247,7 @@ function readRecoveryPolicy(): OdsayStationRecoveryPolicy {
   return {
     aiWalkLimitMinutes: 30,
     fixedWalkLimitMinutes: 90,
-    maxStationCandidates: 3,
+    maxStationCandidates: 2,
     policyVersion: process.env.PLANME_ODSAY_RECOVERY_POLICY_VERSION?.trim() || "v1",
     searchRadiiMeters: radii,
   };
