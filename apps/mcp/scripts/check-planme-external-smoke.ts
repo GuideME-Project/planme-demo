@@ -33,6 +33,7 @@ type SmokeToolArguments = {
   preferences: string[];
   travelerCount: number;
   luggageCount: number;
+  transportMode: "drive" | "transit";
 };
 
 const usageEstimate = [
@@ -203,14 +204,7 @@ async function runMcpRecommendationSmoke(): Promise<void> {
  * Calls recommend_planme_itinerary and answers clarification prompts with bounded retries.
  */
 async function callRecommendUntilReady(client: Client): Promise<SmokeToolPayload> {
-  const baseArguments: SmokeToolArguments = {
-    destination: "경상남도 거제시",
-    durationDays: 3,
-    origin: "강원도 양양",
-    preferences: ["낚시", "바다전망 숙소"],
-    travelerCount: 2,
-    luggageCount: 2,
-  };
+  const baseArguments = createSmokeArguments();
   let argumentsForCall: SmokeToolArguments = baseArguments;
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -250,6 +244,31 @@ async function callRecommendUntilReady(client: Client): Promise<SmokeToolPayload
   }
 
   throw new Error("실제 API smoke가 ready 상태에 도달하지 못했습니다.");
+}
+
+/** Selects the explicit real-provider scenario without changing the default legacy smoke. */
+function createSmokeArguments(): SmokeToolArguments {
+  if (process.env.PLANME_EXTERNAL_SMOKE_CASE === "namhae-transit") {
+    return {
+      destination: "남해",
+      durationDays: 2,
+      luggageCount: 1,
+      origin: "동탄호수공원",
+      preferences: ["남해 핵심 명소", "대중교통 이동", "무리 없는 동선"],
+      transportMode: "transit",
+      travelerCount: 1,
+    };
+  }
+
+  return {
+    destination: "경상남도 거제시",
+    durationDays: 3,
+    luggageCount: 2,
+    origin: "강원도 양양",
+    preferences: ["낚시", "바다전망 숙소"],
+    transportMode: "drive",
+    travelerCount: 2,
+  };
 }
 
 /**

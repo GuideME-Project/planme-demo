@@ -1136,7 +1136,7 @@ async function resolveDraftPlaceCandidatesIfPossible(
       replacements,
     );
 
-    days.push(applyPlaceExclusionCopy(replacedDay, [...exclusions]));
+    days.push(applyPlaceExclusionCopy(replacedDay, day, [...exclusions]));
   }
 
   if (unresolvedStops.length > 0) {
@@ -1159,10 +1159,76 @@ async function resolveDraftPlaceCandidatesIfPossible(
   }
 
   return {
-    draft: { ...draft, days },
+    draft: alignDraftRoutesToTimelineOrder({ ...draft, days }),
     resolutionLogs,
     status: "resolved",
     validationIssues,
+  };
+}
+
+/** Makes the chronological timeline the source of truth when model route order disagrees. */
+function alignDraftRoutesToTimelineOrder(
+  draft: PlanmeDraftPreviewRequest,
+): PlanmeDraftPreviewRequest {
+  return {
+    ...draft,
+    days: draft.days.map((day) => {
+      const standard = alignStopsAndTimeline(day.standardStops, day.standardTimeline);
+      const carryme = alignStopsAndTimeline(day.carrymeStops, day.carrymeTimeline);
+      const legacy = alignStopsAndTimeline(day.stops, day.timeline);
+
+      return {
+        ...day,
+        carrymeRouteText: carryme.stops
+          ? carryme.stops.map((stop) => stop.name).join(" → ")
+          : day.carrymeRouteText,
+        carrymeStops: carryme.stops,
+        carrymeTimeline: carryme.timeline,
+        standardRouteText: standard.stops
+          ? standard.stops.map((stop) => stop.name).join(" → ")
+          : day.standardRouteText,
+        standardStops: standard.stops,
+        standardTimeline: standard.timeline,
+        stops: legacy.stops,
+        timeline: legacy.timeline,
+      };
+    }),
+  };
+}
+
+function alignStopsAndTimeline<
+  TStop extends ResolvableDraftStop,
+  TTimeline extends PlanmeDraftPreviewRequest["days"][number]["timeline"],
+>(stops: TStop[] | undefined, timeline: TTimeline) {
+  if (!stops || !timeline) {
+    return { stops, timeline };
+  }
+
+  const referencedIndexes = timeline
+    .map((event) => event.stopIndex)
+    .filter((value): value is number => typeof value === "number");
+  const uniqueIndexes = [...new Set(referencedIndexes)];
+  const completeContract =
+    uniqueIndexes.length === stops.length &&
+    uniqueIndexes.every((index) => Number.isInteger(index) && index >= 0 && index < stops.length);
+
+  if (!completeContract) {
+    return { stops, timeline };
+  }
+
+  const newIndexByOldIndex = new Map(
+    uniqueIndexes.map((oldIndex, newIndex) => [oldIndex, newIndex]),
+  );
+
+  return {
+    stops: uniqueIndexes.map((index) => stops[index]),
+    timeline: timeline.map((event) => ({
+      ...event,
+      stopIndex:
+        typeof event.stopIndex === "number"
+          ? newIndexByOldIndex.get(event.stopIndex)
+          : event.stopIndex,
+    })) as TTimeline,
   };
 }
 
@@ -1385,6 +1451,7 @@ function applyPlaceReplacementCopy(
  */
 function applyPlaceExclusionCopy(
   day: PlanmeDraftPreviewRequest["days"][number],
+  sourceDay: PlanmeDraftPreviewRequest["days"][number],
   exclusions: string[],
 ) {
   if (exclusions.length === 0) {
@@ -1393,20 +1460,53 @@ function applyPlaceExclusionCopy(
 
   const filterTimeline = (
     timeline: PlanmeDraftPreviewRequest["days"][number]["timeline"],
-  ) =>
-    timeline?.filter((event) =>
-      exclusions.every(
-        (place) => !event.title.includes(place) && !event.description.includes(place),
-      ),
+    sourceStops: PlanmeDraftPreviewRequest["days"][number]["stops"],
+  ) => {
+    const removedIndexes = new Set(
+      (sourceStops ?? [])
+        .map((stop, index) =>
+          exclusions.some((place) => stop.name.includes(place)) ? index : -1,
+        )
+        .filter((index) => index >= 0),
     );
+
+    return timeline?.flatMap((event) => {
+      if (typeof event.stopIndex === "number") {
+        if (removedIndexes.has(event.stopIndex)) {
+          return [];
+        }
+
+        const removedBefore = [...removedIndexes].filter(
+          (index) => index < event.stopIndex!,
+        ).length;
+
+        return [{ ...event, stopIndex: event.stopIndex - removedBefore }];
+      }
+
+      return exclusions.every(
+        (place) => !event.title.includes(place) && !event.description.includes(place),
+      )
+        ? [event]
+        : [];
+    });
+  };
 
   return {
     ...day,
     carrymeRouteText: removeExcludedRouteParts(day.carrymeRouteText, exclusions),
     standardRouteText: removeExcludedRouteParts(day.standardRouteText, exclusions),
-    carrymeTimeline: filterTimeline(day.carrymeTimeline),
-    standardTimeline: filterTimeline(day.standardTimeline),
-    timeline: filterTimeline(day.timeline),
+    carrymeTimeline: filterTimeline(
+      day.carrymeTimeline,
+      sourceDay.carrymeStops ?? sourceDay.stops,
+    ),
+    standardTimeline: filterTimeline(
+      day.standardTimeline,
+      sourceDay.standardStops ?? sourceDay.stops,
+    ),
+    timeline: filterTimeline(
+      day.timeline,
+      sourceDay.stops ?? sourceDay.carrymeStops ?? sourceDay.standardStops,
+    ),
   };
 }
 

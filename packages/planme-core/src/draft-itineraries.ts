@@ -825,9 +825,17 @@ function createDraftRouteStops(
   luggageFallbackLabel: string,
   resolveStopReference?: DraftStopReferenceResolver,
 ) {
+  const visitCounts = new Map<string, number>();
+
   return sanitizeStationLuggageStops(
     sanitizeDraftOriginStops(
-      stops.map((stop) => toRouteStop(stop, resolveStopReference)),
+      stops.map((stop) => {
+        const identity = createDraftStopIdentity(stop);
+        const visitIndex = visitCounts.get(identity) ?? 0;
+
+        visitCounts.set(identity, visitIndex + 1);
+        return toRouteStop(stop, resolveStopReference, visitIndex);
+      }),
       explicitOrigin,
     ),
     luggageFallbackLabel,
@@ -836,18 +844,19 @@ function createDraftRouteStops(
 
 type DraftStopReferenceResolver = (
   stop: PlanmeDraftRouteStop | PlanmeDraftStop,
+  visitIndex: number,
 ) => Pick<RouteStop, "placeConstraint" | "stopRef">;
 
 function createDraftStopReferenceResolver(dayIndex: number): DraftStopReferenceResolver {
-  const stopRefsByIdentity = new Map<string, string>();
+  const stopRefsByVisitIdentity = new Map<string, string>();
 
-  return (stop) => {
-    const identity = createDraftStopIdentity(stop);
-    let stopRef = stopRefsByIdentity.get(identity);
+  return (stop, visitIndex) => {
+    const visitIdentity = `${createDraftStopIdentity(stop)}#${visitIndex}`;
+    let stopRef = stopRefsByVisitIdentity.get(visitIdentity);
 
     if (!stopRef) {
-      stopRef = `day-${dayIndex + 1}-stop-${stopRefsByIdentity.size + 1}`;
-      stopRefsByIdentity.set(identity, stopRef);
+      stopRef = `day-${dayIndex + 1}-stop-${stopRefsByVisitIdentity.size + 1}`;
+      stopRefsByVisitIdentity.set(visitIdentity, stopRef);
     }
 
     return {
@@ -939,6 +948,7 @@ function getIconForStopRole(role: PlanmeStopRole | undefined, caption: string): 
 function toRouteStop(
   stop: PlanmeDraftRouteStop | PlanmeDraftStop,
   resolveStopReference?: DraftStopReferenceResolver,
+  visitIndex = 0,
 ): RouteStop {
   const caption = stop.caption?.trim() || "방문";
   const role = isPlanmeStopRole(stop.role) ? stop.role : undefined;
@@ -955,7 +965,7 @@ function toRouteStop(
     placeSource: stop.placeSource,
     placeSourceRef: stop.placeSourceRef,
     role,
-    ...resolveStopReference?.(stop),
+    ...resolveStopReference?.(stop, visitIndex),
   };
 }
 

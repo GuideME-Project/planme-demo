@@ -2038,6 +2038,194 @@ async function assertIntermediatePlaceExclusionContract(): Promise<void> {
   );
 }
 
+/** Verifies exclusion keeps stable timeline stop indexes aligned with filtered routes. */
+async function assertIntermediateExclusionReindexesTimeline(): Promise<void> {
+  const createStops = () => [
+    {
+      caption: "출발",
+      coordinate: { lat: 37.535, lng: 127.123 },
+      name: "강동역",
+      placeSource: "naver_geocode" as const,
+      placeSourceRef: "naver_geocode:강동역",
+      requiredPlaceKind: "origin" as const,
+      role: "출발지" as const,
+    },
+    { caption: "방문", name: "확인 불가 중간 장소", role: "방문지" as const },
+    {
+      caption: "방문",
+      coordinate: { lat: 34.8, lng: 128.04 },
+      name: "확정 방문지",
+      placeSource: "naver_local" as const,
+      placeSourceRef: "naver_local:확정-방문지",
+      role: "방문지" as const,
+    },
+    {
+      caption: "복귀",
+      coordinate: { lat: 37.535, lng: 127.123 },
+      name: "강동역",
+      placeSource: "naver_geocode" as const,
+      placeSourceRef: "naver_geocode:강동역",
+      requiredPlaceKind: "origin" as const,
+      role: "복귀지" as const,
+    },
+  ];
+  const createTimeline = () => createStops().map((stop, stopIndex) => ({
+    category: stopIndex === 0 ? "arrival" as const : "event" as const,
+    description: `${stop.name} 일정`,
+    stayDurationMinutes: stopIndex === 0 ? 0 : 60,
+    stopIndex,
+    time: `${String(8 + stopIndex).padStart(2, "0")}:00`,
+    title: stop.name,
+  }));
+  const response = await createAiRecommendedItineraryResponse(
+    "http://localhost:3000/api/gpt/itineraries/recommend",
+    {
+      destination: "남해",
+      destinationType: "region",
+      durationDays: 2,
+      origin: "강동역",
+      transportMode: "transit",
+    },
+    {
+      accommodationCandidateSearcher: async () => [],
+      aiItineraryGenerator: async () => ({
+        days: [
+          {
+            carrymeStops: createStops(),
+            carrymeTimeline: createTimeline(),
+            day: 1,
+            label: "Day 1",
+            standardStops: createStops(),
+            standardTimeline: createTimeline(),
+          },
+        ],
+        duration: "당일",
+        origin: "강동역",
+        region: "남해",
+        summary: "중간 장소 제외 참조 테스트",
+        title: "남해 일정",
+        transportMode: "transit",
+      }),
+      draftGeocoder: async ({ query }) =>
+        query.includes("강동역")
+          ? {
+              coordinate: { lat: 37.535, lng: 127.123 },
+              placeSource: "naver_geocode" as const,
+              placeSourceRef: `naver_geocode:${query}`,
+            }
+          : null,
+      placeCandidateSearcher: async () => ({ candidates: [], searchedQueries: [] }),
+      replacementQuerySuggester: async () => null,
+    },
+  );
+
+  assertReadyRecommendation(response);
+  const day = response.itinerary.days[0];
+  const routeStopRefs = day.standard.stops.map((stop) => stop.stopRef);
+  const timelineStopRefs = day.standardTimeline?.map((event) => event.stopRef);
+
+  assert.deepEqual(timelineStopRefs, routeStopRefs);
+  assert.equal(day.standard.stops.some((stop) => stop.label === "확인 불가 중간 장소"), false);
+}
+
+/** Verifies chronological timeline order realigns model-authored route arrays. */
+async function assertTimelineOrderRealignsRoute(): Promise<void> {
+  const stops = [
+    {
+      caption: "출발",
+      coordinate: { lat: 37.535, lng: 127.123 },
+      name: "강동역",
+      placeSource: "naver_geocode" as const,
+      placeSourceRef: "naver_geocode:강동역",
+      requiredPlaceKind: "origin" as const,
+      role: "출발지" as const,
+    },
+    {
+      caption: "방문",
+      coordinate: { lat: 34.8, lng: 128.04 },
+      name: "방문지 A",
+      placeSource: "naver_local" as const,
+      placeSourceRef: "naver_local:방문지-a",
+      role: "방문지" as const,
+    },
+    {
+      caption: "방문",
+      coordinate: { lat: 34.81, lng: 128.05 },
+      name: "방문지 B",
+      placeSource: "naver_local" as const,
+      placeSourceRef: "naver_local:방문지-b",
+      role: "방문지" as const,
+    },
+    {
+      caption: "복귀",
+      coordinate: { lat: 37.535, lng: 127.123 },
+      name: "강동역",
+      placeSource: "naver_geocode" as const,
+      placeSourceRef: "naver_geocode:강동역",
+      requiredPlaceKind: "origin" as const,
+      role: "복귀지" as const,
+    },
+  ];
+  const timeline = [0, 2, 1, 3].map((stopIndex, eventIndex) => ({
+    category: eventIndex === 0 ? "arrival" as const : "event" as const,
+    description: `${stops[stopIndex].name} 일정`,
+    stayDurationMinutes: eventIndex === 0 ? 0 : 60,
+    stopIndex,
+    time: `${String(8 + eventIndex).padStart(2, "0")}:00`,
+    title: stops[stopIndex].name,
+  }));
+  const response = await createAiRecommendedItineraryResponse(
+    "http://localhost:3000/api/gpt/itineraries/recommend",
+    {
+      destination: "남해",
+      destinationType: "region",
+      durationDays: 2,
+      origin: "강동역",
+      transportMode: "transit",
+    },
+    {
+      accommodationCandidateSearcher: async () => [],
+      aiItineraryGenerator: async () => ({
+        days: [
+          {
+            carrymeStops: structuredClone(stops),
+            carrymeTimeline: structuredClone(timeline),
+            day: 1,
+            label: "Day 1",
+            standardStops: structuredClone(stops),
+            standardTimeline: structuredClone(timeline),
+          },
+        ],
+        duration: "당일",
+        origin: "강동역",
+        region: "남해",
+        summary: "경로 순서 정렬 테스트",
+        title: "남해 일정",
+        transportMode: "transit",
+      }),
+      draftGeocoder: async ({ query }) => ({
+        coordinate: { lat: 37.535, lng: 127.123 },
+        placeSource: "naver_geocode" as const,
+        placeSourceRef: `naver_geocode:${query}`,
+      }),
+      placeCandidateSearcher: async () => ({ candidates: [], searchedQueries: [] }),
+    },
+  );
+
+  assertReadyRecommendation(response);
+  const day = response.itinerary.days[0];
+
+  assert.deepEqual(
+    day.standard.stops.map((stop) => stop.label),
+    ["강동역", "방문지 B", "방문지 A", "강동역"],
+  );
+  assert.deepEqual(
+    day.standardTimeline?.map((event) => event.stopRef),
+    day.standard.stops.map((stop) => stop.stopRef),
+  );
+  assert.notEqual(day.standard.stops.at(0)?.stopRef, day.standard.stops.at(-1)?.stopRef);
+}
+
 /**
  * Verifies a single clarification answer string is normalized into previousAnswers.
  */
@@ -2966,6 +3154,8 @@ async function main(): Promise<void> {
   await assertPlaceCandidateSearchContract();
   await assertAiRecommendationPlaceCandidateDecisionContract();
   await assertIntermediatePlaceExclusionContract();
+  await assertIntermediateExclusionReindexesTimeline();
+  await assertTimelineOrderRealignsRoute();
   await assertCoordinateOnlyIntermediateExclusionContract();
   assertDraftPreviewSlugContract();
   assertDraftGeoPathRequiresCompleteCoordinates();

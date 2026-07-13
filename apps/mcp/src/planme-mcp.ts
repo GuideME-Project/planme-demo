@@ -22,7 +22,10 @@ import {
 } from "./naver-geocoding.js";
 import { createPlanmeWidgetHtml } from "./planme-widget.js";
 import { createPlanmeUsageRecorder } from "./usage-counters.js";
-import { recommendAndPersistItinerary } from "./itinerary-recommendation-flow.js";
+import {
+  ItineraryRecommendationFlowError,
+  recommendAndPersistItinerary,
+} from "./itinerary-recommendation-flow.js";
 import { PreviewStoreHandoffError } from "./preview-store-handoff-error.js";
 export { PreviewStoreHandoffError } from "./preview-store-handoff-error.js";
 
@@ -615,6 +618,8 @@ export function createPlanmeMcpServer(): McpServer {
           internalCode:
             error instanceof PreviewStoreHandoffError
               ? error.internalCode
+              : error instanceof ItineraryRecommendationFlowError
+                ? error.code
               : "PLANME_RECOMMENDATION_FLOW_FAILED",
           stage:
             error instanceof PreviewStoreHandoffError

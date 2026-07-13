@@ -22,7 +22,10 @@ import {
   PreviewStoreHandoffError,
 } from "./planme-mcp.js";
 import { createPlanmeUsageRecorder } from "./usage-counters.js";
-import { recommendAndPersistItinerary } from "./itinerary-recommendation-flow.js";
+import {
+  ItineraryRecommendationFlowError,
+  recommendAndPersistItinerary,
+} from "./itinerary-recommendation-flow.js";
 
 type BodyRequest = IncomingMessage & {
   body?: object | string | Buffer;
@@ -227,7 +230,11 @@ export async function handleGptsRecommendItineraryRequest(
     logGptsRecommendationFailure(
       traceId,
       isHandoffError ? "preview_store_handoff" : "ai_generation",
-      isHandoffError ? error.internalCode : "PLANME_RECOMMENDATION_FAILED",
+      isHandoffError
+        ? error.internalCode
+        : error instanceof ItineraryRecommendationFlowError
+          ? error.code
+          : "PLANME_RECOMMENDATION_FAILED",
       isHandoffError ? error.status : 500,
     );
     writeJson(response, 500, {
