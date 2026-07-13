@@ -114,8 +114,10 @@ export async function recommendAndPersistItinerary(
 
       if (attempt < MAX_REPLACEMENT_ATTEMPTS_PER_STOP) {
         const nextAttempt = (attempt + 1) as 1 | 2 | 3;
-        const excludedPlaceSourceRefs = excludedRefsByStopRef.get(stopRef) ??
-          findPlaceSourceRefs(itinerary, stopRef);
+        const excludedPlaceSourceRefs = collectExcludedPlaceSourceRefs(
+          itinerary,
+          excludedRefsByStopRef.get(stopRef),
+        );
         const replacement = await replaceTransitItineraryStop(
           {
             attempt: nextAttempt,
@@ -142,7 +144,10 @@ export async function recommendAndPersistItinerary(
         if (replacement.status === "replaced") {
           itinerary = replacement.itinerary;
           resolutionLogs.push(replacement.resolutionLog);
-          excludedRefsByStopRef.set(stopRef, findPlaceSourceRefs(itinerary, stopRef));
+          excludedRefsByStopRef.set(
+            stopRef,
+            collectExcludedPlaceSourceRefs(itinerary, excludedPlaceSourceRefs),
+          );
           decision = await preflight(
             itinerary,
             traceId,
@@ -210,7 +215,10 @@ export async function recommendAndPersistItinerary(
         {
           attempt: nextAttempt,
           excludedPlaceSourceRefs:
-            excludedRefsByStopRef.get(stopRef) ?? findPlaceSourceRefs(itinerary, stopRef),
+            collectExcludedPlaceSourceRefs(
+              itinerary,
+              excludedRefsByStopRef.get(stopRef),
+            ),
           itinerary,
           request: normalizedInput,
           stopRef,
@@ -350,14 +358,19 @@ function readRecoveryMode() {
   throw new ItineraryRecommendationFlowError("TRANSIT_RECOVERY_CONFIGURATION_ERROR");
 }
 
-function findPlaceSourceRefs(itinerary: PlanmeItinerary, stopRef: string) {
+function collectExcludedPlaceSourceRefs(
+  itinerary: PlanmeItinerary,
+  previous: string[] = [],
+) {
   return [...new Set(
-    itinerary.days.flatMap((day) =>
-      [...day.standard.stops, ...day.carryme.stops]
-        .filter((stop) => stop.stopRef === stopRef)
-        .map((stop) => stop.placeSourceRef)
-        .filter((value): value is string => Boolean(value)),
-    ),
+    [
+      ...previous,
+      ...itinerary.days.flatMap((day) =>
+        [...day.standard.stops, ...day.carryme.stops]
+          .map((stop) => stop.placeSourceRef)
+          .filter((value): value is string => Boolean(value)),
+      ),
+    ],
   )];
 }
 

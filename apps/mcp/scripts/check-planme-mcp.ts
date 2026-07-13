@@ -536,8 +536,13 @@ function assertStrictOpenAiToolSchema(requestBody: string): void {
     };
     strict?: boolean;
   };
-  const body = JSON.parse(requestBody) as { tools?: ToolDefinition[] };
+  const body = JSON.parse(requestBody) as {
+    reasoning?: { effort?: string };
+    tools?: ToolDefinition[];
+  };
   const tools = body.tools ?? [];
+
+  assert.equal(body.reasoning?.effort, "minimal");
 
   for (const tool of tools) {
     assert.equal(tool.strict, true);

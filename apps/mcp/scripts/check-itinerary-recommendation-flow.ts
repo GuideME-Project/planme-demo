@@ -26,6 +26,7 @@ async function main() {
   await assertPartialTimelineOrderSurvivesServerAnchors();
   await assertLegacyOmissionDefaultsToRegion();
   await assertReplacementCandidatesAndSingleStore();
+  await assertReplacementSkipsExistingPlaceCandidate();
   await assertCandidateExhaustionRemovesOnlyAiStop();
   await assertFixedPlaceBecomesClarification();
   await assertNoVisitPlaceDoesNotPersist();
@@ -444,6 +445,63 @@ async function assertReplacementCandidatesAndSingleStore() {
     );
     assert.equal(replacedStops[0]?.label, "대체 장소 2");
     assert.equal(replacedStops[0]?.placeConstraint, "replaceable");
+  }
+}
+
+async function assertReplacementSkipsExistingPlaceCandidate() {
+  const itinerary = createFlowItinerary();
+  const existingPlaceSourceRef = itinerary.days[0].standard.stops[2].placeSourceRef;
+  let preflightCalls = 0;
+  const result = await recommendAndPersistItinerary(
+    requestUrl,
+    request,
+    "00000000-0000-4000-8000-000000000208",
+    {
+      generate: createGeneratedResponse(itinerary),
+      mode: "on",
+      persist: async (candidate) => ({ itinerary: candidate }),
+      preflight: async () => {
+        preflightCalls += 1;
+        return preflightCalls === 1
+          ? createReplacementDecision("day-1-stop-2")
+          : { estimatedSegmentCount: 0, status: "accessible" as const };
+      },
+      replacementOptions: {
+        placeCandidateSearcher: async () => ({
+          candidates: [
+            {
+              candidateId: "existing-candidate",
+              coordinate: { lat: 34.81, lng: 128.05 },
+              id: "existing-candidate",
+              name: "AI 장소 B",
+              source: "naver_local",
+              sourceRef: existingPlaceSourceRef ?? "naver_local:AI 장소 B",
+            },
+            {
+              candidateId: "unique-candidate",
+              coordinate: { lat: 34.82, lng: 128.06 },
+              id: "unique-candidate",
+              name: "고유 대체 장소",
+              source: "naver_local",
+              sourceRef: "naver_local:unique-replacement",
+            },
+          ],
+          searchedQueries: ["대체 장소"],
+        }),
+        replacementQuerySuggester: async () => "대체 장소",
+      },
+    },
+  );
+
+  assert.equal(result.status, "ready");
+
+  if (result.status === "ready") {
+    assert.equal(
+      result.response.itinerary.days[0].standard.stops.find(
+        (stop) => stop.stopRef === "day-1-stop-2",
+      )?.label,
+      "고유 대체 장소",
+    );
   }
 }
 
