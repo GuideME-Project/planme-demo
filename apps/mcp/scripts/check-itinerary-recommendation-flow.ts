@@ -29,6 +29,7 @@ async function main() {
   await assertFixedPlaceBecomesClarification();
   await assertNoVisitPlaceDoesNotPersist();
   await assertOffModeSkipsPreflight();
+  await assertCachedFinalStoreUsesMeasuredBudget();
   await assertFinalStoreRepairSafetyRunsOnce();
   console.log("PlanME shared recommendation flow contract passed");
 }
@@ -494,6 +495,28 @@ async function assertOffModeSkipsPreflight() {
   assert.equal(result.status, "ready");
   assert.equal(preflightCalls, 0);
   assert.equal(persistCalls, 1);
+}
+
+async function assertCachedFinalStoreUsesMeasuredBudget() {
+  const nowValues = [0, 51_000];
+  let persistedTimeoutMs = 0;
+  const result = await recommendAndPersistItinerary(
+    requestUrl,
+    request,
+    "00000000-0000-4000-8000-000000000207",
+    {
+      generate: createGeneratedResponse(createFlowItinerary()),
+      mode: "off",
+      now: () => nowValues.shift() ?? 51_000,
+      persist: async (candidate, _traceId, timeoutMs) => {
+        persistedTimeoutMs = timeoutMs;
+        return { itinerary: candidate };
+      },
+    },
+  );
+
+  assert.equal(result.status, "ready");
+  assert.equal(persistedTimeoutMs, 4_000);
 }
 
 function createGeneratedResponse(itinerary: PlanmeItinerary) {

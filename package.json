@@ -17,6 +17,7 @@
     "test:finalization": "tsx apps/web/scripts/check-itinerary-finalization.ts",
     "test:route-normalization": "npm --workspace @planme/core run build && node scripts/check-planme-route-normalization.mjs",
     "smoke:external": "npm --workspace @planme/mcp run smoke:external",
+    "smoke:odsay-segment": "tsx apps/web/scripts/check-odsay-recovery-segment-smoke.ts",
     "smoke:transit-recovery": "npm --workspace @planme/mcp run smoke:transit-recovery"
   },
   "devDependencies": {

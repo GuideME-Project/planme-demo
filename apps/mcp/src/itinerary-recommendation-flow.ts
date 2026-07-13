@@ -66,7 +66,8 @@ export class ItineraryRecommendationFlowError extends Error {
 
 const RECOMMENDATION_BUDGET_MS = 55_000;
 const WEB_ROUTE_BUDGET_MAX_MS = 40_000;
-const MINIMUM_FINAL_STORE_BUDGET_MS = 8_000;
+// A successful preflight fills the shared route cache; measured final-store handoff is about 2s.
+const MINIMUM_FINAL_STORE_BUDGET_MS = 4_000;
 const MAX_REPLACEMENT_ATTEMPTS_PER_STOP = 3;
 
 /** Runs generation, transit repair, and exactly one successful final-store call for both entrypoints. */

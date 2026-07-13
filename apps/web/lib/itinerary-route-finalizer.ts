@@ -744,10 +744,20 @@ function adjustTimelineEvents(
         context.sourceRoute,
       );
 
-      if (stopIndex < 0 || (lastStopIndex !== null && stopIndex < lastStopIndex)) {
-        throw new RouteFinalizationError("시간표 장소 순서 계약이 올바르지 않습니다.", {
+      if (stopIndex < 0) {
+        throw new RouteFinalizationError("시간표 장소 참조 계약이 올바르지 않습니다.", {
           dayIndex: context.dayIndex,
           internalCode: "INVALID_TIMELINE_STOP_REFERENCE",
+          routeId: context.routeId,
+          stage: "timeline_validation",
+          stopRef: event.stopRef,
+        });
+      }
+
+      if (lastStopIndex !== null && stopIndex < lastStopIndex) {
+        throw new RouteFinalizationError("시간표 장소 순서 계약이 올바르지 않습니다.", {
+          dayIndex: context.dayIndex,
+          internalCode: "INVALID_TIMELINE_STOP_ORDER",
           routeId: context.routeId,
           stage: "timeline_validation",
           stopRef: event.stopRef,

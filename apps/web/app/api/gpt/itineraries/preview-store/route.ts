@@ -184,6 +184,7 @@ export async function POST(request: Request) {
           retried: error.retried,
           routeId: error.routeId,
           segmentIndex: error.segmentIndex,
+          stopRef: error.stopRef,
         },
       );
       return NextResponse.json(
@@ -238,6 +239,7 @@ function logPreviewStoreFailure(
     retried?: boolean;
     routeId?: "standard" | "carryme";
     segmentIndex?: number;
+    stopRef?: string;
   } = {},
 ) {
   console.error("PlanME preview store failure", {
