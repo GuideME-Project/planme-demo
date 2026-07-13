@@ -42,6 +42,7 @@ async function main() {
   assert.equal(finalized.days[0].standard.geoSegments?.length, 1);
 
   await assertFailedProviderLegRetriesOnce();
+  await assertShortTransitLegSkipsOdsay();
   await assertOdsayFailureIncludesSegmentContext();
   await assertMissingCoordinatesUseRepresentativeNaverCandidate();
   await assertEditedItineraryPreservesAiFields();
@@ -133,7 +134,7 @@ async function assertOdsayFailureIncludesSegmentContext() {
     role: "출발지",
   };
   const destinationStop: RouteProviderStop = {
-    coordinate: { lat: 37.536, lng: 127.124 },
+    coordinate: { lat: 37.546, lng: 127.134 },
     id: "standard-1-visit",
     label: "AI 방문지",
     role: "방문지",
@@ -161,6 +162,54 @@ async function assertOdsayFailureIncludesSegmentContext() {
         error.destinationStop === destinationStop &&
         !error.retried,
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+
+    if (originalApiKey === undefined) {
+      delete process.env.NEXT_PUBLIC_ODSAY_API_KEY;
+    } else {
+      process.env.NEXT_PUBLIC_ODSAY_API_KEY = originalApiKey;
+    }
+  }
+}
+
+/** Verifies the known 678 m Namhae leg completes without consuming an ODsay request. */
+async function assertShortTransitLegSkipsOdsay() {
+  const originalApiKey = process.env.NEXT_PUBLIC_ODSAY_API_KEY;
+  const originalFetch = globalThis.fetch;
+  let providerCalls = 0;
+
+  try {
+    process.env.NEXT_PUBLIC_ODSAY_API_KEY = "test-odsay-key";
+    globalThis.fetch = async () => {
+      providerCalls += 1;
+      throw new Error("ODsay must not be called for a nearby transit leg.");
+    };
+
+    const result = await computeOdsayTransitRoute(
+      [
+        {
+          coordinate: { lat: 34.7992073, lng: 128.0401618 },
+          id: "namhae-german-village",
+          label: "남해독일마을",
+          role: "방문지",
+        },
+        {
+          coordinate: { lat: 34.8043064, lng: 128.0360876 },
+          id: "gardening-art-village-deck",
+          label: "원예예술촌전망데크",
+          role: "방문지",
+        },
+      ],
+      new AbortController().signal,
+    );
+
+    assert.equal(providerCalls, 0);
+    assert.equal(result.segments.length, 1);
+    assert.equal(result.segments[0].distanceMeters, 678);
+    assert.equal(result.segments[0].durationSeconds, 610);
+    assert.equal(result.segments[0].geometryStatus, "partial");
+    assert.deepEqual(result.segments[0].paths, []);
   } finally {
     globalThis.fetch = originalFetch;
 
