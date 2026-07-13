@@ -27,10 +27,15 @@ export class RouteFinalizationTimeoutError extends Error {
 
 export class RouteFinalizationError extends Error {
   readonly dayIndex?: number;
+  readonly destinationCoordinate?: RouteProviderStop["coordinate"];
+  readonly destinationPlaceName?: string;
   readonly internalCode: string;
+  readonly originCoordinate?: RouteProviderStop["coordinate"];
+  readonly originPlaceName?: string;
   readonly provider?: "naver-directions" | "odsay";
   readonly retried: boolean;
   readonly routeId?: "standard" | "carryme";
+  readonly segmentIndex?: number;
   readonly stage:
     | "coordinate_resolution"
     | "route_provider"
@@ -42,20 +47,30 @@ export class RouteFinalizationError extends Error {
     message: string,
     context: {
       dayIndex?: number;
+      destinationCoordinate?: RouteProviderStop["coordinate"];
+      destinationPlaceName?: string;
       internalCode?: string;
+      originCoordinate?: RouteProviderStop["coordinate"];
+      originPlaceName?: string;
       provider?: "naver-directions" | "odsay";
       retried?: boolean;
       routeId?: "standard" | "carryme";
+      segmentIndex?: number;
       stage?: RouteFinalizationError["stage"];
     } = {},
   ) {
     super(message);
     this.name = "RouteFinalizationError";
     this.dayIndex = context.dayIndex;
+    this.destinationCoordinate = context.destinationCoordinate;
+    this.destinationPlaceName = context.destinationPlaceName;
     this.internalCode = context.internalCode ?? "ROUTE_FINALIZATION_FAILED";
+    this.originCoordinate = context.originCoordinate;
+    this.originPlaceName = context.originPlaceName;
     this.provider = context.provider;
     this.retried = context.retried ?? false;
     this.routeId = context.routeId;
+    this.segmentIndex = context.segmentIndex;
     this.stage = context.stage ?? "route_result";
   }
 }
@@ -234,6 +249,7 @@ function createRouteTaskError(
   if (error instanceof RouteProviderError) {
     return new RouteFinalizationError("일부 일정 경로를 계산하지 못했습니다.", {
       dayIndex: task.dayIndex,
+      ...createFailureLocationContext(error),
       internalCode: error.code,
       provider: transportMode === "drive" ? "naver-directions" : "odsay",
       retried: error.retried,
@@ -249,6 +265,32 @@ function createRouteTaskError(
     routeId: task.routeId,
     stage: "route_provider",
   });
+}
+
+/** Keeps AI-authored places while excluding user origin and return locations from logs. */
+function createFailureLocationContext(error: RouteProviderError) {
+  const origin = createLoggableFailureStop(error.originStop);
+  const destination = createLoggableFailureStop(error.destinationStop);
+
+  return {
+    destinationCoordinate: destination?.coordinate,
+    destinationPlaceName: destination?.label,
+    originCoordinate: origin?.coordinate,
+    originPlaceName: origin?.label,
+    segmentIndex: error.segmentIndex,
+  };
+}
+
+/** Excludes stops that represent the user-provided trip origin. */
+function createLoggableFailureStop(stop: RouteProviderStop | undefined) {
+  if (!stop || stop.role === "출발지" || stop.role === "복귀지") {
+    return undefined;
+  }
+
+  return {
+    coordinate: stop.coordinate,
+    label: stop.label,
+  };
 }
 
 /** Applies successful provider results without changing the existing AI timeline fields. */
@@ -374,6 +416,7 @@ function createProviderStops(route: RoutePlan): RouteProviderStop[] {
     label: stop.label,
     placeId: stop.placeId,
     placeSourceRef: stop.placeSourceRef,
+    role: stop.role,
   }));
 }
 

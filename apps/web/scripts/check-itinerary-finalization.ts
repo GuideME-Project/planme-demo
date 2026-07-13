@@ -11,6 +11,7 @@ import {
 } from "../lib/itinerary-route-finalizer";
 import { validateEditedItineraryPlaces } from "../lib/edited-itinerary-validator";
 import { computeNaverDirectionsRoute } from "../lib/route-providers/naver-directions";
+import { computeOdsayTransitRoute } from "../lib/route-providers/odsay";
 import type {
   RouteProviderResult,
   RouteProviderStop,
@@ -41,6 +42,7 @@ async function main() {
   assert.equal(finalized.days[0].standard.geoSegments?.length, 1);
 
   await assertFailedProviderLegRetriesOnce();
+  await assertOdsayFailureIncludesSegmentContext();
   await assertMissingCoordinatesUseRepresentativeNaverCandidate();
   await assertEditedItineraryPreservesAiFields();
   await assertDuplicateOnlyRouteNeedsNoProviderCall();
@@ -58,6 +60,11 @@ async function main() {
               "provider response body must not enter the finalization log",
               true,
               true,
+              {
+                destinationStop: stops[1],
+                originStop: stops[0],
+                segmentIndex: 0,
+              },
             );
           }
 
@@ -70,7 +77,15 @@ async function main() {
       error.provider === "naver-directions" &&
       error.dayIndex === 0 &&
       error.routeId === "carryme" &&
-      error.retried,
+      error.retried &&
+      error.segmentIndex === 0 &&
+      error.originPlaceName === undefined &&
+      error.originCoordinate === undefined &&
+      error.destinationPlaceName === itinerary.days[0].carryme.stops[1].label &&
+      error.destinationCoordinate?.lat ===
+        itinerary.days[0].carryme.stops[1].coordinate?.lat &&
+      error.destinationCoordinate?.lng ===
+        itinerary.days[0].carryme.stops[1].coordinate?.lng,
   );
   assert.equal(providerCalls, 2);
 
@@ -105,6 +120,56 @@ async function main() {
   assert.equal(await store.saveFinalizedPreviewItinerary(finalized, 0), null);
 
   console.log("PlanME finalized route contract passed");
+}
+
+/** Verifies a non-retriable ODsay response retains the exact failed leg. */
+async function assertOdsayFailureIncludesSegmentContext() {
+  const originalApiKey = process.env.NEXT_PUBLIC_ODSAY_API_KEY;
+  const originalFetch = globalThis.fetch;
+  const originStop: RouteProviderStop = {
+    coordinate: { lat: 37.535, lng: 127.123 },
+    id: "standard-0-origin",
+    label: "사용자 출발지",
+    role: "출발지",
+  };
+  const destinationStop: RouteProviderStop = {
+    coordinate: { lat: 37.536, lng: 127.124 },
+    id: "standard-1-visit",
+    label: "AI 방문지",
+    role: "방문지",
+  };
+
+  try {
+    process.env.NEXT_PUBLIC_ODSAY_API_KEY = "test-odsay-key";
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({ error: { code: "-98", message: "provider message" } }),
+        { headers: { "Content-Type": "application/json" }, status: 200 },
+      );
+
+    await assert.rejects(
+      () =>
+        computeOdsayTransitRoute(
+          [originStop, destinationStop],
+          new AbortController().signal,
+        ),
+      (error) =>
+        error instanceof RouteProviderError &&
+        error.code === "-98" &&
+        error.segmentIndex === 0 &&
+        error.originStop === originStop &&
+        error.destinationStop === destinationStop &&
+        !error.retried,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+
+    if (originalApiKey === undefined) {
+      delete process.env.NEXT_PUBLIC_ODSAY_API_KEY;
+    } else {
+      process.env.NEXT_PUBLIC_ODSAY_API_KEY = originalApiKey;
+    }
+  }
 }
 
 /** Verifies a same-place-only route completes as zero movement without a provider error. */
