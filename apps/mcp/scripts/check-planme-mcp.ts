@@ -2730,31 +2730,34 @@ async function assertRequiredPlaceQualifiedRetryContract(): Promise<void> {
     0,
   );
   const lakePark = createMockNaverPlaceCandidate("동탄호수공원", 1);
-  const exactOriginClarification = await createCoreAiRecommendedItineraryResponse(
-    "http://localhost:3000/api/gpt/itineraries/recommend",
-    {
-      destination: "남해",
-      destinationType: "region",
-      durationDays: 2,
-      origin: "동탄호수공원",
-      transportMode: "drive",
-    },
-    {
-      accommodationCandidateSearcher: async () => [],
-      aiItineraryGenerator: async () => {
-        throw new Error("exact landmark must not accept a nearby business");
-      },
-      draftGeocoder: async () => null,
-      placeCandidateSearcher: async () => ({
-        candidates: [hairSalon],
-        searchedQueries: ["동탄호수공원"],
-      }),
-    },
-  );
-
-  assert.equal(isPlanmeClarificationResponse(exactOriginClarification), true);
-  if (isPlanmeClarificationResponse(exactOriginClarification)) {
-    assert.match(exactOriginClarification.questions[0] ?? "", /정확한 장소명이나 주소/);
+  for (const origin of ["동탄호수공원", "마포구청", "강동역"]) {
+    await assert.rejects(
+      createCoreAiRecommendedItineraryResponse(
+        "http://localhost:3000/api/gpt/itineraries/recommend",
+        {
+          destination: "남해",
+          destinationType: "region",
+          durationDays: 2,
+          origin,
+          transportMode: "drive",
+        },
+        {
+          accommodationCandidateSearcher: async () => [],
+          aiItineraryGenerator: async () => {
+            throw new Error("exact landmark must not accept an unrelated business");
+          },
+          draftGeocoder: async () => null,
+          placeCandidateSearcher: async () => ({
+            candidates: [hairSalon],
+            searchedQueries: [origin],
+          }),
+        },
+      ),
+      (error: unknown) =>
+        error instanceof PlanmeRequiredPlaceResolutionError &&
+        error.code === "ORIGIN_PLACE_NOT_FOUND" &&
+        error.stage === "place_resolution",
+    );
   }
 
   await assert.rejects(

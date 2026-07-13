@@ -825,14 +825,12 @@ async function resolveRequiredPlaces(
     options,
   );
   if (!origin) {
-    if (isBroadOriginLabel(originText)) {
-      throw new PlanmeRequiredPlaceResolutionError(
-        "ORIGIN_REPRESENTATIVE_NOT_FOUND",
-        false,
-      );
-    }
-
-    return createRequiredPlaceClarification("origin", originText);
+    throw new PlanmeRequiredPlaceResolutionError(
+      isBroadOriginLabel(originText)
+        ? "ORIGIN_REPRESENTATIVE_NOT_FOUND"
+        : "ORIGIN_PLACE_NOT_FOUND",
+      false,
+    );
   }
 
   const requiredPlaceInputs = normalizeRequiredPlaceInputs([
