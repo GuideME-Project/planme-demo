@@ -30,6 +30,7 @@ import {
   PlanmePlaceSearchConfigurationError,
   PlanmePlaceSearchProviderError,
   searchPlanmePlaceCandidates,
+  selectPlanmeRequiredPlaceCandidate,
   type PlanmePlaceCandidate,
   type PlanmePlaceCandidateSearcher,
   type PlanmeRequiredPlaceKind,
@@ -614,31 +615,38 @@ async function resolveRequiredPlace(
     return hasPlanmePlaceCandidateHardGate(candidate) ? candidate : null;
   };
   const localCandidate = async () => {
-    try {
-      const result = await searcher({
-        destination: kind === "origin" ? undefined : input.destination,
-        maxCandidates: 5,
-        query: inputText,
-        region: kind === "origin" ? undefined : input.region,
-        stop: {
-          addressQuery: inputText,
-          name: inputText,
-          requiredPlaceKind: kind,
-          role: kind === "origin" ? "출발지" : "방문지",
-        },
-      });
+    for (const query of createRequiredPlaceSearchQueries(inputText)) {
+      try {
+        const result = await searcher({
+          destination: kind === "origin" ? undefined : input.destination,
+          maxCandidates: 5,
+          query,
+          region: kind === "origin" ? undefined : input.region,
+          stop: {
+            addressQuery: inputText,
+            name: inputText,
+            requiredPlaceKind: kind,
+            role: kind === "origin" ? "출발지" : "방문지",
+          },
+        });
+        const candidate = selectPlanmeRequiredPlaceCandidate(inputText, result.candidates);
 
-      return result.candidates.find(hasPlanmePlaceCandidateHardGate) ?? null;
-    } catch (error) {
-      if (
-        error instanceof PlanmePlaceSearchConfigurationError ||
-        error instanceof PlanmePlaceSearchProviderError
-      ) {
-        return null;
+        if (candidate) {
+          return candidate;
+        }
+      } catch (error) {
+        if (
+          error instanceof PlanmePlaceSearchConfigurationError ||
+          error instanceof PlanmePlaceSearchProviderError
+        ) {
+          return null;
+        }
+
+        throw error;
       }
-
-      throw error;
     }
+
+    return null;
   };
 
   // Broad origins such as 동탄 are safer through the address coordinate provider.
@@ -660,6 +668,25 @@ async function resolveRequiredPlace(
     source: candidate.source,
     sourceRef: candidate.sourceRef,
   };
+}
+
+/** Adds one place-type-qualified retry when local search ranks nearby branches first. */
+function createRequiredPlaceSearchQueries(inputText: string) {
+  const normalizedInput = normalizeComparableText(inputText);
+  const placeType = [
+    "해수욕장",
+    "터미널",
+    "박물관",
+    "미술관",
+    "수목원",
+    "공항",
+    "공원",
+    "시장",
+    "호수",
+    "역",
+  ].find((candidate) => normalizedInput.endsWith(candidate));
+
+  return placeType ? [inputText, `${inputText} ${placeType}`] : [inputText];
 }
 
 /**

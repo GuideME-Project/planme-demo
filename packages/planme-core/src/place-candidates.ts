@@ -189,6 +189,71 @@ export function hasPlanmePlaceCandidateHardGate(
 }
 
 /**
+ * Selects a required user place only when the provider name matches the requested place boundary.
+ *
+ * Local search can rank businesses that merely contain a landmark name above the landmark itself,
+ * for example a hair salon named after 동탄호수공원. Required anchors must not silently drift to
+ * those nearby businesses.
+ */
+export function selectPlanmeRequiredPlaceCandidate(
+  inputText: string,
+  candidates: PlanmePlaceCandidate[],
+): PlanmePlaceCandidate | null {
+  const expectedName = normalizeRequiredPlaceName(inputText);
+  const validCandidates = candidates.filter(hasPlanmePlaceCandidateHardGate);
+
+  if (!expectedName) {
+    return null;
+  }
+
+  const exactCandidate = validCandidates.find(
+    (candidate) => normalizeRequiredPlaceName(candidate.name) === expectedName,
+  );
+
+  if (exactCandidate) {
+    return exactCandidate;
+  }
+
+  const boundaryCandidates = validCandidates
+    .map((candidate, index) => ({
+      candidate,
+      index,
+      normalizedName: normalizeRequiredPlaceName(candidate.name),
+    }))
+    .filter(({ normalizedName }) =>
+      isRequiredPlaceBoundaryMatch(expectedName, normalizedName),
+    )
+    .sort((left, right) =>
+      left.normalizedName.length - right.normalizedName.length || left.index - right.index,
+    );
+
+  return boundaryCandidates[0]?.candidate ?? null;
+}
+
+/** Keeps exact landmarks and benign provider qualifiers while rejecting embedded branch names. */
+function isRequiredPlaceBoundaryMatch(expectedName: string, candidateName: string) {
+  if (candidateName.endsWith(expectedName)) {
+    return true;
+  }
+
+  if (!candidateName.startsWith(expectedName)) {
+    return false;
+  }
+
+  const suffix = candidateName.slice(expectedName.length);
+
+  return /^(?:\d+호선|\d+번출구)$/.test(suffix);
+}
+
+/** Normalizes provider decoration without weakening the place-name boundary check. */
+function normalizeRequiredPlaceName(value: string) {
+  return value
+    .normalize("NFKC")
+    .toLocaleLowerCase("ko-KR")
+    .replace(/[^\p{L}\p{N}]/gu, "");
+}
+
+/**
  * Calls the official Naver local-search endpoint with a bounded result count.
  */
 async function requestNaverLocalCandidates({

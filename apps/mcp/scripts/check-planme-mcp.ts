@@ -15,6 +15,7 @@ import {
   resolvePlanmeDraftCoordinates,
   searchAccommodationCandidates,
   searchPlanmePlaceCandidates,
+  selectPlanmeRequiredPlaceCandidate,
   toGptActionItineraryResponse,
   type GptActionItineraryResponse,
   type AiRecommendedItineraryOptions,
@@ -1854,6 +1855,72 @@ async function assertPlaceCandidateSearchContract(): Promise<void> {
   assert.equal(sourceBackedResult.candidates[0]?.source, "naver_geocode");
 }
 
+/** Verifies a required landmark cannot drift to a business that only embeds its name. */
+function assertRequiredPlaceCandidateSelectionContract(): void {
+  const hairSalon = createMockNaverPlaceCandidate(
+    "박승철헤어스투디오 동탄호수공원점",
+    0,
+  );
+  const lakePark = createMockNaverPlaceCandidate("동탄호수공원", 1);
+  const subwayStation = createMockNaverPlaceCandidate("강동역 5호선", 2);
+
+  assert.equal(
+    selectPlanmeRequiredPlaceCandidate("동탄호수공원", [hairSalon, lakePark])?.name,
+    "동탄호수공원",
+  );
+  assert.equal(
+    selectPlanmeRequiredPlaceCandidate("동탄호수공원", [hairSalon]),
+    null,
+  );
+  assert.equal(
+    selectPlanmeRequiredPlaceCandidate("강동역", [subwayStation])?.name,
+    "강동역 5호선",
+  );
+}
+
+/** Verifies a typed retry resolves a landmark after an unrelated branch ranks first. */
+async function assertRequiredPlaceQualifiedRetryContract(): Promise<void> {
+  const queries: string[] = [];
+  let resolvedOriginName: string | undefined;
+  const hairSalon = createMockNaverPlaceCandidate(
+    "박승철헤어스투디오 동탄호수공원점",
+    0,
+  );
+  const lakePark = createMockNaverPlaceCandidate("동탄호수공원", 1);
+
+  await assert.rejects(
+    createCoreAiRecommendedItineraryResponse(
+      "http://localhost:3000/api/gpt/itineraries/recommend",
+      {
+        destination: "남해",
+        destinationType: "region",
+        durationDays: 2,
+        origin: "동탄호수공원",
+        transportMode: "transit",
+      },
+      {
+        accommodationCandidateSearcher: async () => [],
+        aiItineraryGenerator: async (_input, context) => {
+          resolvedOriginName = context?.requiredPlaces?.origin.name;
+          throw new Error("required-place-retry-verified");
+        },
+        draftGeocoder: async () => null,
+        placeCandidateSearcher: async ({ query }) => {
+          queries.push(query ?? "");
+          return {
+            candidates: query === "동탄호수공원 공원" ? [lakePark] : [hairSalon],
+            searchedQueries: [query ?? ""],
+          };
+        },
+      },
+    ),
+    /required-place-retry-verified/,
+  );
+
+  assert.deepEqual(queries, ["동탄호수공원", "동탄호수공원 공원"]);
+  assert.equal(resolvedOriginName, "동탄호수공원");
+}
+
 /**
  * Verifies non-lodging POIs are accepted only through an explicit candidate decision.
  */
@@ -3188,6 +3255,8 @@ async function main(): Promise<void> {
   await assertThreeDayAiDraftContract();
   await assertNaverAccommodationSearchContract();
   await assertPlaceCandidateSearchContract();
+  assertRequiredPlaceCandidateSelectionContract();
+  await assertRequiredPlaceQualifiedRetryContract();
   await assertAiRecommendationPlaceCandidateDecisionContract();
   await assertIntermediatePlaceExclusionContract();
   await assertIntermediateExclusionReindexesTimeline();
