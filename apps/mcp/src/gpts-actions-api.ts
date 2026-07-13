@@ -444,7 +444,7 @@ function buildGptsOpenApiSchema(serverUrl: string) {
           operationId: "startPlanmePlanning",
           summary: "Check whether a PlanME itinerary request has enough detail",
           description:
-            "Check only the four required inputs: origin, destination, trip length, and transport mode. Always pass the exact latest user-authored message in latestUserMessage. Transport mode is derived only from that message; there is no separate transport-mode input to infer or fill. Any non-empty origin is valid, including a broad region, city, neighborhood, station, or landmark such as 동탄. Never ask for a more exact origin, place name, or address; preserve the user's origin text across the transport-mode follow-up because the server resolves a representative point. PlanME supports trips from 1 through 3 days; for 4 days or longer, explain the limit and ask for a trip of up to 3 days. Ask the returned required questions exactly once. Do not ask for lodging or preferences.",
+            "Check origin, destination, trip length (1-3 days), and transport mode. Pass the exact latest user message in latestUserMessage. Never infer transport mode or ask for an exact origin; broad origins such as 동탄 are valid. Ask required questions once; do not ask for lodging or preferences.",
           requestBody: {
             required: true,
             content: {
@@ -478,7 +478,7 @@ function buildGptsOpenApiSchema(serverUrl: string) {
           operationId: "recommendPlanmeItinerary",
           summary: "Generate a PlanME itinerary and return a detail page link",
           description:
-            "When origin, destination, a supported trip length from 1 through 3 days, and a user-confirmed transport mode are present, call immediately without additional research or optional questions. Always pass the exact latest user-authored message in latestUserMessage. Transport mode is derived only from that message; there is no separate transport-mode input to infer or fill. If that message does not explicitly name 자동차 or 대중교통, the server returns the one transport question; ask it and wait for the user's answer. Any non-empty origin is valid, including a broad region such as 동탄. Never ask for a more exact origin, place name, or address; pass the user's origin text unchanged because the server resolves a representative departure point, and preserve it when transport mode is answered later. Do not call this operation for 4 days or longer; explain the 3-day limit and ask the user to shorten the trip. Never turn an internal generation failure into a request for more user input.",
+            "Call only after the user explicitly chooses 자동차 or 대중교통. Pass that exact latest message in latestUserMessage and preserve the original origin across turns. Never infer transport mode or ask for an exact origin; broad origins such as 동탄 are valid. Trips are limited to 1-3 days.",
           requestBody: {
             required: true,
             content: {
