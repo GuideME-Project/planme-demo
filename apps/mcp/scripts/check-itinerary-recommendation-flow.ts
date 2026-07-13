@@ -23,6 +23,7 @@ const request: RecommendItineraryRequest = {
 
 async function main() {
   await assertCorePlaceIntentContract();
+  await assertPartialTimelineOrderSurvivesServerAnchors();
   await assertLegacyOmissionDefaultsToRegion();
   await assertReplacementCandidatesAndSingleStore();
   await assertCandidateExhaustionRemovesOnlyAiStop();
@@ -32,6 +33,104 @@ async function main() {
   await assertCachedFinalStoreUsesMeasuredBudget();
   await assertFinalStoreRepairSafetyRunsOnce();
   console.log("PlanME shared recommendation flow contract passed");
+}
+
+async function assertPartialTimelineOrderSurvivesServerAnchors() {
+  const authoredStops = [
+    createResolvedDraftStop("첫 방문지", "방문지", 34.8, 128.04),
+    createResolvedDraftStop("두 번째 방문지", "방문지", 34.81, 128.05),
+    createResolvedDraftStop("남해 숙소", "숙소", 34.82, 128.06),
+  ];
+  const authoredTimeline = [1, 0, 2].map((stopIndex, eventIndex) => ({
+    category: eventIndex === 0 ? "arrival" as const : "event" as const,
+    description: `${authoredStops[stopIndex].name} 일정`,
+    stayDurationMinutes: eventIndex === 0 ? 0 : 60,
+    stopIndex,
+    time: `${String(8 + eventIndex).padStart(2, "0")}:00`,
+    title: authoredStops[stopIndex].name,
+  }));
+  const response = await createAiRecommendedItineraryResponse(
+    requestUrl,
+    { ...request, durationDays: 1 },
+    {
+      accommodationCandidateSearcher: async () => [],
+      aiItineraryGenerator: async () => ({
+        days: [
+          {
+            carrymeDurationMinutes: 240,
+            carrymeStops: structuredClone(authoredStops),
+            carrymeTimeline: structuredClone(authoredTimeline),
+            day: 1,
+            label: "Day 1",
+            standardDurationMinutes: 270,
+            standardStops: structuredClone(authoredStops),
+            standardTimeline: structuredClone(authoredTimeline),
+          },
+        ],
+        duration: "당일",
+        region: "남해",
+        savedMinutes: 30,
+        summary: "부분 시간표 순서 테스트",
+        title: "남해 당일 일정",
+        transportMode: "transit",
+      }),
+      draftGeocoder: async ({ query }) => ({
+        coordinate: { lat: 37.535, lng: 127.123 },
+        placeSource: "naver_geocode",
+        placeSourceRef: `naver_geocode:${query}`,
+      }),
+      placeCandidateSearcher: async ({ query, stop }) => ({
+        candidates: [
+          {
+            candidateId: `naver_local:${query ?? stop.name}`,
+            coordinate: { lat: 34.8, lng: 128.04 },
+            id: `candidate:${query ?? stop.name}`,
+            name: query ?? stop.name,
+            source: "naver_local",
+            sourceRef: `naver_local:${query ?? stop.name}`,
+          },
+        ],
+        searchedQueries: query ? [query] : [],
+      }),
+    },
+  );
+
+  assert.equal(isPlanmeClarificationResponse(response), false);
+
+  if (isPlanmeClarificationResponse(response)) {
+    return;
+  }
+
+  const day = response.itinerary.days[0];
+  const labelByStopRef = new Map(
+    day.standard.stops.map((stop) => [stop.stopRef, stop.label]),
+  );
+
+  assert.deepEqual(
+    day.standard.stops.map((stop) => stop.label),
+    ["강동역", "두 번째 방문지", "첫 방문지", "남해 숙소", "강동역"],
+  );
+  assert.deepEqual(
+    day.standardTimeline?.map((event) => labelByStopRef.get(event.stopRef)),
+    ["두 번째 방문지", "첫 방문지", "남해 숙소"],
+  );
+}
+
+function createResolvedDraftStop(
+  name: string,
+  role: "방문지" | "숙소",
+  lat: number,
+  lng: number,
+) {
+  return {
+    caption: role === "숙소" ? "체크인" : "방문",
+    coordinate: { lat, lng },
+    mode: "transit" as const,
+    name,
+    placeSource: "naver_local" as const,
+    placeSourceRef: `naver_local:${name}`,
+    role,
+  };
 }
 
 async function assertLegacyOmissionDefaultsToRegion() {
