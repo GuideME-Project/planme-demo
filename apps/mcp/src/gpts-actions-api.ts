@@ -3,13 +3,15 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import {
   assessPlanmePlanningInput,
+  createPlanmeTransportModeClarification,
   isPlanmeClarificationResponse,
   PLANME_EXTERNAL_DURATION_ERROR_MESSAGE,
   PLANME_EXTERNAL_MAX_DURATION_DAYS,
+  resolvePlanmeTransportModeFromUserMessage,
+  runPlanmeUserConfirmedRecommendation,
   type PlanmeClarificationResponse,
   type PlanmePlanningRequest,
   type PlanmeRecommendationResponse,
-  type RecommendItineraryRequest,
 } from "@planme/core";
 import { writeCorsHeaders, writeJson } from "./http-utils.js";
 import {
@@ -54,6 +56,7 @@ const externalDurationDaysSchema = z
   .min(1)
   .max(PLANME_EXTERNAL_MAX_DURATION_DAYS, PLANME_EXTERNAL_DURATION_ERROR_MESSAGE);
 const planningRequestSchema = z.object({
+  latestUserMessage: z.string().min(1).optional(),
   message: z.string().optional(),
   destination: z.string().optional(),
   destinationType: z.enum(["region", "place"]).optional(),
@@ -71,6 +74,7 @@ const planningRequestSchema = z.object({
 });
 const recommendationRequestSchema = z
   .object({
+    latestUserMessage: z.string().min(1).optional(),
     destination: z.string().min(1),
     destinationType: z.enum(["region", "place"]).optional(),
     mustVisitPlaces: z.array(z.string().min(1)).optional(),
@@ -92,7 +96,8 @@ const recommendationRequestSchema = z
       })
       .optional(),
     theme: z.enum(["light", "dark"]).optional(),
-    transportMode: gptsTransportModeSchema,
+    // Old imported GPT Action schemas can still send this field, but it is ignored.
+    transportMode: gptsTransportModeSchema.optional(),
   })
   .refine((input) => Boolean(input.origin?.trim() || input.arrivalAirport?.trim()), {
     message: "origin or arrivalAirport is required",
@@ -148,8 +153,19 @@ export async function handleGptsPlanningStartRequest(
     return;
   }
 
-  // Keep the same readiness rules as the Apps SDK MCP tool.
-  writeJson(response, 200, assessPlanmePlanningInput(parsed.data));
+  const explicitTransportMode = resolvePlanmeTransportModeFromUserMessage(
+    parsed.data.latestUserMessage,
+  );
+
+  // A model-filled enum is not proof that the user selected a mode.
+  writeJson(
+    response,
+    200,
+    assessPlanmePlanningInput({
+      ...parsed.data,
+      transportMode: explicitTransportMode ?? undefined,
+    }),
+  );
 }
 
 /**
@@ -193,31 +209,53 @@ export async function handleGptsRecommendItineraryRequest(
       return;
     }
 
-    const input: RecommendItineraryRequest = parsed.data;
+    const { latestUserMessage, ...recommendationInput } = parsed.data;
     const usageRecorder = createPlanmeUsageRecorder();
-    const result = await recommendAndPersistItinerary(
-      `${getPlanmeWebOrigin()}/api/gpt/itineraries/recommend`,
-      input,
-      traceId,
-      {
-        aiOptions: {
-          draftGeocoder: hasNaverGeocoderRuntimeConfig()
-            ? createNaverGeocoder({ usageRecorder })
-            : undefined,
-          googleMapsReferer: `${getPlanmeWebOrigin()}/`,
-          usageRecorder,
-        },
-        onStage: (event) => {
-          console.info("PlanME GPTs Actions stage", {
-            completionStage: mapPlanmeMeasurementToCompletionStage(event.stage),
-            event: "planme_gpts_stage",
-            ...event,
-            traceId,
-          });
-        },
-        persist: persistItineraryForDetailPage,
-      },
+    const guardedRecommendation = await runPlanmeUserConfirmedRecommendation(
+      latestUserMessage,
+      recommendationInput,
+      (input) =>
+        recommendAndPersistItinerary(
+          `${getPlanmeWebOrigin()}/api/gpt/itineraries/recommend`,
+          input,
+          traceId,
+          {
+            aiOptions: {
+              draftGeocoder: hasNaverGeocoderRuntimeConfig()
+                ? createNaverGeocoder({ usageRecorder })
+                : undefined,
+              googleMapsReferer: `${getPlanmeWebOrigin()}/`,
+              usageRecorder,
+            },
+            onStage: (event) => {
+              console.info("PlanME GPTs Actions stage", {
+                completionStage: mapPlanmeMeasurementToCompletionStage(event.stage),
+                event: "planme_gpts_stage",
+                ...event,
+                traceId,
+              });
+            },
+            persist: persistItineraryForDetailPage,
+          },
+        ),
     );
+
+    if (guardedRecommendation.status === "needs_transport_confirmation") {
+      writeGptsRecommendationResponse(
+        response,
+        {
+          ...toGptsRestRecommendationResponse(
+            createPlanmeTransportModeClarification(parsed.data.clarificationContext),
+          ),
+          traceId,
+        },
+        traceId,
+        "clarification",
+      );
+      return;
+    }
+
+    const result = guardedRecommendation.value;
 
     if (result.status === "needs_clarification") {
       writeGptsRecommendationResponse(
@@ -406,7 +444,7 @@ function buildGptsOpenApiSchema(serverUrl: string) {
           operationId: "startPlanmePlanning",
           summary: "Check whether a PlanME itinerary request has enough detail",
           description:
-            "Check only the four required inputs: origin, destination, trip length, and transport mode. Any non-empty origin is valid, including a broad region, city, neighborhood, station, or landmark such as 동탄. Never ask for a more exact origin, place name, or address; preserve the user's origin text across the transport-mode follow-up because the server resolves a representative point. PlanME supports trips from 1 through 3 days; for 4 days or longer, explain the limit and ask for a trip of up to 3 days. Ask the returned required questions exactly once. Do not ask for lodging or preferences.",
+            "Check only the four required inputs: origin, destination, trip length, and transport mode. Always pass the exact latest user-authored message in latestUserMessage. Transport mode is derived only from that message; there is no separate transport-mode input to infer or fill. Any non-empty origin is valid, including a broad region, city, neighborhood, station, or landmark such as 동탄. Never ask for a more exact origin, place name, or address; preserve the user's origin text across the transport-mode follow-up because the server resolves a representative point. PlanME supports trips from 1 through 3 days; for 4 days or longer, explain the limit and ask for a trip of up to 3 days. Ask the returned required questions exactly once. Do not ask for lodging or preferences.",
           requestBody: {
             required: true,
             content: {
@@ -440,7 +478,7 @@ function buildGptsOpenApiSchema(serverUrl: string) {
           operationId: "recommendPlanmeItinerary",
           summary: "Generate a PlanME itinerary and return a detail page link",
           description:
-            "When origin, destination, a supported trip length from 1 through 3 days, and transport mode are present, call immediately without additional research or optional questions. Any non-empty origin is valid, including a broad region such as 동탄. Never ask for a more exact origin, place name, or address; pass the user's origin text unchanged because the server resolves a representative departure point, and preserve it when transport mode is answered later. Do not call this operation for 4 days or longer; explain the 3-day limit and ask the user to shorten the trip. Never turn an internal generation failure into a request for more user input.",
+            "When origin, destination, a supported trip length from 1 through 3 days, and a user-confirmed transport mode are present, call immediately without additional research or optional questions. Always pass the exact latest user-authored message in latestUserMessage. Transport mode is derived only from that message; there is no separate transport-mode input to infer or fill. If that message does not explicitly name 자동차 or 대중교통, the server returns the one transport question; ask it and wait for the user's answer. Any non-empty origin is valid, including a broad region such as 동탄. Never ask for a more exact origin, place name, or address; pass the user's origin text unchanged because the server resolves a representative departure point, and preserve it when transport mode is answered later. Do not call this operation for 4 days or longer; explain the 3-day limit and ask the user to shorten the trip. Never turn an internal generation failure into a request for more user input.",
           requestBody: {
             required: true,
             content: {
@@ -489,7 +527,14 @@ function buildGptsOpenApiSchema(serverUrl: string) {
       schemas: {
         PlanmePlanningRequest: {
           type: "object",
+          required: ["latestUserMessage"],
           properties: {
+            latestUserMessage: {
+              type: "string",
+              minLength: 1,
+              description:
+                "The exact latest user-authored message. Do not summarize, combine turns, or add a transport mode that the user did not write.",
+            },
             message: { type: "string" },
             destination: { type: "string", description: "Travel destination city or region." },
             destinationType: {
@@ -517,12 +562,6 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             luggageCount: { type: "integer", minimum: 0, maximum: 20 },
             preferences: { type: "array", items: { type: "string" } },
             theme: { type: "string", enum: ["light", "dark"] },
-            transportMode: {
-              type: "string",
-              enum: ["drive", "transit", "자동차", "대중교통"],
-              description:
-                "Use drive or 자동차 for car guidance; use transit or 대중교통 for public transit guidance.",
-            },
           },
         },
         PlanmePlanningAssessment: {
@@ -605,9 +644,15 @@ function buildGptsOpenApiSchema(serverUrl: string) {
         },
         RecommendItineraryRequest: {
           type: "object",
-          required: ["destination", "durationDays", "transportMode"],
+          required: ["latestUserMessage", "destination", "durationDays"],
           anyOf: [{ required: ["origin"] }, { required: ["arrivalAirport"] }],
           properties: {
+            latestUserMessage: {
+              type: "string",
+              minLength: 1,
+              description:
+                "The exact latest user-authored message. Do not summarize, combine turns, or insert a transport choice. The server derives the confirmed mode from this text.",
+            },
             destination: {
               type: "string",
               description: "A Korean region, city, or user-selected place such as 경주월드.",
@@ -652,12 +697,6 @@ function buildGptsOpenApiSchema(serverUrl: string) {
               $ref: "#/components/schemas/PlanmeClarificationContext",
             },
             theme: { type: "string", enum: ["light", "dark"] },
-            transportMode: {
-              type: "string",
-              enum: ["drive", "transit", "자동차", "대중교통"],
-              description:
-                "Use drive or 자동차 for car guidance; use transit or 대중교통 for public transit guidance. The response is normalized to drive or transit.",
-            },
           },
         },
         ItineraryActionResponse: {

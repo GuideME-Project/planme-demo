@@ -179,8 +179,13 @@ for (const contractFile of [gptsActionsApiFile, planmeMcpFile]) {
 if (existsSync(gptsActionsApiFile)) {
   const gptsActionsSource = readFileSync(gptsActionsApiFile, "utf8");
 
-  if (!gptsActionsSource.includes('required: ["destination", "durationDays", "transportMode"]')) {
-    failures.push("GPTs OpenAPI must keep destinationType optional for legacy clients");
+  if (!gptsActionsSource.includes('required: ["latestUserMessage", "destination", "durationDays"]')) {
+    failures.push("GPTs OpenAPI must require the latest user-authored message before generation");
+  }
+
+  if (gptsActionsSource.includes('properties: {\n            latestUserMessage') &&
+      gptsActionsSource.includes('This enum is advisory until')) {
+    failures.push("GPTs OpenAPI must not expose a model-fillable transport mode enum");
   }
 
   if (gptsActionsSource.includes('"savedMinutes",\n            "savingStatus"')) {
