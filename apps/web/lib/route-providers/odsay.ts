@@ -118,6 +118,7 @@ const ESTIMATED_WALKING_SPEED_METERS_PER_SECOND = 4_000 / 3_600;
 const WALK_DETOUR_FACTOR = 1.5;
 const WALK_SPEED_METERS_PER_MINUTE = 3_500 / 60;
 const WALK_FIXED_BUFFER_MINUTES = 5;
+const odsaySegmentFlights = new Map<string, Promise<RouteProviderSegment>>();
 let lastOdsayRequestStartedAt = 0;
 let odsayRequestQueue: Promise<void> = Promise.resolve();
 
@@ -169,46 +170,17 @@ export async function computeOdsayTransitRoute(
           runtime.policy.policyVersion,
         )
       : null;
-    const cachedSegment = cacheKey ? await runtime!.cache.get(cacheKey) : null;
-
-    if (cachedSegment) {
-      segments.push(cachedSegment);
-      continue;
-    }
-
-    let segment: RouteProviderSegment;
-
-    try {
-      // Keep traveler order stable and retry only the failed origin-destination leg.
-      segment = await requestTransitSegmentWithRetry(
-        origin,
-        destination,
-        index,
-        signal,
-        options,
-      );
-    } catch (error) {
-      if (
-        !runtime ||
-        !(error instanceof RouteProviderError) ||
-        !isDestinationStationMissingCode(error.code)
-      ) {
-        throw error;
-      }
-
-      segment = await recoverDestinationWithStationWalk(
-        origin,
-        destination,
-        index,
-        signal,
-        options,
-        runtime,
-      );
-    }
-
-    if (cacheKey) {
-      await runtime!.cache.set(cacheKey, segment, ROUTE_SEGMENT_CACHE_TTL_SECONDS);
-    }
+    const computeSegment = () => computeOdsayTransitSegment(
+      origin,
+      destination,
+      index,
+      signal,
+      options,
+      runtime,
+    );
+    const segment = cacheKey && runtime
+      ? await resolveOdsaySegmentSingleFlight(cacheKey, runtime, computeSegment)
+      : await computeSegment();
 
     segments.push(segment);
   }
@@ -224,6 +196,196 @@ export async function computeOdsayTransitRoute(
     totalDurationSeconds: segments.reduce((sum, segment) => sum + segment.durationSeconds, 0),
     transitMarkers,
   };
+}
+
+/** Shares one uncached provider computation per server instance, trace, coordinates, and policy. */
+async function resolveOdsaySegmentSingleFlight(
+  cacheKey: string,
+  runtime: TransitRecoveryRuntime,
+  computeSegment: () => Promise<RouteProviderSegment>,
+) {
+  const activeFlight = odsaySegmentFlights.get(cacheKey);
+
+  if (activeFlight) {
+    return activeFlight;
+  }
+
+  const cachedSegment = await runtime.cache.get(cacheKey);
+
+  if (cachedSegment) {
+    return cachedSegment;
+  }
+
+  const joinedFlight = odsaySegmentFlights.get(cacheKey);
+
+  if (joinedFlight) {
+    return joinedFlight;
+  }
+
+  const flight = (async () => {
+    const segment = await computeSegment();
+    await runtime.cache.set(cacheKey, segment, ROUTE_SEGMENT_CACHE_TTL_SECONDS);
+    return segment;
+  })();
+
+  odsaySegmentFlights.set(cacheKey, flight);
+
+  try {
+    return await flight;
+  } finally {
+    if (odsaySegmentFlights.get(cacheKey) === flight) {
+      odsaySegmentFlights.delete(cacheKey);
+    }
+  }
+}
+
+/** Computes one provider segment while preserving the existing station-recovery failure contract. */
+async function computeOdsayTransitSegment(
+  origin: RouteProviderStop,
+  destination: RouteProviderStop,
+  segmentIndex: number,
+  signal: AbortSignal,
+  options: OdsayTransitRouteOptions,
+  runtime: TransitRecoveryRuntime | null | undefined,
+) {
+  try {
+    // Keep traveler order stable and retry only the failed origin-destination leg.
+    return await requestTransitSegmentWithRetry(
+      origin,
+      destination,
+      segmentIndex,
+      signal,
+      options,
+    );
+  } catch (error) {
+    if (
+      !runtime ||
+      !(error instanceof RouteProviderError) ||
+      !isStationMissingCode(error.code)
+    ) {
+      throw error;
+    }
+
+    return isOriginStationMissingCode(error.code)
+      ? recoverOriginWithStationWalk(
+          origin,
+          destination,
+          segmentIndex,
+          signal,
+          options,
+          runtime,
+        )
+      : recoverDestinationWithStationWalk(
+          origin,
+          destination,
+          segmentIndex,
+          signal,
+          options,
+          runtime,
+        );
+  }
+}
+
+/** Recovers code 3/5 by walking from the origin to a nearby provider-backed station. */
+async function recoverOriginWithStationWalk(
+  origin: RouteProviderStop,
+  destination: RouteProviderStop,
+  segmentIndex: number,
+  signal: AbortSignal,
+  options: OdsayTransitRouteOptions,
+  runtime: TransitRecoveryRuntime,
+) {
+  const candidates = await searchDestinationStations(
+    origin.coordinate!,
+    signal,
+    options,
+    runtime,
+  );
+
+  if (candidates.length === 0) {
+    throw new TransitAccessDecisionError(
+      origin,
+      segmentIndex,
+      "origin_station_missing",
+    );
+  }
+
+  const walkLimitMinutes = origin.placeConstraint === "replaceable"
+    ? runtime.policy.aiWalkLimitMinutes
+    : runtime.policy.fixedWalkLimitMinutes;
+  const evaluated: EvaluatedStationCandidate[] = [];
+  let walkLimitExceeded = false;
+
+  for (const candidate of candidates.slice(0, runtime.policy.maxStationCandidates)) {
+    const stationStop: RouteProviderStop = {
+      coordinate: candidate.coordinate,
+      id: `odsay-origin-station-${candidate.id}`,
+      label: candidate.name,
+    };
+    const directEstimateMinutes = estimateWalkMinutes(candidate.directDistanceMeters);
+
+    if (directEstimateMinutes > walkLimitMinutes) {
+      walkLimitExceeded = true;
+      continue;
+    }
+
+    const walkSegment = await requestWalkSegment(origin, stationStop, signal, options);
+    const walkDurationSeconds = walkSegment.durationSeconds;
+
+    if (Math.ceil(walkDurationSeconds / 60) > walkLimitMinutes) {
+      walkLimitExceeded = true;
+      continue;
+    }
+
+    let transitSegment: RouteProviderSegment;
+
+    try {
+      transitSegment = await requestTransitSegmentWithRetry(
+        stationStop,
+        destination,
+        segmentIndex,
+        signal,
+        options,
+      );
+    } catch (error) {
+      if (!(error instanceof RouteProviderError)) {
+        throw error;
+      }
+
+      if (isDestinationStationMissingCode(error.code)) {
+        transitSegment = await recoverDestinationWithStationWalk(
+          stationStop,
+          destination,
+          segmentIndex,
+          signal,
+          options,
+          runtime,
+        );
+      } else if (isOriginStationMissingCode(error.code)) {
+        continue;
+      } else {
+        throw error;
+      }
+    }
+
+    evaluated.push({
+      directDistanceMeters: candidate.directDistanceMeters,
+      segment: mergeWalkAndTransitSegments(walkSegment, transitSegment),
+      walkDurationSeconds,
+    });
+  }
+
+  const selected = evaluated.sort(compareEvaluatedStationCandidates)[0];
+
+  if (!selected) {
+    throw new TransitAccessDecisionError(
+      origin,
+      segmentIndex,
+      walkLimitExceeded ? "walk_limit_exceeded" : "walk_path_missing",
+    );
+  }
+
+  return selected.segment;
 }
 
 /** Completes a nearby leg without asking ODsay for a public-transit route it cannot return. */
@@ -291,6 +453,13 @@ async function recoverDestinationWithStationWalk(
   let walkLimitExceeded = false;
 
   for (const candidate of candidates.slice(0, runtime.policy.maxStationCandidates)) {
+    const directEstimateMinutes = estimateWalkMinutes(candidate.directDistanceMeters);
+
+    if (directEstimateMinutes > walkLimitMinutes) {
+      walkLimitExceeded = true;
+      continue;
+    }
+
     const stationStop: RouteProviderStop = {
       coordinate: candidate.coordinate,
       id: `odsay-station-${candidate.id}`,
@@ -312,13 +481,6 @@ async function recoverDestinationWithStationWalk(
       }
 
       throw error;
-    }
-
-    const directEstimateMinutes = estimateWalkMinutes(candidate.directDistanceMeters);
-
-    if (directEstimateMinutes > walkLimitMinutes) {
-      walkLimitExceeded = true;
-      continue;
     }
 
     const walkSegment = await requestWalkSegment(
@@ -516,6 +678,28 @@ function mergeTransitAndWalkSegments(
   };
 }
 
+/** Preserves geometry order for an origin walk followed by public transit. */
+function mergeWalkAndTransitSegments(
+  walk: RouteProviderSegment,
+  transit: RouteProviderSegment,
+): RouteProviderSegment {
+  return {
+    distanceMeters: walk.distanceMeters + transit.distanceMeters,
+    durationSource:
+      walk.durationSource === "estimated" || transit.durationSource === "estimated"
+        ? "estimated"
+        : "provider",
+    durationSeconds: walk.durationSeconds + transit.durationSeconds,
+    geometryStatus:
+      walk.geometryStatus === "partial" || transit.geometryStatus === "partial"
+        ? "partial"
+        : "complete",
+    mode: "transit",
+    paths: [...walk.paths, ...transit.paths],
+    transitMarkers: transit.transitMarkers,
+  };
+}
+
 function compareEvaluatedStationCandidates(
   left: EvaluatedStationCandidate,
   right: EvaluatedStationCandidate,
@@ -541,7 +725,19 @@ function isTransitStation(station: OdsayPointSearchStation) {
 }
 
 function isDestinationStationMissingCode(code: string) {
-  return code.replace(/^ODsay[_-]?/i, "").replace(/^-/, "") === "4";
+  return ["4", "5"].includes(
+    code.replace(/^ODsay[_-]?/i, "").replace(/^-/, ""),
+  );
+}
+
+function isOriginStationMissingCode(code: string) {
+  return ["3", "5"].includes(
+    code.replace(/^ODsay[_-]?/i, "").replace(/^-/, ""),
+  );
+}
+
+function isStationMissingCode(code: string) {
+  return isOriginStationMissingCode(code) || isDestinationStationMissingCode(code);
 }
 
 function isEstimableWalkError(code: string) {
@@ -739,9 +935,11 @@ async function requestOdsay<T extends OdsayResponseWithError>(
   const error = getOdsayError(data);
 
   if (error) {
-    const code = String(error.code ?? "ODSAY_ERROR");
     const message = error.message ?? "ODsay 대중교통 경로 요청에 실패했습니다.";
     const isAuthenticationError = message.includes("ApiKeyAuthFailed");
+    const code = isAuthenticationError
+      ? "ODSAY_AUTHENTICATION_FAILED"
+      : String(error.code ?? "ODSAY_ERROR");
 
     throw new RouteProviderError(
       code,

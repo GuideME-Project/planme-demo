@@ -3,9 +3,9 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import {
   assessPlanmePlanningInput,
-  formatPlanmeAiGenerationError,
   isPlanmeClarificationResponse,
-  PlanmeAiConfigurationError,
+  PLANME_EXTERNAL_DURATION_ERROR_MESSAGE,
+  PLANME_EXTERNAL_MAX_DURATION_DAYS,
   type PlanmeClarificationResponse,
   type PlanmePlanningRequest,
   type PlanmeRecommendationResponse,
@@ -19,13 +19,16 @@ import {
 import {
   getPlanmeWebOrigin,
   persistItineraryForDetailPage,
-  PreviewStoreHandoffError,
 } from "./planme-mcp.js";
 import { createPlanmeUsageRecorder } from "./usage-counters.js";
+import { recommendAndPersistItinerary } from "./itinerary-recommendation-flow.js";
 import {
-  ItineraryRecommendationFlowError,
-  recommendAndPersistItinerary,
-} from "./itinerary-recommendation-flow.js";
+  classifyPlanmeRecommendationFailure,
+  createPlanmePublicFailurePayload,
+  logPlanmeRecommendationFailure,
+  mapPlanmeMeasurementToCompletionStage,
+  PLANME_PUBLIC_FAILURE_STAGES,
+} from "./recommendation-error-response.js";
 
 type BodyRequest = IncomingMessage & {
   body?: object | string | Buffer;
@@ -45,12 +48,17 @@ const gptsTransportModeSchema = z
 
     return value;
   });
+const externalDurationDaysSchema = z
+  .number()
+  .int()
+  .min(1)
+  .max(PLANME_EXTERNAL_MAX_DURATION_DAYS, PLANME_EXTERNAL_DURATION_ERROR_MESSAGE);
 const planningRequestSchema = z.object({
   message: z.string().optional(),
   destination: z.string().optional(),
   destinationType: z.enum(["region", "place"]).optional(),
   mustVisitPlaces: z.array(z.string().min(1)).optional(),
-  durationDays: z.number().int().min(1).max(14).optional(),
+  durationDays: externalDurationDaysSchema.optional(),
   arrivalAirport: z.string().optional(),
   arrivalTime: z.string().optional(),
   hotelName: z.string().optional(),
@@ -66,7 +74,7 @@ const recommendationRequestSchema = z
     destination: z.string().min(1),
     destinationType: z.enum(["region", "place"]).optional(),
     mustVisitPlaces: z.array(z.string().min(1)).optional(),
-    durationDays: z.number().int().min(1).max(14),
+    durationDays: externalDurationDaysSchema,
     arrivalAirport: z.string().optional(),
     arrivalTime: z.string().optional(),
     hotelName: z.string().optional(),
@@ -168,8 +176,18 @@ export async function handleGptsRecommendItineraryRequest(
     const parsed = recommendationRequestSchema.safeParse(await readJsonBody(request));
 
     if (!parsed.success) {
+      console.error("PlanME GPTs Actions request validation failure", {
+        completionStage: "input_interpretation",
+        event: "planme_gpts_request_validation_failure",
+        internalCode: "INVALID_PLANME_RECOMMENDATION_REQUEST",
+        retryable: false,
+        stage: "request_validation",
+        status: 400,
+        traceId,
+      });
       writeJson(response, 400, {
         error: "INVALID_PLANME_RECOMMENDATION_REQUEST",
+        traceId,
         validationIssues: createGptsValidationIssues(parsed.error),
       });
       return;
@@ -189,6 +207,14 @@ export async function handleGptsRecommendItineraryRequest(
           googleMapsReferer: `${getPlanmeWebOrigin()}/`,
           usageRecorder,
         },
+        onStage: (event) => {
+          console.info("PlanME GPTs Actions stage", {
+            completionStage: mapPlanmeMeasurementToCompletionStage(event.stage),
+            event: "planme_gpts_stage",
+            ...event,
+            traceId,
+          });
+        },
         persist: persistItineraryForDetailPage,
       },
     );
@@ -196,7 +222,7 @@ export async function handleGptsRecommendItineraryRequest(
     if (result.status === "needs_clarification") {
       writeGptsRecommendationResponse(
         response,
-        toGptsRestRecommendationResponse(result),
+        { ...toGptsRestRecommendationResponse(result), traceId },
         traceId,
         "clarification",
       );
@@ -205,42 +231,17 @@ export async function handleGptsRecommendItineraryRequest(
 
     writeGptsRecommendationResponse(
       response,
-      toGptsRestRecommendationResponse(result.response),
+      { ...toGptsRestRecommendationResponse(result.response), traceId },
       traceId,
       "ready",
     );
   } catch (error) {
-    if (error instanceof PlanmeAiConfigurationError) {
-      logGptsRecommendationFailure(traceId, "ai_generation", "OPENAI_API_KEY_REQUIRED", 500);
-      writeJson(response, 500, {
-        error: "OPENAI_API_KEY_REQUIRED",
-        message: "PlanME AI itinerary generation requires OPENAI_API_KEY.",
-      });
-      return;
-    }
-
-    const isHandoffError = error instanceof PreviewStoreHandoffError;
-    const message = isHandoffError
-      ? "PlanME itinerary store handoff failed."
-      : error instanceof Error
-        ? formatPlanmeAiGenerationError(error)
-        : "PlanME request failed";
-
-    // The API key, itinerary payload, places, and coordinates never enter operational logs.
-    logGptsRecommendationFailure(
-      traceId,
-      isHandoffError ? "preview_store_handoff" : "ai_generation",
-      isHandoffError
-        ? error.internalCode
-        : error instanceof ItineraryRecommendationFlowError
-          ? error.code
-          : "PLANME_RECOMMENDATION_FAILED",
-      isHandoffError ? error.status : 500,
+    const failure = classifyPlanmeRecommendationFailure(
+      error instanceof Error ? error : new Error("PLANME_RECOMMENDATION_FAILED"),
     );
-    writeJson(response, 500, {
-      error: "PLANME_RECOMMENDATION_FAILED",
-      message,
-    });
+
+    logPlanmeRecommendationFailure("gpts", traceId, failure);
+    writeJson(response, 500, createPlanmePublicFailurePayload(failure, traceId));
   }
 }
 
@@ -254,6 +255,7 @@ function writeGptsRecommendationResponse(
   const responseBytes = Buffer.byteLength(JSON.stringify(payload), "utf8");
 
   console.info("PlanME GPTs Actions response", {
+    completionStage: "response_delivery",
     event: "planme_gpts_response",
     responseBytes,
     stage,
@@ -261,22 +263,6 @@ function writeGptsRecommendationResponse(
     traceId,
   });
   writeJson(response, 200, payload);
-}
-
-/** Records a redacted GPTs failure that can be correlated with the web handoff log. */
-function logGptsRecommendationFailure(
-  traceId: string,
-  stage: "ai_generation" | "preview_store_handoff",
-  internalCode: string,
-  status = 500,
-) {
-  console.error("PlanME GPTs Actions recommendation failure", {
-    event: "planme_gpts_recommendation_failure",
-    internalCode,
-    stage,
-    status,
-    traceId,
-  });
 }
 
 /**
@@ -370,6 +356,7 @@ export function toGptsRestRecommendationResponse(response: PlanmeRecommendationR
     summary: response.summary,
     standardTotalMinutes: response.standardTotalMinutes,
     carrymeTotalMinutes: response.carrymeTotalMinutes,
+    days: response.days,
     ...(response.savedMinutes === undefined
       ? {}
       : { savedMinutes: response.savedMinutes }),
@@ -418,6 +405,8 @@ function buildGptsOpenApiSchema(serverUrl: string) {
         post: {
           operationId: "startPlanmePlanning",
           summary: "Check whether a PlanME itinerary request has enough detail",
+          description:
+            "Check only the four required inputs: origin, destination, trip length, and transport mode. PlanME supports trips from 1 through 3 days; for 4 days or longer, explain the limit and ask for a trip of up to 3 days. Ask the returned required questions exactly once. Do not ask for lodging or preferences.",
           requestBody: {
             required: true,
             content: {
@@ -450,6 +439,8 @@ function buildGptsOpenApiSchema(serverUrl: string) {
         post: {
           operationId: "recommendPlanmeItinerary",
           summary: "Generate a PlanME itinerary and return a detail page link",
+          description:
+            "When origin, destination, a supported trip length from 1 through 3 days, and transport mode are present, call immediately without additional research or optional questions. Do not call this operation for 4 days or longer; explain the 3-day limit and ask the user to shorten the trip. Never turn an internal generation failure into a request for more user input.",
           requestBody: {
             required: true,
             content: {
@@ -472,12 +463,21 @@ function buildGptsOpenApiSchema(serverUrl: string) {
                 },
               },
             },
-            "500": { description: "AI generation or web handoff failed" },
+            "500": {
+              description: "AI generation or web handoff failed",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/PlanmeErrorResponse" },
+                },
+              },
+            },
             "400": {
               description: "Invalid recommendation request with field-level validation issues",
               content: {
                 "application/json": {
-                  schema: { $ref: "#/components/schemas/InvalidRequestResponse" },
+                  schema: {
+                    $ref: "#/components/schemas/InvalidRecommendationRequestResponse",
+                  },
                 },
               },
             },
@@ -499,7 +499,12 @@ function buildGptsOpenApiSchema(serverUrl: string) {
               description: "Exact single places use place; omitted values are treated as region.",
             },
             mustVisitPlaces: { type: "array", items: { type: "string" } },
-            durationDays: { type: "integer", minimum: 1, maximum: 14 },
+            durationDays: {
+              type: "integer",
+              minimum: 1,
+              maximum: PLANME_EXTERNAL_MAX_DURATION_DAYS,
+              description: PLANME_EXTERNAL_DURATION_ERROR_MESSAGE,
+            },
             arrivalAirport: { type: "string" },
             arrivalTime: { type: "string" },
             hotelName: { type: "string" },
@@ -615,7 +620,12 @@ function buildGptsOpenApiSchema(serverUrl: string) {
               items: { type: "string" },
               description: "Exact user-requested places that must remain fixed.",
             },
-            durationDays: { type: "integer", minimum: 1, maximum: 14 },
+            durationDays: {
+              type: "integer",
+              minimum: 1,
+              maximum: PLANME_EXTERNAL_MAX_DURATION_DAYS,
+              description: PLANME_EXTERNAL_DURATION_ERROR_MESSAGE,
+            },
             arrivalAirport: { type: "string" },
             arrivalTime: { type: "string" },
             hotelName: { type: "string" },
@@ -650,10 +660,12 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             "summary",
             "standardTotalMinutes",
             "carrymeTotalMinutes",
+            "days",
             "savingStatus",
             "pageUrl",
             "detailLinkMarkdown",
             "highlights",
+            "traceId",
           ],
           properties: {
             itineraryId: { type: "string" },
@@ -661,6 +673,10 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             summary: { type: "string" },
             standardTotalMinutes: { type: "integer" },
             carrymeTotalMinutes: { type: "integer" },
+            days: {
+              type: "array",
+              items: { $ref: "#/components/schemas/PlanmeItineraryDaySummary" },
+            },
             savedMinutes: { type: "integer" },
             savingStatus: {
               type: "string",
@@ -677,6 +693,60 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             status: { type: "string", enum: ["ready"] },
             validationIssues: { type: "array", items: { type: "string" } },
             transportMode: { type: "string", enum: ["drive", "transit"] },
+            traceId: { type: "string", description: "Operational correlation identifier." },
+          },
+        },
+        PlanmeRouteSummary: {
+          type: "object",
+          required: ["durationMinutes", "end", "start"],
+          properties: {
+            durationMinutes: { type: "integer" },
+            end: { type: "string" },
+            endTime: { type: "string" },
+            start: { type: "string" },
+            startTime: { type: "string" },
+          },
+        },
+        PlanmeLuggageDeliverySummary: {
+          type: "object",
+          required: ["target", "time"],
+          properties: {
+            target: { type: "string" },
+            targetRole: {
+              type: "string",
+              enum: ["출발지", "방문지", "숙소", "복귀지"],
+            },
+            time: { type: "string" },
+          },
+        },
+        PlanmeItineraryDaySummary: {
+          type: "object",
+          required: [
+            "carryme",
+            "day",
+            "isFinalDay",
+            "label",
+            "returnsToTripOrigin",
+            "sameEndpoints",
+            "savingStatus",
+            "standard",
+          ],
+          properties: {
+            carryme: { $ref: "#/components/schemas/PlanmeRouteSummary" },
+            day: { type: "integer" },
+            isFinalDay: { type: "boolean" },
+            label: { type: "string" },
+            luggageDelivery: {
+              $ref: "#/components/schemas/PlanmeLuggageDeliverySummary",
+            },
+            returnsToTripOrigin: { type: "boolean" },
+            sameEndpoints: { type: "boolean" },
+            savedMinutes: { type: "integer" },
+            savingStatus: {
+              type: "string",
+              enum: ["verified", "hidden_estimated"],
+            },
+            standard: { $ref: "#/components/schemas/PlanmeRouteSummary" },
           },
         },
         PlanmeClarificationContext: {
@@ -707,6 +777,37 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             },
           },
         },
+        InvalidRecommendationRequestResponse: {
+          type: "object",
+          required: ["error", "traceId", "validationIssues"],
+          properties: {
+            error: { type: "string", enum: ["INVALID_PLANME_RECOMMENDATION_REQUEST"] },
+            traceId: { type: "string", format: "uuid" },
+            validationIssues: {
+              type: "array",
+              items: {
+                type: "object",
+                required: ["path", "message"],
+                properties: {
+                  path: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+        PlanmeErrorResponse: {
+          type: "object",
+          required: ["error", "message", "retryable", "stage", "status", "traceId"],
+          properties: {
+            error: { type: "string" },
+            message: { type: "string" },
+            retryable: { type: "boolean" },
+            stage: { type: "string", enum: [...PLANME_PUBLIC_FAILURE_STAGES] },
+            status: { type: "string", enum: ["error"] },
+            traceId: { type: "string", format: "uuid" },
+          },
+        },
         PlanmeClarificationResponse: {
           type: "object",
           required: [
@@ -717,6 +818,7 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             "status",
             "unresolvedStops",
             "validationIssues",
+            "traceId",
           ],
           properties: {
             clarificationContext: { $ref: "#/components/schemas/PlanmeClarificationContext" },
@@ -730,6 +832,7 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             status: { type: "string", enum: ["needs_clarification"] },
             unresolvedStops: { type: "array", items: { type: "string" } },
             validationIssues: { type: "array", items: { type: "string" } },
+            traceId: { type: "string", description: "Operational correlation identifier." },
           },
         },
         PlanmeResolutionLog: {

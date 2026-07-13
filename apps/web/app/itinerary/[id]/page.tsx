@@ -34,7 +34,7 @@ export async function generateMetadata({
     openGraph: {
       title: itinerary.title,
       description: itinerary.summary,
-      images: [`/og?title=${encodeURIComponent(itinerary.title)}`],
+      images: [`/og/itinerary/${encodeURIComponent(id)}.png`],
     },
   };
 }

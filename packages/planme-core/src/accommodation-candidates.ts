@@ -17,6 +17,8 @@ export type AccommodationCandidateSearchInput = {
   destination?: string;
   region?: string;
   preferences?: string[];
+  signal?: AbortSignal;
+  timeoutMs?: number;
 };
 
 export type AccommodationCandidateSearcher = (
@@ -56,11 +58,13 @@ export async function searchAccommodationCandidates(
     preferences: input.preferences,
     query,
     region: input.region,
+    signal: input.signal,
     stop: {
       addressQuery: query,
       name: "숙소",
       role: "숙소",
     },
+    timeoutMs: input.timeoutMs,
   });
 
   return result.candidates

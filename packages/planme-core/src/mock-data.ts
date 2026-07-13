@@ -29,6 +29,7 @@ export type RouteStop = {
   icon: "airport" | "hotel" | "station" | "event" | "attraction";
   mode?: PlanmeRowMode;
   placeId?: string;
+  placeRef?: string;
   placeSource?: "naver_local" | "naver_geocode" | "input";
   placeSourceRef?: string;
   stopRef?: string;
@@ -49,8 +50,13 @@ export type TimelineEvent = {
   time: string;
   title: string;
   description: string;
-  category: "arrival" | "carryme" | "transit" | "meal" | "hotel" | "event";
+  category: "arrival" | "carryme" | "drive" | "transit" | "meal" | "hotel" | "event";
+  deliverySourcePlaceRef?: string;
+  deliveryTargetPlaceRef?: string;
+  deliveryTargetStopRef?: string;
+  eventKind?: "traveler_stop" | "luggage_delivery";
   highlight?: boolean;
+  movementMode?: PlanmeTransportMode;
   savingLabel?: string;
   stopRef?: string;
   stayDurationMinutes?: number;

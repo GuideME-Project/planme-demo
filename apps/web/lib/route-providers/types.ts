@@ -38,6 +38,7 @@ export type RouteProviderSegment = {
 
 export type TransitAccessFailureReason =
   | "destination_station_missing"
+  | "origin_station_missing"
   | "walk_limit_exceeded"
   | "walk_path_missing";
 

@@ -13,20 +13,20 @@ import {
   releasePreviewItineraryLock,
   saveFinalizedPreviewItinerary,
 } from "@/lib/preview-itinerary-store";
+import {
+  createPlanmeRouteFailureLog,
+  type PlanmeWebFailureStage,
+} from "@/lib/route-failure-observability";
+import {
+  mapRouteFinalizationPublicError,
+  type RouteFinalizationPublicError,
+} from "@/lib/route-finalization-public-error";
 
 type PreviewStoreRequest = {
   baseRevision?: number;
   itinerary?: Partial<PlanmeItinerary>;
   timeoutMs?: number;
 };
-
-type PreviewStoreFailureStage =
-  | "authorization"
-  | "request_validation"
-  | "record_lookup"
-  | "lock_acquisition"
-  | "route_finalization"
-  | "preview_persistence";
 
 export const maxDuration = 45;
 
@@ -71,6 +71,20 @@ export async function POST(request: Request) {
       { error: "PREVIEW_STORE_UNAVAILABLE" },
       { status: 500 },
     );
+  }
+
+  // A generation handoff has no base revision. Once that deterministic ID is finalized,
+  // replaying the same AI draft is idempotent and must never rewrite an existing link.
+  if (body.baseRevision === undefined && currentRecord?.routeFinalized) {
+    return NextResponse.json({
+      status: "ready",
+      itineraryId: currentRecord.itinerary.id,
+      pageUrl: buildItineraryPageUrl(request.url, currentRecord.itinerary.id),
+      ogImageUrl: buildItineraryOgImageUrl(request.url, currentRecord.itinerary.id),
+      expiresAt: currentRecord.expiresAt,
+      revision: currentRecord.revision,
+      itinerary: currentRecord.itinerary,
+    });
   }
 
   const expectedRevision = body.baseRevision ?? currentRecord?.revision ?? 0;
@@ -131,66 +145,22 @@ export async function POST(request: Request) {
       itinerary,
     });
   } catch (error) {
-    const safeMessage = error instanceof Error ? error.message : "일정 경로 계산 실패";
-
-    if (error instanceof RouteFinalizationTimeoutError) {
+    if (
+      error instanceof RouteFinalizationTimeoutError ||
+      error instanceof RouteFinalizationError
+    ) {
+      const publicError = mapRouteFinalizationPublicError(error);
       logPreviewStoreFailure(
         traceId,
-        504,
-        "ROUTE_FINALIZATION_TIMEOUT",
-        "route_finalization",
+        publicError.httpStatus,
+        error instanceof RouteFinalizationError
+          ? error.internalCode
+          : "ROUTE_FINALIZATION_TIMEOUT",
+        error instanceof RouteFinalizationError ? error.stage : "route_finalization",
+        error instanceof RouteFinalizationError ? error : undefined,
+        body.itinerary,
       );
-      return NextResponse.json(
-        { error: "ROUTE_FINALIZATION_TIMEOUT", message: safeMessage },
-        { status: 504 },
-      );
-    }
-
-    if (error instanceof RouteFinalizationError) {
-      if (
-        error.internalCode === "TRANSIT_PLACE_REPLACEMENT_REQUIRED" ||
-        error.internalCode === "USER_PLACE_CONFIRMATION_REQUIRED"
-      ) {
-        return NextResponse.json(
-          {
-            code: error.internalCode,
-            context: {
-              dayIndex: error.dayIndex,
-              placeConstraint: error.placeConstraint,
-              reason: error.transitAccessReason,
-              routeId: error.routeId,
-              segmentIndex: error.segmentIndex,
-              stopRef: error.stopRef,
-            },
-            error: "ROUTE_REPAIR_REQUIRED",
-            status: "repair_required",
-          },
-          { status: 422 },
-        );
-      }
-
-      logPreviewStoreFailure(
-        traceId,
-        422,
-        error.internalCode,
-        error.stage,
-        {
-          dayIndex: error.dayIndex,
-          destinationCoordinate: error.destinationCoordinate,
-          destinationPlaceName: error.destinationPlaceName,
-          originCoordinate: error.originCoordinate,
-          originPlaceName: error.originPlaceName,
-          provider: error.provider,
-          retried: error.retried,
-          routeId: error.routeId,
-          segmentIndex: error.segmentIndex,
-          stopRef: error.stopRef,
-        },
-      );
-      return NextResponse.json(
-        { error: "ROUTE_FINALIZATION_FAILED", message: safeMessage },
-        { status: 422 },
-      );
+      return createPreviewStoreRouteFailureResponse(publicError);
     }
 
     logPreviewStoreFailure(
@@ -211,6 +181,20 @@ export async function POST(request: Request) {
   }
 }
 
+/** Builds the preview-store route response while retaining its repair-required marker. */
+export function createPreviewStoreRouteFailureResponse(
+  publicError: RouteFinalizationPublicError,
+) {
+  if ("code" in publicError.body) {
+    return NextResponse.json(
+      { ...publicError.body, status: "repair_required" },
+      { status: publicError.httpStatus },
+    );
+  }
+
+  return NextResponse.json(publicError.body, { status: publicError.httpStatus });
+}
+
 /** Reads a valid cross-service trace id or creates a safe local replacement. */
 function getPreviewStoreTraceId(request: Request) {
   const providedTraceId = request.headers.get("x-planme-trace-id")?.trim() ?? "";
@@ -228,28 +212,19 @@ function logPreviewStoreFailure(
   traceId: string,
   status: number,
   internalCode: string,
-  stage: PreviewStoreFailureStage | RouteFinalizationError["stage"],
-  routeContext: {
-    dayIndex?: number;
-    destinationCoordinate?: RouteFinalizationError["destinationCoordinate"];
-    destinationPlaceName?: string;
-    originCoordinate?: RouteFinalizationError["originCoordinate"];
-    originPlaceName?: string;
-    provider?: "naver-directions" | "odsay";
-    retried?: boolean;
-    routeId?: "standard" | "carryme";
-    segmentIndex?: number;
-    stopRef?: string;
-  } = {},
+  stage: PlanmeWebFailureStage,
+  error?: RouteFinalizationError,
+  itinerary?: PlanmeItinerary,
 ) {
-  console.error("PlanME preview store failure", {
+  console.error("PlanME preview store failure", createPlanmeRouteFailureLog({
+    error,
     event: "planme_preview_store_failure",
     internalCode,
+    itinerary,
     stage,
     status,
     traceId,
-    ...routeContext,
-  });
+  }));
 }
 
 /** Compares the internal bearer token without leaking length or content through normal string checks. */

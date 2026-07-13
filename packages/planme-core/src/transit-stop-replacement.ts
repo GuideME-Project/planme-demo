@@ -34,6 +34,8 @@ export type ReplaceTransitStopResult =
 export type ReplaceTransitStopOptions = {
   placeCandidateSearcher?: PlanmePlaceCandidateSearcher;
   replacementQuerySuggester?: PlanmeReplacementQuerySuggester;
+  signal?: AbortSignal;
+  timeoutMs?: number;
   usageRecorder?: PlanmeUsageRecorder;
 };
 
@@ -53,10 +55,15 @@ export async function replaceTransitItineraryStop(
   }
 
   const suggestQuery = options.replacementQuerySuggester ??
-    createOpenAiReplacementQuerySuggester({ usageRecorder: options.usageRecorder });
+    createOpenAiReplacementQuerySuggester({
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
+      usageRecorder: options.usageRecorder,
+    });
   const query = await suggestQuery({
     attempt: input.attempt,
     itinerary: input.request,
+    signal: options.signal,
     stop: {
       addressQuery: sourceStop.label,
       coordinate: sourceStop.coordinate,
@@ -64,6 +71,7 @@ export async function replaceTransitItineraryStop(
       placeSourceRef: sourceStop.placeSourceRef,
       role: sourceStop.role,
     },
+    timeoutMs: options.timeoutMs,
   });
 
   if (!query) {
@@ -72,6 +80,8 @@ export async function replaceTransitItineraryStop(
 
   const searcher = options.placeCandidateSearcher ??
     ((searchInput) => searchPlanmePlaceCandidates(searchInput, {
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
       usageRecorder: options.usageRecorder,
     }));
   const result = await searcher({
@@ -80,11 +90,13 @@ export async function replaceTransitItineraryStop(
     preferences: input.request.preferences,
     query,
     region: input.request.region ?? input.request.destination,
+    signal: options.signal,
     stop: {
       addressQuery: query,
       name: sourceStop.label,
       role: sourceStop.role,
     },
+    timeoutMs: options.timeoutMs,
   });
   const excluded = new Set(
     [sourceStop.placeSourceRef, ...input.excludedPlaceSourceRefs].filter(

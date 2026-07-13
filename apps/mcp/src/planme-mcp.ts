@@ -7,8 +7,9 @@ import {
 } from "@modelcontextprotocol/ext-apps/server";
 import {
   assessPlanmePlanningInput,
-  formatPlanmeAiGenerationError,
-  PlanmeAiConfigurationError,
+  PLANME_EXTERNAL_DURATION_ERROR_MESSAGE,
+  PLANME_EXTERNAL_MAX_DURATION_DAYS,
+  type GptActionItineraryDaySummary,
   type GptActionItineraryResponse,
   type PlanmeClarificationResponse,
   type PlanmeItinerary,
@@ -23,9 +24,16 @@ import {
 import { createPlanmeWidgetHtml } from "./planme-widget.js";
 import { createPlanmeUsageRecorder } from "./usage-counters.js";
 import {
-  ItineraryRecommendationFlowError,
   recommendAndPersistItinerary,
 } from "./itinerary-recommendation-flow.js";
+import {
+  classifyPlanmeRecommendationFailure,
+  createPlanmePublicFailurePayload,
+  logPlanmeRecommendationFailure,
+  mapPlanmeMeasurementToCompletionStage,
+  PLANME_PUBLIC_FAILURE_STAGES,
+  type PlanmePublicFailureStage,
+} from "./recommendation-error-response.js";
 import { PreviewStoreHandoffError } from "./preview-store-handoff-error.js";
 export { PreviewStoreHandoffError } from "./preview-store-handoff-error.js";
 
@@ -60,6 +68,37 @@ const timelineEventSchema = z.object({
   savingLabel: z.string().optional(),
 });
 
+const itineraryDaySummarySchema = z.object({
+  carryme: z.object({
+    durationMinutes: z.number(),
+    end: z.string(),
+    endTime: z.string().optional(),
+    start: z.string(),
+    startTime: z.string().optional(),
+  }),
+  day: z.number(),
+  isFinalDay: z.boolean(),
+  label: z.string(),
+  luggageDelivery: z
+    .object({
+      target: z.string(),
+      targetRole: z.enum(["출발지", "방문지", "숙소", "복귀지"]).optional(),
+      time: z.string(),
+    })
+    .optional(),
+  returnsToTripOrigin: z.boolean(),
+  sameEndpoints: z.boolean(),
+  savedMinutes: z.number().optional(),
+  savingStatus: z.enum(["verified", "hidden_estimated"]),
+  standard: z.object({
+    durationMinutes: z.number(),
+    end: z.string(),
+    endTime: z.string().optional(),
+    start: z.string(),
+    startTime: z.string().optional(),
+  }),
+});
+
 const planningSlotSchema = z.enum([
   "destination",
   "origin",
@@ -81,6 +120,12 @@ const appTransportModeSchema = z
   .describe(
     "일정 전체 이동 수단입니다. 사용자가 자동차를 선택하면 자동차 또는 drive, 대중교통을 선택하면 대중교통 또는 transit으로 전달하세요.",
   );
+const externalDurationDaysSchema = z
+  .number()
+  .int()
+  .min(1)
+  .max(PLANME_EXTERNAL_MAX_DURATION_DAYS, PLANME_EXTERNAL_DURATION_ERROR_MESSAGE)
+  .describe(PLANME_EXTERNAL_DURATION_ERROR_MESSAGE);
 
 type AppTransportMode = z.infer<typeof appTransportModeSchema>;
 type AppPlanmePlanningRequest = Omit<PlanmePlanningRequest, "transportMode"> & {
@@ -116,6 +161,8 @@ const itinerarySummarySchema = {
     })
     .optional(),
   carrymeTotalMinutes: z.number().optional(),
+  days: z.array(itineraryDaySummarySchema).optional(),
+  error: z.enum(["OPENAI_API_KEY_REQUIRED", "PLANME_RECOMMENDATION_FAILED"]).optional(),
   feedbackMessage: z.string().optional(),
   itineraryId: z.string().optional(),
   message: z.string().optional(),
@@ -133,14 +180,17 @@ const itinerarySummarySchema = {
       }),
     )
     .optional(),
+  retryable: z.boolean().optional(),
   savedMinutes: z.number().optional(),
   savingStatus: z.enum(["verified", "hidden_estimated"]).optional(),
   standardTotalMinutes: z.number().optional(),
   transportMode: z.enum(["drive", "transit"]).optional(),
-  status: z.enum(["ready", "needs_clarification"]),
+  stage: z.enum(PLANME_PUBLIC_FAILURE_STAGES).optional(),
+  status: z.enum(["ready", "needs_clarification", "error"]),
   summary: z.string().optional(),
   timeline: z.array(timelineEventSchema).optional(),
   title: z.string().optional(),
+  traceId: z.string().optional(),
   unresolvedStops: z.array(z.string()).optional(),
   validationIssues: z.array(z.string()).optional(),
 };
@@ -166,17 +216,21 @@ const planningAssessmentSchema = {
 type ItinerarySummary = {
   clarificationContext?: PlanmeClarificationResponse["clarificationContext"];
   carrymeTotalMinutes?: number;
+  days?: GptActionItineraryDaySummary[];
+  error?: "OPENAI_API_KEY_REQUIRED" | "PLANME_RECOMMENDATION_FAILED";
   feedbackMessage?: string;
   itineraryId?: string;
   message?: string;
   pageUrl?: string;
   questions?: string[];
   resolutionLogs?: PlanmeClarificationResponse["resolutionLogs"];
+  retryable?: boolean;
   savedMinutes?: number;
   savingStatus?: "verified" | "hidden_estimated";
   standardTotalMinutes?: number;
   transportMode?: "drive" | "transit";
-  status: "ready" | "needs_clarification";
+  stage?: PlanmePublicFailureStage;
+  status: "ready" | "needs_clarification" | "error";
   summary?: string;
   timeline?: Array<{
     time: string;
@@ -187,6 +241,7 @@ type ItinerarySummary = {
     savingLabel?: string;
   }>;
   title?: string;
+  traceId?: string;
   unresolvedStops?: string[];
   validationIssues?: string[];
 };
@@ -200,6 +255,7 @@ function toItinerarySummary(response: GptActionItineraryResponse): ItinerarySumm
   // Keep model-visible data compact; full itinerary details are passed through _meta for the widget.
   return {
     carrymeTotalMinutes: response.carrymeTotalMinutes,
+    days: response.days,
     itineraryId: response.itineraryId,
     pageUrl: response.pageUrl,
     resolutionLogs: response.resolutionLogs,
@@ -255,6 +311,7 @@ export async function persistItineraryForDetailPage(
   itinerary: PlanmeItinerary,
   traceId: string = randomUUID(),
   timeoutMs = 40_000,
+  signal?: AbortSignal,
 ): Promise<PersistedFinalizedItineraryResponse> {
   const internalToken = getPlanmeInternalApiToken();
   const controller = new AbortController();
@@ -263,6 +320,13 @@ export async function persistItineraryForDetailPage(
     () => controller.abort(),
     Math.min(PLANME_WEB_FINALIZATION_TIMEOUT_MS, normalizedTimeoutMs + 3_000),
   );
+  const abortFromFlow = () => controller.abort(signal?.reason);
+
+  if (signal?.aborted) {
+    abortFromFlow();
+  } else {
+    signal?.addEventListener("abort", abortFromFlow, { once: true });
+  }
 
   try {
     const response = await fetch(buildPlanmeWebUrl("/api/gpt/itineraries/preview-store"), {
@@ -284,6 +348,7 @@ export async function persistItineraryForDetailPage(
         failure.internalCode,
         response.status,
         failure.repair,
+        failure.classification,
       );
     }
 
@@ -296,6 +361,7 @@ export async function persistItineraryForDetailPage(
     throw new PreviewStoreHandoffError(traceId, "PREVIEW_STORE_HANDOFF_REQUEST_FAILED");
   } finally {
     clearTimeout(timeout);
+    signal?.removeEventListener("abort", abortFromFlow);
   }
 }
 
@@ -306,6 +372,12 @@ async function readPreviewStoreError(response: Response) {
       code?: PreviewStoreHandoffError["repairCode"];
       context?: PreviewStoreHandoffError["repairContext"];
       error?: string;
+      retryable?: boolean;
+      stage?:
+        | "itinerary_finalization"
+        | "place_resolution"
+        | "route_calculation"
+        | "storage";
     };
     const errorCode = body.error?.trim() ?? "";
 
@@ -317,31 +389,45 @@ async function readPreviewStoreError(response: Response) {
         errorCode === "ROUTE_REPAIR_REQUIRED" && body.code && body.context
           ? { code: body.code, context: body.context }
           : undefined,
+      classification: {
+        failureStage: body.stage,
+        retryable: typeof body.retryable === "boolean" ? body.retryable : undefined,
+      },
     };
   } catch {
     return { internalCode: "PREVIEW_STORE_HANDOFF_FAILED" };
   }
 }
 
-/** Reads one finalized version 2 itinerary from the web store for widget rendering. */
+/** Reads one finalized version 2 itinerary and retries one transient lookup failure. */
 async function fetchFinalizedItineraryForWidget(itineraryId: string) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), PLANME_WEB_LOOKUP_TIMEOUT_MS);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), PLANME_WEB_LOOKUP_TIMEOUT_MS);
 
-  try {
-    const response = await fetch(
-      buildPlanmeWebUrl(`/api/gpt/itineraries/${encodeURIComponent(itineraryId)}`),
-      { signal: controller.signal },
-    );
+    try {
+      const response = await fetch(
+        buildPlanmeWebUrl(`/api/gpt/itineraries/${encodeURIComponent(itineraryId)}`),
+        { signal: controller.signal },
+      );
 
-    if (!response.ok) {
-      return null;
+      if (response.ok) {
+        return (await response.json()) as GptActionItineraryResponse;
+      }
+
+      if (response.status < 500 || attempt === 1) {
+        return null;
+      }
+    } catch {
+      if (attempt === 1) {
+        return null;
+      }
+    } finally {
+      clearTimeout(timeout);
     }
-
-    return (await response.json()) as GptActionItineraryResponse;
-  } finally {
-    clearTimeout(timeout);
   }
+
+  return null;
 }
 
 /** Reads the server-only handoff token required by both Vercel projects. */
@@ -395,7 +481,7 @@ function createPlanmeWidgetMeta() {
       domain: PLANME_MCP_ORIGIN,
       csp: widgetCsp,
     },
-    "openai/widgetDescription": "PlanME 일정의 CarryME 절약 효과와 Day 1 타임라인을 보여줍니다.",
+    "openai/widgetDescription": "PlanME 일정의 전체 이동 시간과 1~3일차 CarryME 타임라인을 보여줍니다.",
     "openai/widgetPrefersBorder": true,
     "openai/widgetCSP": {
       connect_domains: widgetCsp.connectDomains,
@@ -444,7 +530,7 @@ export function createPlanmeMcpServer(): McpServer {
     },
     {
       instructions:
-        "When GuideME-PlanME is selected and the user asks to create a travel itinerary, use this server instead of web search. If origin, destination, trip length, and transport mode are present, call recommend_planme_itinerary immediately without researching routes, stations, coordinates, or attractions. Call start_planme_planning only when one of those four inputs is missing. After a ready result, call get_planme_itinerary exactly once.",
+        "When GuideME-PlanME is selected and the user asks to create a travel itinerary, use this server instead of web search. PlanME supports trips from 1 through 3 days. For 4 days or longer, explain the 3-day limit and ask the user to shorten the trip without calling recommend_planme_itinerary. If origin, destination, a supported trip length, and transport mode are present, call recommend_planme_itinerary immediately without researching routes, stations, coordinates, or attractions. Call start_planme_planning only when one of those four inputs is missing. After a ready result, call get_planme_itinerary exactly once.",
     },
   );
   const usageRecorder = createPlanmeUsageRecorder();
@@ -458,7 +544,7 @@ export function createPlanmeMcpServer(): McpServer {
     {
       title: "PlanME 여행 조건 확인",
       description:
-        "Use this when the user asks PlanME to create a travel itinerary but origin, destination, trip length, or transport mode is missing. If those four inputs are present, do not research attractions, stations, or coordinates and call recommend_planme_itinerary immediately. Lodging and preferences may be omitted and are not blockers.",
+        "Use this when the user asks PlanME to create a travel itinerary but origin, destination, a supported trip length from 1 through 3 days, or transport mode is missing. For 4 days or longer, explain the 3-day limit and ask the user to shorten the trip. If the four required inputs are present, do not research attractions, stations, or coordinates and call recommend_planme_itinerary immediately. Lodging and preferences may be omitted and are not blockers.",
       inputSchema: {
         message: z.string().optional(),
         destination: z.string().optional(),
@@ -467,7 +553,7 @@ export function createPlanmeMcpServer(): McpServer {
           .optional()
           .describe("정확한 단일 장소만 place이며, 생략하면 region으로 처리합니다."),
         mustVisitPlaces: z.array(z.string().min(1)).optional(),
-        durationDays: z.number().int().min(1).max(14).optional(),
+        durationDays: externalDurationDaysSchema.optional(),
         arrivalAirport: z.string().optional(),
         arrivalTime: z.string().optional(),
         hotelName: z.string().optional(),
@@ -522,7 +608,7 @@ export function createPlanmeMcpServer(): McpServer {
     {
       title: "PlanME 여행 일정 생성 및 저장",
       description:
-        "Use this when the user asks PlanME to create a travel itinerary and origin, destination, trip length, and transport mode are present, for example '남해 1박 2일 여행 일정 만들어줘. 동탄호수공원에서 출발하고 대중교통으로 갈게.' Call this tool before browsing or researching attractions, stations, coordinates, or routes; the server selects, verifies, replaces, and saves itinerary places. Pass only places explicitly fixed by the user in mustVisitPlaces, and do not pass ChatGPT-authored days or timeline events. Missing lodging and preferences are allowed. If the response status is needs_clarification, ask the returned question in chat. If the response status is ready, call get_planme_itinerary exactly once with the returned itineraryId to render the widget. Do not render a widget from this tool. CarryME luggage handoff points must be lodging, hotels, or explicit pickup points, not plain train/subway stations, terminals, or airports.",
+        "Use this when the user asks PlanME to create a travel itinerary of 1 through 3 days and origin, destination, trip length, and transport mode are present, for example '남해 1박 2일 여행 일정 만들어줘. 동탄호수공원에서 출발하고 대중교통으로 갈게.' Do not call this tool for 4 days or longer; explain the 3-day limit and ask the user to shorten the trip. Call this tool before browsing or researching attractions, stations, coordinates, or routes; the server selects, verifies, replaces, and saves itinerary places. Pass only places explicitly fixed by the user in mustVisitPlaces, and do not pass ChatGPT-authored days or timeline events. Missing lodging and preferences are allowed. If the response status is needs_clarification, ask the returned question in chat. If the response status is ready, call get_planme_itinerary exactly once with the returned itineraryId to render the widget. Do not render a widget from this tool. CarryME luggage handoff points must be lodging, hotels, or explicit pickup points, not plain train/subway stations, terminals, or airports.",
       inputSchema: {
         destination: z
           .string()
@@ -538,7 +624,7 @@ export function createPlanmeMcpServer(): McpServer {
           .array(z.string().min(1))
           .optional()
           .describe("사용자가 직접 지정한 필수 방문 장소 목록입니다."),
-        durationDays: z.number().int().min(1).max(14),
+        durationDays: externalDurationDaysSchema,
         arrivalAirport: z.string().optional(),
         arrivalTime: z.string().optional(),
         hotelName: z.string().optional(),
@@ -593,12 +679,28 @@ export function createPlanmeMcpServer(): McpServer {
               googleMapsReferer: `${getPlanmeWebOrigin()}/`,
               usageRecorder,
             },
+            onStage: (event) => {
+              console.info("PlanME Apps stage", {
+                completionStage: mapPlanmeMeasurementToCompletionStage(event.stage),
+                event: "planme_apps_stage",
+                ...event,
+                traceId,
+              });
+            },
             persist: persistItineraryForDetailPage,
           },
         );
 
         if (result.status === "needs_clarification") {
-          const structuredContent = toClarificationSummary(result);
+          const structuredContent = { ...toClarificationSummary(result), traceId };
+
+          console.info("PlanME Apps response", {
+            completionStage: "response_delivery",
+            event: "planme_apps_response",
+            stage: "clarification",
+            status: 200,
+            traceId,
+          });
 
           return {
             structuredContent,
@@ -613,50 +715,37 @@ export function createPlanmeMcpServer(): McpServer {
 
         response = result.response;
       } catch (error) {
-        if (error instanceof PlanmeAiConfigurationError) {
-          return {
-            isError: true,
-            content: [
-              {
-                type: "text" as const,
-                text: "PlanME AI 일정 생성을 사용하려면 서버 환경변수 OPENAI_API_KEY가 필요합니다.",
-              },
-            ],
-          };
-        }
-
-        const safeMessage =
-          error instanceof Error ? formatPlanmeAiGenerationError(error) : "unknown error";
-
-        // The API key and itinerary payload never enter operational logs.
-        console.error("PlanME itinerary request failure", {
-          event: "planme_itinerary_request_failure",
-          internalCode:
-            error instanceof PreviewStoreHandoffError
-              ? error.internalCode
-              : error instanceof ItineraryRecommendationFlowError
-                ? error.code
-              : "PLANME_RECOMMENDATION_FLOW_FAILED",
-          stage:
-            error instanceof PreviewStoreHandoffError
-              ? "preview_store_handoff"
-              : "recommendation_flow",
-          status: error instanceof PreviewStoreHandoffError ? error.status : undefined,
+        const failure = classifyPlanmeRecommendationFailure(
+          error instanceof Error ? error : new Error("PLANME_RECOMMENDATION_FAILED"),
+        );
+        const structuredContent: ItinerarySummary = createPlanmePublicFailurePayload(
+          failure,
           traceId,
-        });
+        );
+
+        logPlanmeRecommendationFailure("apps", traceId, failure);
 
         return {
           isError: true,
+          structuredContent,
           content: [
             {
               type: "text" as const,
-              text: `PlanME 일정 생성 또는 저장에 실패했습니다: ${safeMessage}`,
+              text: `${failure.message} 추적 ID: ${traceId}`,
             },
           ],
         };
       }
 
-      const structuredContent = toItinerarySummary(response);
+      const structuredContent = { ...toItinerarySummary(response), traceId };
+
+      console.info("PlanME Apps response", {
+        completionStage: "response_delivery",
+        event: "planme_apps_response",
+        stage: "ready",
+        status: 200,
+        traceId,
+      });
 
       // The model calls the widget-only lookup tool after this server-side generation succeeds.
       return {

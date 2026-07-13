@@ -17,17 +17,22 @@ export type PlanmeUsageRecorder = (
 /**
  * Records usage without letting observability failures block itinerary generation.
  */
-export async function recordPlanmeUsageSafely(
+export function recordPlanmeUsageSafely(
   recorder: PlanmeUsageRecorder | undefined,
   event: PlanmeUsageCounterEvent,
   amount = 1,
-): Promise<void> {
+): void {
   if (!recorder) {
     return;
   }
 
   try {
-    await recorder(event, amount);
+    const pending = recorder(event, amount);
+
+    if (pending) {
+      // Diagnostic writes are best-effort and must not consume the itinerary deadline.
+      void pending.catch(() => undefined);
+    }
   } catch {
     // Usage counters are diagnostic only; generation should fail on provider/data errors instead.
   }

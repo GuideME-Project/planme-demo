@@ -7,6 +7,10 @@ import {
   RouteFinalizationTimeoutError,
   preflightTransitItineraryRoutes,
 } from "@/lib/itinerary-route-finalizer";
+import {
+  mapRouteFinalizationPublicError,
+  type RouteFinalizationPublicError,
+} from "@/lib/route-finalization-public-error";
 
 type TransitPreflightRequest = {
   itinerary?: Partial<PlanmeItinerary>;
@@ -51,57 +55,63 @@ export async function POST(request: Request) {
 
     return NextResponse.json(result);
   } catch (error) {
-    if (error instanceof RouteFinalizationTimeoutError) {
-      return NextResponse.json({ error: "ROUTE_PREFLIGHT_TIMEOUT" }, { status: 504 });
-    }
+    if (
+      error instanceof RouteFinalizationTimeoutError ||
+      error instanceof RouteFinalizationError
+    ) {
+      const publicError = mapRouteFinalizationPublicError(error);
 
-    if (error instanceof RouteFinalizationError) {
-      if (
-        error.internalCode === "TRANSIT_PLACE_REPLACEMENT_REQUIRED" ||
-        error.internalCode === "USER_PLACE_CONFIRMATION_REQUIRED"
-      ) {
-        return NextResponse.json({
-          context: {
-            dayIndex: error.dayIndex,
-            placeConstraint: error.placeConstraint,
-            reason: error.transitAccessReason,
-            routeId: error.routeId,
-            segmentIndex: error.segmentIndex,
-            stopRef: error.stopRef,
-          },
-          status:
-            error.internalCode === "TRANSIT_PLACE_REPLACEMENT_REQUIRED"
-              ? "replacement_required"
-              : "confirmation_required",
-        });
+      if ("code" in publicError.body) {
+        return createTransitPreflightFailureResponse(publicError);
       }
-
-      const status = error.internalCode === "PROVIDER_CALL_BUDGET_EXCEEDED"
-        ? 429
-        : error.internalCode === "INVALID_TRANSIT_STOP_CONTRACT" ||
-            error.internalCode === "INVALID_TRANSIT_PREFLIGHT_REQUEST"
-          ? 400
-          : 503;
-      const safeCode = status === 429
-        ? "PROVIDER_CALL_BUDGET_EXCEEDED"
-        : error.internalCode === "TRANSIT_RECOVERY_DISABLED"
-          ? "TRANSIT_RECOVERY_DISABLED"
-          : "ROUTE_PROVIDER_CONFIGURATION_ERROR";
 
       console.error("PlanME transit preflight failed", {
         event: "planme_transit_preflight_failure",
-        internalCode: error.internalCode,
-        status,
+        internalCode:
+          error instanceof RouteFinalizationError
+            ? error.internalCode
+            : "ROUTE_FINALIZATION_TIMEOUT",
+        status: publicError.httpStatus,
         traceId,
       });
-      return NextResponse.json({ error: safeCode }, { status });
+      return createTransitPreflightFailureResponse(publicError);
     }
 
     return NextResponse.json(
-      { error: "ROUTE_PROVIDER_CONFIGURATION_ERROR" },
+      {
+        error: "CONFIGURATION_ERROR",
+        retryable: false,
+        stage: "route_calculation",
+      },
       { status: 503 },
     );
   }
+}
+
+/** Builds the transit-preflight response while preserving its repair decision status. */
+export function createTransitPreflightFailureResponse(
+  publicError: RouteFinalizationPublicError,
+) {
+  if ("code" in publicError.body) {
+    return NextResponse.json(
+      {
+        context: publicError.body.context,
+        retryable: false,
+        stage: "route_calculation",
+        status: publicError.repairStatus,
+      },
+      { status: 200 },
+    );
+  }
+
+  if (publicError.body.error === "ROUTE_FINALIZATION_TIMEOUT") {
+    return NextResponse.json(
+      { ...publicError.body, error: "ROUTE_PREFLIGHT_TIMEOUT" },
+      { status: 504 },
+    );
+  }
+
+  return NextResponse.json(publicError.body, { status: publicError.httpStatus });
 }
 
 function isTransitItinerary(

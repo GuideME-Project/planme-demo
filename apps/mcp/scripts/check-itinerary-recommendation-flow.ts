@@ -7,6 +7,7 @@ import {
   type RecommendItineraryRequest,
 } from "@planme/core";
 import {
+  ItineraryRecommendationFlowError,
   recommendAndPersistItinerary,
   type TransitPreflightResult,
 } from "../src/itinerary-recommendation-flow.js";
@@ -31,7 +32,11 @@ async function main() {
   await assertFixedPlaceBecomesClarification();
   await assertNoVisitPlaceDoesNotPersist();
   await assertOffModeSkipsPreflight();
-  await assertCachedFinalStoreUsesMeasuredBudget();
+  await assertRecoveryRunsByDefault();
+  await assertSlowGenerationDoesNotStartPersist();
+  await assertExpiredGenerationAbortsSharedSignalAndStopsFlow();
+  await assertReplacementRequiresReservedStoreBudget();
+  await assertRecoveryReplacementRequiresReservedStoreBudget();
   await assertFinalStoreRepairSafetyRunsOnce();
   console.log("PlanME shared recommendation flow contract passed");
 }
@@ -109,11 +114,11 @@ async function assertPartialTimelineOrderSurvivesServerAnchors() {
 
   assert.deepEqual(
     day.standard.stops.map((stop) => stop.label),
-    ["강동역", "두 번째 방문지", "첫 방문지", "남해 숙소", "강동역"],
+    ["강동역", "두 번째 방문지", "첫 방문지", "강동역"],
   );
   assert.deepEqual(
     day.standardTimeline?.map((event) => labelByStopRef.get(event.stopRef)),
-    ["두 번째 방문지", "첫 방문지", "남해 숙소"],
+    ["강동역", "두 번째 방문지", "첫 방문지", "강동역"],
   );
 }
 
@@ -214,6 +219,7 @@ async function assertFinalStoreRepairSafetyRunsOnce() {
 }
 
 async function assertCorePlaceIntentContract() {
+  const oneDayRequest = { ...request, durationDays: 1 };
   const createCandidate = (name: string, index: number) => ({
     candidateId: `naver_local:${name}`,
     coordinate: { lat: 34.8 + index * 0.001, lng: 128.04 + index * 0.001 },
@@ -280,7 +286,7 @@ async function assertCorePlaceIntentContract() {
           standardTimeline: structuredClone(timeline),
         },
       ],
-      duration: "1박 2일",
+      duration: "당일",
       origin: "강동역",
       region: "남해",
       savedMinutes: 30,
@@ -296,7 +302,7 @@ async function assertCorePlaceIntentContract() {
   };
   const regionResponse = await createAiRecommendedItineraryResponse(
     requestUrl,
-    { ...request, destinationType: "region" },
+    { ...oneDayRequest, destinationType: "region" },
     {
       ...commonOptions,
       aiItineraryGenerator: async () => createDraft(false),
@@ -316,7 +322,7 @@ async function assertCorePlaceIntentContract() {
 
   const misclassifiedRegionResponse = await createAiRecommendedItineraryResponse(
     requestUrl,
-    { ...request, destinationType: "region" },
+    { ...oneDayRequest, destinationType: "region" },
     {
       ...commonOptions,
       aiItineraryGenerator: async () => {
@@ -360,7 +366,7 @@ async function assertCorePlaceIntentContract() {
   const fixedResponse = await createAiRecommendedItineraryResponse(
     requestUrl,
     {
-      ...request,
+      ...oneDayRequest,
       destination: "남해독일마을",
       destinationType: "place",
       mustVisitPlaces: ["보리암"],
@@ -654,26 +660,211 @@ async function assertOffModeSkipsPreflight() {
   assert.equal(persistCalls, 1);
 }
 
-async function assertCachedFinalStoreUsesMeasuredBudget() {
-  const nowValues = [0, 51_000];
-  let persistedTimeoutMs = 0;
-  const result = await recommendAndPersistItinerary(
-    requestUrl,
-    request,
-    "00000000-0000-4000-8000-000000000207",
-    {
-      generate: createGeneratedResponse(createFlowItinerary()),
-      mode: "off",
-      now: () => nowValues.shift() ?? 51_000,
-      persist: async (candidate, _traceId, timeoutMs) => {
-        persistedTimeoutMs = timeoutMs;
-        return { itinerary: candidate };
+async function assertRecoveryRunsByDefault() {
+  const previousMode = process.env.PLANME_TRANSIT_ACCESS_RECOVERY_MODE;
+  let preflightCalls = 0;
+
+  delete process.env.PLANME_TRANSIT_ACCESS_RECOVERY_MODE;
+
+  try {
+    const result = await recommendAndPersistItinerary(
+      requestUrl,
+      request,
+      "00000000-0000-4000-8000-000000000211",
+      {
+        generate: createGeneratedResponse(createFlowItinerary()),
+        persist: async (candidate) => ({ itinerary: candidate }),
+        preflight: async () => {
+          preflightCalls += 1;
+          return { estimatedSegmentCount: 0, status: "accessible" };
+        },
       },
-    },
+    );
+
+    assert.equal(result.status, "ready");
+    assert.equal(preflightCalls, 1);
+  } finally {
+    if (previousMode === undefined) {
+      delete process.env.PLANME_TRANSIT_ACCESS_RECOVERY_MODE;
+    } else {
+      process.env.PLANME_TRANSIT_ACCESS_RECOVERY_MODE = previousMode;
+    }
+  }
+}
+
+async function assertSlowGenerationDoesNotStartPersist() {
+  const nowValues = [0, 31_000];
+  let persistCalls = 0;
+
+  await assert.rejects(
+    () =>
+      recommendAndPersistItinerary(
+        requestUrl,
+        request,
+        "00000000-0000-4000-8000-000000000207",
+        {
+          generate: createGeneratedResponse(createFlowItinerary()),
+          mode: "off",
+          now: () => nowValues.shift() ?? 31_000,
+          persist: async (candidate) => {
+            persistCalls += 1;
+            return { itinerary: candidate };
+          },
+        },
+      ),
+    (error) =>
+      error instanceof ItineraryRecommendationFlowError &&
+      error.code === "RECOMMENDATION_DEADLINE_EXCEEDED",
+  );
+  assert.equal(persistCalls, 0);
+}
+
+async function assertExpiredGenerationAbortsSharedSignalAndStopsFlow() {
+  let clock = 0;
+  let generationSignal: AbortSignal | undefined;
+  let preflightCalls = 0;
+  let persistCalls = 0;
+
+  await assert.rejects(
+    () => recommendAndPersistItinerary(
+      requestUrl,
+      request,
+      "00000000-0000-4000-8000-000000000209",
+      {
+        generate: async (_currentRequestUrl, _input, aiOptions, signal) => {
+          generationSignal = signal;
+          assert.equal(aiOptions?.signal, signal);
+          assert.equal(aiOptions?.timeoutMs, 22_000);
+          clock = 55_001;
+          return createGeneratedResponse(createFlowItinerary())();
+        },
+        mode: "on",
+        now: () => clock,
+        persist: async (candidate) => {
+          persistCalls += 1;
+          return { itinerary: candidate };
+        },
+        preflight: async () => {
+          preflightCalls += 1;
+          return { estimatedSegmentCount: 0, status: "accessible" };
+        },
+      },
+    ),
+    (error) =>
+      error instanceof ItineraryRecommendationFlowError &&
+      error.code === "RECOMMENDATION_DEADLINE_EXCEEDED",
   );
 
-  assert.equal(result.status, "ready");
-  assert.equal(persistedTimeoutMs, 4_000);
+  assert.ok(generationSignal);
+  assert.equal(generationSignal.aborted, true);
+  assert.equal(preflightCalls, 0);
+  assert.equal(persistCalls, 0);
+}
+
+async function assertReplacementRequiresReservedStoreBudget() {
+  let clock = 0;
+  let generationSignal: AbortSignal | undefined;
+  let preflightSignal: AbortSignal | undefined;
+  let replacementCalls = 0;
+  let persistCalls = 0;
+
+  await assert.rejects(
+    () => recommendAndPersistItinerary(
+      requestUrl,
+      request,
+      "00000000-0000-4000-8000-000000000210",
+      {
+        generate: async (_currentRequestUrl, _input, _options, signal) => {
+          generationSignal = signal;
+          return createGeneratedResponse(createFlowItinerary())();
+        },
+        mode: "on",
+        now: () => clock,
+        persist: async (candidate) => {
+          persistCalls += 1;
+          return { itinerary: candidate };
+        },
+        preflight: async (_candidate, _traceId, timeoutMs, signal) => {
+          assert.equal(timeoutMs, 30_000);
+          preflightSignal = signal;
+          clock = 31_000;
+          return createReplacementDecision("day-1-stop-2");
+        },
+        replacementOptions: {
+          replacementQuerySuggester: async () => {
+            replacementCalls += 1;
+            return "예산 없는 대체 장소";
+          },
+        },
+      },
+    ),
+    (error) =>
+      error instanceof ItineraryRecommendationFlowError &&
+      error.code === "RECOMMENDATION_DEADLINE_EXCEEDED",
+  );
+
+  assert.ok(generationSignal);
+  assert.equal(preflightSignal, generationSignal);
+  assert.equal(generationSignal.aborted, true);
+  assert.equal(replacementCalls, 0);
+  assert.equal(persistCalls, 0);
+}
+
+async function assertRecoveryReplacementRequiresReservedStoreBudget() {
+  let clock = 0;
+  let sharedSignal: AbortSignal | undefined;
+  let persistCalls = 0;
+  let replacementCalls = 0;
+
+  await assert.rejects(
+    () => recommendAndPersistItinerary(
+      requestUrl,
+      request,
+      "00000000-0000-4000-8000-000000000211",
+      {
+        generate: createGeneratedResponse(createFlowItinerary()),
+        mode: "on",
+        now: () => clock,
+        persist: async (_candidate, currentTraceId, timeoutMs, signal) => {
+          persistCalls += 1;
+          sharedSignal = signal;
+          assert.equal(timeoutMs, 40_000);
+          clock = 31_000;
+          throw new PreviewStoreHandoffError(
+            currentTraceId,
+            "ROUTE_REPAIR_REQUIRED",
+            422,
+            {
+              code: "TRANSIT_PLACE_REPLACEMENT_REQUIRED",
+              context: {
+                dayIndex: 0,
+                placeConstraint: "replaceable",
+                reason: "destination_station_missing",
+                routeId: "standard",
+                segmentIndex: 0,
+                stopRef: "day-1-stop-2",
+              },
+            },
+          );
+        },
+        preflight: async () => ({ estimatedSegmentCount: 0, status: "accessible" }),
+        replacementOptions: {
+          replacementQuerySuggester: async () => {
+            replacementCalls += 1;
+            return "복구 예산 없는 대체 장소";
+          },
+        },
+      },
+    ),
+    (error) =>
+      error instanceof ItineraryRecommendationFlowError &&
+      error.code === "RECOMMENDATION_DEADLINE_EXCEEDED",
+  );
+
+  assert.ok(sharedSignal);
+  assert.equal(sharedSignal.aborted, true);
+  assert.equal(persistCalls, 1);
+  assert.equal(replacementCalls, 0);
 }
 
 function createGeneratedResponse(itinerary: PlanmeItinerary) {

@@ -7,12 +7,21 @@ import {
   createPlanmeDraftPreview,
   type PlanmeDraftPreviewRequest,
   type PlanmeDraftPreviewResult,
+  type PlanmeDraftRouteStop,
   type PlanmeDraftValidationIssue,
 } from "./draft-itineraries.js";
-import type { PlanmeItinerary } from "./mock-data.js";
 import {
-  createOpenAiPlaceCandidateDecider,
-  createOpenAiReplacementQuerySuggester,
+  normalizePlanmeDraftDomainContract,
+  type PlanmeDraftDomainContractIssue,
+} from "./itinerary-domain-contract.js";
+import type {
+  ItineraryDay,
+  PlanmeItinerary,
+  RoutePlan,
+  RouteStop,
+  TimelineEvent,
+} from "./mock-data.js";
+import {
   generatePlanmeDraftWithOpenAi,
   type AiItineraryGenerator,
 } from "./openai-itinerary-generator.js";
@@ -80,6 +89,7 @@ export type GptActionItineraryResponse = {
   carrymeTotalMinutes: number;
   savingStatus: "verified" | "hidden_estimated";
   savedMinutes?: number;
+  days: GptActionItineraryDaySummary[];
   pageUrl: string;
   ogImageUrl: string;
   previewMarkdown: string;
@@ -90,6 +100,33 @@ export type GptActionItineraryResponse = {
   status?: PlanmeDraftPreviewResult["status"];
   validationIssues?: PlanmeDraftPreviewResult["validationIssues"];
   version?: number;
+};
+
+export type GptActionRouteSummary = {
+  durationMinutes: number;
+  end: string;
+  endTime?: string;
+  start: string;
+  startTime?: string;
+};
+
+export type GptActionLuggageDeliverySummary = {
+  target: string;
+  targetRole?: RouteStop["role"];
+  time: string;
+};
+
+export type GptActionItineraryDaySummary = {
+  carryme: GptActionRouteSummary;
+  day: number;
+  isFinalDay: boolean;
+  label: string;
+  luggageDelivery?: GptActionLuggageDeliverySummary;
+  returnsToTripOrigin: boolean;
+  sameEndpoints: boolean;
+  savedMinutes?: number;
+  savingStatus: "verified" | "hidden_estimated";
+  standard: GptActionRouteSummary;
 };
 
 export type PlanmePlaceResolutionLog = {
@@ -136,6 +173,18 @@ export type PlanmeRecommendationResponse =
   | GptActionItineraryResponse
   | PlanmeClarificationResponse;
 
+/** Prevents structurally invalid AI drafts from reaching route calculation or persistence. */
+export class PlanmeDraftDomainContractError extends Error {
+  readonly code = "PLANME_DRAFT_DOMAIN_CONTRACT_FAILED";
+  readonly retryable = true;
+  readonly stage = "domain_contract" as const;
+
+  constructor(readonly issues: PlanmeDraftDomainContractIssue[]) {
+    super(issues.map((issue) => issue.code).join(","));
+    this.name = "PlanmeDraftDomainContractError";
+  }
+}
+
 export type AiRecommendedItineraryOptions = {
   aiItineraryGenerator?: AiItineraryGenerator;
   accommodationCandidateSearcher?: AccommodationCandidateSearcher;
@@ -144,6 +193,8 @@ export type AiRecommendedItineraryOptions = {
   placeCandidateDecider?: PlanmePlaceCandidateDecider;
   placeCandidateSearcher?: PlanmePlaceCandidateSearcher;
   replacementQuerySuggester?: PlanmeReplacementQuerySuggester;
+  signal?: AbortSignal;
+  timeoutMs?: number;
   usageRecorder?: PlanmeUsageRecorder;
 };
 
@@ -159,7 +210,9 @@ export type PlanmePlaceCandidateDecider = (input: {
 export type PlanmeReplacementQuerySuggester = (input: {
   attempt: 1 | 2 | 3;
   itinerary: RecommendItineraryRequest;
+  signal?: AbortSignal;
   stop: ResolvableDraftStop;
+  timeoutMs?: number;
 }) => Promise<string | null>;
 
 type RecommendedItineraryResponseOptions = {
@@ -207,23 +260,31 @@ export function toGptActionItineraryResponse(
   itinerary: PlanmeItinerary,
   requestUrl: string,
 ): GptActionItineraryResponse {
-  const firstDay = itinerary.days[0];
   const pageUrl = buildItineraryPageUrl(requestUrl, itinerary.id);
   const ogImageUrl = buildItineraryOgImageUrl(requestUrl, itinerary.id);
   const previewMarkdown = buildItineraryPreviewMarkdown(ogImageUrl);
-  const savingStatus = firstDay.savingStatus ?? "verified";
-  const savedMinutes = firstDay.savingMinutes;
+  const standardTotalMinutes = sumRouteDuration(itinerary.days, "standard");
+  const carrymeTotalMinutes = sumRouteDuration(itinerary.days, "carryme");
+  const days = createGptActionDaySummaries(itinerary);
+  const savingStatus = days.some(
+    (day) => day.savingStatus === "hidden_estimated",
+  )
+    ? "hidden_estimated"
+    : "verified";
+  const savedMinutes = Math.max(0, standardTotalMinutes - carrymeTotalMinutes);
 
   return {
     itineraryId: itinerary.id,
     title: itinerary.title,
-    summary: itinerary.carrymeSaving ?? itinerary.summary,
-    standardTotalMinutes: firstDay.standard.durationMinutes,
-    carrymeTotalMinutes: firstDay.carryme.durationMinutes,
+    summary:
+      savingStatus === "verified"
+        ? formatGptActionSavingSummary(savedMinutes)
+        : "짐 없이 바로 이동 가능!",
+    standardTotalMinutes,
+    carrymeTotalMinutes,
     savingStatus,
-    ...(savingStatus === "verified" && typeof savedMinutes === "number"
-      ? { savedMinutes }
-      : {}),
+    ...(savingStatus === "verified" ? { savedMinutes } : {}),
+    days,
     pageUrl,
     ogImageUrl,
     previewMarkdown,
@@ -233,6 +294,187 @@ export function toGptActionItineraryResponse(
       detailUrl: pageUrl,
     },
   };
+}
+
+/** Sums every finalized day so GPTs and Apps do not report first-day-only totals. */
+function sumRouteDuration(days: ItineraryDay[], routeId: "standard" | "carryme") {
+  return days.reduce((total, day) => total + day[routeId].durationMinutes, 0);
+}
+
+/** Builds compact, model-visible evidence for route endpoints and luggage delivery. */
+function createGptActionDaySummaries(
+  itinerary: PlanmeItinerary,
+): GptActionItineraryDaySummary[] {
+  const tripOrigin = itinerary.days[0]?.standard.stops[0];
+  const finalDayIndex = itinerary.days.length - 1;
+
+  return itinerary.days.map((day, dayIndex) => {
+    const standard = toGptActionRouteSummary(
+      day.standard,
+      day.standardTimeline ?? [],
+    );
+    const carryme = toGptActionRouteSummary(
+      day.carryme,
+      day.carrymeTimeline ?? day.timeline,
+    );
+    const standardStart = day.standard.stops[0];
+    const standardEnd = day.standard.stops.at(-1);
+    const carrymeStart = day.carryme.stops[0];
+    const carrymeEnd = day.carryme.stops.at(-1);
+    const sameEndpoints =
+      areSamePhysicalStop(standardStart, carrymeStart) &&
+      areSamePhysicalStop(standardEnd, carrymeEnd);
+    const savingStatus = getGptActionDaySavingStatus(day, sameEndpoints);
+    const savedMinutes = Math.max(
+      0,
+      day.standard.durationMinutes - day.carryme.durationMinutes,
+    );
+    const isFinalDay = dayIndex === finalDayIndex;
+
+    return {
+      carryme,
+      day: day.day,
+      isFinalDay,
+      label: day.label,
+      ...createLuggageDeliverySummary(day),
+      returnsToTripOrigin:
+        isFinalDay &&
+        areSamePhysicalStop(standardEnd, tripOrigin) &&
+        areSamePhysicalStop(carrymeEnd, tripOrigin),
+      sameEndpoints,
+      ...(savingStatus === "verified" ? { savedMinutes } : {}),
+      savingStatus,
+      standard,
+    };
+  });
+}
+
+/** Hides savings whenever either route still contains an estimated duration. */
+function getGptActionDaySavingStatus(
+  day: ItineraryDay,
+  sameEndpoints: boolean,
+): GptActionItineraryDaySummary["savingStatus"] {
+  if (
+    !sameEndpoints ||
+    day.savingStatus === "hidden_estimated" ||
+    day.standard.durationSource === "estimated" ||
+    day.carryme.durationSource === "estimated"
+  ) {
+    return "hidden_estimated";
+  }
+
+  return "verified";
+}
+
+/** Reduces one route to the fields needed to verify day-boundary invariants. */
+function toGptActionRouteSummary(
+  route: RoutePlan,
+  timeline: TimelineEvent[],
+): GptActionRouteSummary {
+  const travelerTimeline = timeline.filter(
+    (event) => event.eventKind !== "luggage_delivery",
+  );
+  const startTime = travelerTimeline[0]?.time;
+  const endTime = travelerTimeline.at(-1)?.time;
+
+  return {
+    durationMinutes: route.durationMinutes,
+    end: route.stops.at(-1)?.label ?? "",
+    ...(endTime ? { endTime } : {}),
+    start: route.stops[0]?.label ?? "",
+    ...(startTime ? { startTime } : {}),
+  };
+}
+
+/** Exposes only explicit luggage-delivery events with a resolvable physical target. */
+function createLuggageDeliverySummary(day: ItineraryDay): {
+  luggageDelivery?: GptActionLuggageDeliverySummary;
+} {
+  const event = findLuggageDeliveryEvent(day);
+
+  if (!event) {
+    return {};
+  }
+
+  const target = findDeliveryTarget(day, event);
+
+  if (!target) {
+    return {};
+  }
+
+  return {
+    luggageDelivery: {
+      target: target.label,
+      ...(target.role ? { targetRole: target.role } : {}),
+      time: event.time,
+    },
+  };
+}
+
+/** Selects the dedicated CarryME side event without parsing user-visible copy. */
+function findLuggageDeliveryEvent(day: ItineraryDay) {
+  return [...(day.carrymeTimeline ?? []), ...day.timeline].find(
+    (event) => event.eventKind === "luggage_delivery",
+  );
+}
+
+/** Resolves the delivery target from stable references rather than a place-name guess. */
+function findDeliveryTarget(day: ItineraryDay, event: TimelineEvent) {
+  const stops = [...day.standard.stops, ...day.carryme.stops];
+
+  if (event.deliveryTargetStopRef) {
+    const target = stops.find(
+      (stop) => stop.stopRef === event.deliveryTargetStopRef,
+    );
+
+    if (target) {
+      return target;
+    }
+  }
+
+  if (event.deliveryTargetPlaceRef) {
+    return stops.find(
+      (stop) => stop.placeRef === event.deliveryTargetPlaceRef,
+    );
+  }
+
+  return undefined;
+}
+
+/** Compares endpoint identity from strongest provider-backed evidence to a label fallback. */
+function areSamePhysicalStop(left: RouteStop | undefined, right: RouteStop | undefined) {
+  if (!left || !right) {
+    return false;
+  }
+
+  if (left.placeRef && right.placeRef) {
+    return left.placeRef === right.placeRef;
+  }
+
+  if (left.placeSourceRef && right.placeSourceRef) {
+    return left.placeSourceRef === right.placeSourceRef;
+  }
+
+  if (left.placeId && right.placeId) {
+    return left.placeId === right.placeId;
+  }
+
+  if (left.coordinate && right.coordinate) {
+    return (
+      left.coordinate.lat.toFixed(6) === right.coordinate.lat.toFixed(6) &&
+      left.coordinate.lng.toFixed(6) === right.coordinate.lng.toFixed(6)
+    );
+  }
+
+  return normalizePhysicalStopLabel(left.label) === normalizePhysicalStopLabel(right.label);
+}
+
+function normalizePhysicalStopLabel(label: string) {
+  return label.trim().replace(/\s+/g, "").toLowerCase();
+}
+
+function formatGptActionSavingSummary(savedMinutes: number) {
+  return savedMinutes > 0 ? `약 ${savedMinutes}분 절약` : "시간 절약 없음";
 }
 
 /**
@@ -359,6 +601,7 @@ export async function createAiRecommendedItineraryResponse(
     const resolution = await resolveDraftCoordinatesIfPossible(
       anchoredDraft,
       options.draftGeocoder,
+      options,
     );
     const placeResolution = await resolveDraftPlaceCandidatesIfPossible(
       resolution.draft,
@@ -371,18 +614,23 @@ export async function createAiRecommendedItineraryResponse(
       return placeResolution;
     }
 
+    const finalDraft = enforceDraftDomainContract(
+      placeResolution.draft,
+      input,
+      requiredPlaces,
+    );
     const readyResponse = createRecommendedItineraryResponse(
       requestUrl,
       {
         ...input,
-        title: placeResolution.draft.title,
-        region: placeResolution.draft.region,
-        duration: placeResolution.draft.duration,
-        summary: placeResolution.draft.summary,
-        origin: placeResolution.draft.origin ?? input.origin,
-        assumptions: placeResolution.draft.assumptions ?? input.assumptions,
-        savedMinutes: placeResolution.draft.savedMinutes ?? input.savedMinutes,
-        days: placeResolution.draft.days,
+        title: finalDraft.title,
+        region: finalDraft.region,
+        duration: finalDraft.duration,
+        summary: finalDraft.summary,
+        origin: finalDraft.origin ?? input.origin,
+        assumptions: finalDraft.assumptions ?? input.assumptions,
+        savedMinutes: finalDraft.savedMinutes ?? input.savedMinutes,
+        days: finalDraft.days,
       },
       {
         extraValidationIssues: createResolvedValidationIssues(
@@ -408,79 +656,139 @@ export async function createAiRecommendedItineraryResponse(
   const accommodationCandidates = await resolveAccommodationCandidates(
     input,
     accommodationCandidateSearcher,
+    options,
   );
   const generatorInput =
     accommodationCandidates.length > 0
       ? { ...input, accommodationCandidates }
       : input;
-  const generatedDraft = aiItineraryGenerator
-    ? await aiItineraryGenerator(generatorInput, {
-        googleMapsReferer: options.googleMapsReferer,
-        placeCandidateSearcher,
-        requiredPlaces,
-        usageRecorder: options.usageRecorder,
-      })
-    : await generatePlanmeDraftWithOpenAi(
-        generatorInput,
-        { usageRecorder: options.usageRecorder },
-        {
+  let lastDomainError: PlanmeDraftDomainContractError | null = null;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const generatedDraft = aiItineraryGenerator
+      ? await aiItineraryGenerator(generatorInput, {
           googleMapsReferer: options.googleMapsReferer,
           placeCandidateSearcher,
           requiredPlaces,
           usageRecorder: options.usageRecorder,
-        },
-      );
-  const candidateDraft = applyRequiredPlacesToDraft(
-    applyAccommodationCandidatesToDraft(
-      { ...generatedDraft, transportMode: input.transportMode },
-      accommodationCandidates,
-    ),
-    requiredPlaces,
-    input.transportMode,
-  );
-  const resolution = await resolveDraftCoordinatesIfPossible(
-    candidateDraft,
-    options.draftGeocoder,
-  );
-  const placeResolution = await resolveDraftPlaceCandidatesIfPossible(
-    resolution.draft,
-    input,
-    options,
-  );
+        })
+      : await generatePlanmeDraftWithOpenAi(
+        generatorInput,
+          {
+            signal: options.signal,
+            timeoutMs: options.timeoutMs,
+            usageRecorder: options.usageRecorder,
+          },
+          {
+            googleMapsReferer: options.googleMapsReferer,
+            // Keep production generation to one Responses API round trip. Every authored
+            // visit stop is still hard-gated by resolveDraftPlaceCandidatesIfPossible below.
+            requiredPlaces,
+            usageRecorder: options.usageRecorder,
+          },
+        );
+    const candidateDraft = applyRequiredPlacesToDraft(
+      applyAccommodationCandidatesToDraft(
+        { ...generatedDraft, transportMode: input.transportMode },
+        accommodationCandidates,
+      ),
+      requiredPlaces,
+      input.transportMode,
+    );
+    const resolution = await resolveDraftCoordinatesIfPossible(
+      candidateDraft,
+      options.draftGeocoder,
+      options,
+    );
+    const placeResolution = await resolveDraftPlaceCandidatesIfPossible(
+      resolution.draft,
+      input,
+      options,
+    );
 
-  if (placeResolution.status === "needs_clarification") {
-    await recordPlanmeUsageSafely(options.usageRecorder, "needs_clarification");
-    return placeResolution;
+    if (placeResolution.status === "needs_clarification") {
+      await recordPlanmeUsageSafely(options.usageRecorder, "needs_clarification");
+      return placeResolution;
+    }
+
+    let draft: PlanmeDraftPreviewRequest;
+
+    try {
+      draft = enforceDraftDomainContract(placeResolution.draft, input, requiredPlaces);
+    } catch (error) {
+      if (error instanceof PlanmeDraftDomainContractError && attempt === 0) {
+        lastDomainError = error;
+        continue;
+      }
+
+      throw error;
+    }
+
+    const readyResponse = createRecommendedItineraryResponse(
+      requestUrl,
+      {
+        ...input,
+        title: draft.title,
+        region: draft.region,
+        duration: draft.duration,
+        summary: draft.summary,
+        origin: draft.origin ?? input.origin,
+        assumptions: draft.assumptions ?? input.assumptions,
+        savedMinutes: draft.savedMinutes ?? input.savedMinutes,
+        days: draft.days,
+      },
+      {
+        extraValidationIssues: createResolvedValidationIssues(
+          resolution.validationIssues,
+          placeResolution.validationIssues,
+        ),
+        resolutionLogs: placeResolution.resolutionLogs,
+      },
+    );
+
+    await recordPlanmeUsageSafely(options.usageRecorder, "itinerary_ready");
+    return readyResponse;
   }
 
-  const draft = placeResolution.draft;
+  throw lastDomainError ?? new PlanmeDraftDomainContractError([]);
+}
 
-  // OpenAI owns itinerary drafting; PlanME only validates and renders the returned draft.
-  const readyResponse = createRecommendedItineraryResponse(
-    requestUrl,
-    {
-      ...input,
-      title: draft.title,
-      region: draft.region,
-      duration: draft.duration,
-      summary: draft.summary,
-      origin: draft.origin ?? input.origin,
-      assumptions: draft.assumptions ?? input.assumptions,
-      savedMinutes: draft.savedMinutes ?? input.savedMinutes,
-      days: draft.days,
-    },
-    {
-      extraValidationIssues: createResolvedValidationIssues(
-        resolution.validationIssues,
-        placeResolution.validationIssues,
-      ),
-      resolutionLogs: placeResolution.resolutionLogs,
-    },
+/** Applies server-owned multi-day boundaries before any draft can be rendered or persisted. */
+function enforceDraftDomainContract(
+  draft: PlanmeDraftPreviewRequest,
+  input: RecommendItineraryRequest,
+  requiredPlaces: PlanmeResolvedRequiredPlaces,
+) {
+  const hasStableGeneratedContract = draft.days.every((day) =>
+    Boolean(day.standardStops && day.carrymeStops && day.standardTimeline && day.carrymeTimeline) &&
+    [...(day.standardTimeline ?? []), ...(day.carrymeTimeline ?? [])].some(
+      (event) => event.stopIndex !== undefined || event.stayDurationMinutes !== undefined,
+    ),
   );
 
-  await recordPlanmeUsageSafely(options.usageRecorder, "itinerary_ready");
+  // Legacy injected drafts remain readable; strict OpenAI output always carries this contract.
+  if (!hasStableGeneratedContract) {
+    return draft;
+  }
 
-  return readyResponse;
+  const origin = applyRequiredPlaceToStop<PlanmeDraftRouteStop>(
+    undefined,
+    requiredPlaces.origin,
+    input.transportMode,
+    "출발지",
+  );
+  const result = normalizePlanmeDraftDomainContract({
+    draft,
+    durationDays: input.durationDays ?? draft.days.length,
+    origin,
+    transportMode: input.transportMode,
+  });
+
+  if (!result.ok) {
+    throw new PlanmeDraftDomainContractError(result.issues);
+  }
+
+  return result.draft;
 }
 
 /**
@@ -513,6 +821,7 @@ async function resolveRequiredPlaces(
     input,
     options.draftGeocoder,
     searcher,
+    options,
   );
   if (!origin) {
     return createRequiredPlaceClarification("origin", originText);
@@ -533,6 +842,7 @@ async function resolveRequiredPlaces(
       input,
       options.draftGeocoder,
       searcher,
+      options,
     );
 
     if (!destination) {
@@ -578,6 +888,7 @@ async function resolveRequiredPlace(
   input: RecommendItineraryRequest,
   geocoder: PlanmeDraftGeocoder | undefined,
   searcher: PlanmePlaceCandidateSearcher,
+  options: Pick<AiRecommendedItineraryOptions, "signal" | "timeoutMs">,
 ): Promise<PlanmeResolvedRequiredPlace | null> {
   const geocodedCandidate = async () => {
     if (!geocoder) {
@@ -588,6 +899,7 @@ async function resolveRequiredPlace(
       dayIndex: -1,
       query: inputText,
       region: kind === "origin" ? undefined : input.region,
+      signal: options.signal,
       stop: {
         addressQuery: inputText,
         name: inputText,
@@ -595,6 +907,7 @@ async function resolveRequiredPlace(
         role: kind === "origin" ? "출발지" : "방문지",
       },
       stopIndex: -1,
+      timeoutMs: options.timeoutMs,
     });
 
     if (!result || !result.placeSourceRef?.trim()) {
@@ -606,7 +919,7 @@ async function resolveRequiredPlace(
       candidateId: result.placeSourceRef,
       coordinate: result.coordinate,
       id: result.placeSourceRef,
-      name: inputText,
+      name: createGeocodedRequiredPlaceDisplayName(kind, inputText, result.matchedAddress),
       query: inputText,
       source: result.placeSource ?? "naver_geocode",
       sourceRef: result.placeSourceRef,
@@ -622,12 +935,14 @@ async function resolveRequiredPlace(
           maxCandidates: 5,
           query,
           region: kind === "origin" ? undefined : input.region,
+          signal: options.signal,
           stop: {
             addressQuery: inputText,
             name: inputText,
             requiredPlaceKind: kind,
             role: kind === "origin" ? "출발지" : "방문지",
           },
+          timeoutMs: options.timeoutMs,
         });
         const candidate = selectPlanmeRequiredPlaceCandidate(inputText, result.candidates);
 
@@ -639,7 +954,14 @@ async function resolveRequiredPlace(
           error instanceof PlanmePlaceSearchConfigurationError ||
           error instanceof PlanmePlaceSearchProviderError
         ) {
-          return null;
+          throw new PlanmeRequiredPlaceResolutionError(
+            error instanceof PlanmePlaceSearchConfigurationError
+              ? "PLACE_SEARCH_CONFIGURATION_ERROR"
+              : "PLACE_SEARCH_PROVIDER_ERROR",
+            error instanceof PlanmePlaceSearchProviderError
+              ? error.status === 408 || error.status === 429 || error.status >= 500
+              : false,
+          );
         }
 
         throw error;
@@ -670,9 +992,57 @@ async function resolveRequiredPlace(
   };
 }
 
+/** Makes a broad origin's selected coordinate visible without renaming exact user landmarks. */
+function createGeocodedRequiredPlaceDisplayName(
+  kind: PlanmeRequiredPlaceKind,
+  inputText: string,
+  matchedAddress: string | undefined,
+) {
+  const inputLabel = inputText.trim();
+  const addressLabel = matchedAddress?.trim();
+
+  if (kind !== "origin" || !addressLabel || !isBroadOriginLabel(inputLabel)) {
+    return inputLabel;
+  }
+
+  return `${inputLabel} · ${addressLabel}`;
+}
+
+/** Distinguishes a region-like origin from a station, park, office, or street address. */
+function isBroadOriginLabel(value: string) {
+  const normalized = normalizeComparableText(value);
+
+  if (!normalized || /\d/.test(normalized)) {
+    return false;
+  }
+
+  return !/(?:역|공원|구청|시청|군청|도청|터미널|공항|해수욕장|박물관|미술관|수목원|시장|호텔|리조트|펜션|숙소|대학교|정류장|항구|선착장|마을|사찰)$/.test(
+    normalized,
+  );
+}
+
+/** Distinguishes provider outages from a genuine no-match user place. */
+export class PlanmeRequiredPlaceResolutionError extends Error {
+  readonly stage = "place_resolution" as const;
+
+  constructor(
+    readonly code: string,
+    readonly retryable: boolean,
+  ) {
+    super(code);
+    this.name = "PlanmeRequiredPlaceResolutionError";
+  }
+}
+
 /** Adds one place-type-qualified retry when local search ranks nearby branches first. */
 function createRequiredPlaceSearchQueries(inputText: string) {
   const normalizedInput = normalizeComparableText(inputText);
+  const isGovernmentOffice = /(?:구청|시청|군청|도청)$/.test(normalizedInput);
+
+  if (isGovernmentOffice) {
+    return [inputText, `${inputText} 청사`];
+  }
+
   const placeType = [
     "해수욕장",
     "터미널",
@@ -1010,12 +1380,13 @@ function createResolvedValidationIssues(
 async function resolveDraftCoordinatesIfPossible(
   draft: PlanmeDraftPreviewRequest,
   geocoder?: PlanmeDraftGeocoder,
+  options: Pick<AiRecommendedItineraryOptions, "signal" | "timeoutMs"> = {},
 ) {
   if (!geocoder) {
     return { draft, validationIssues: [] };
   }
 
-  return resolvePlanmeDraftCoordinates(draft, geocoder);
+  return resolvePlanmeDraftCoordinates(draft, geocoder, options);
 }
 
 /**
@@ -1041,6 +1412,7 @@ async function resolveDraftPlaceCandidatesIfPossible(
   const validationIssues: PlanmeDraftValidationIssue[] = [];
   const unresolvedStops: string[] = [];
   const days: PlanmeDraftPreviewRequest["days"] = [];
+  const runPlaceSearch = createAsyncConcurrencyLimiter(3);
   const logicalPlaceResolutions = new Map<
     string,
     Promise<{ attempt: 0 | 1 | 2; candidate: PlanmePlaceCandidate } | null>
@@ -1063,14 +1435,18 @@ async function resolveDraftPlaceCandidatesIfPossible(
         query: string,
         attempt: 0 | 1 | 2,
       ) => {
-        const result = await searcher({
-          destination: input.destination,
-          maxCandidates: 5,
-          preferences: input.preferences,
-          query,
-          region: draft.region ?? input.region,
-          stop: { ...stop, addressQuery: query },
-        });
+        const result = await runPlaceSearch(() =>
+          searcher({
+            destination: input.destination,
+            maxCandidates: 5,
+            preferences: input.preferences,
+            query,
+            region: draft.region ?? input.region,
+            signal: options.signal,
+            stop: { ...stop, addressQuery: query },
+            timeoutMs: options.timeoutMs,
+          }),
+        );
 
         if (result.candidates.length === 0) {
           return null;
@@ -1106,7 +1482,9 @@ async function resolveDraftPlaceCandidatesIfPossible(
         const replacementQuery = await replacementQuerySuggester({
           attempt,
           itinerary: input,
+          signal: options.signal,
           stop,
+          timeoutMs: options.timeoutMs,
         });
 
         if (!replacementQuery) {
@@ -1136,12 +1514,9 @@ async function resolveDraftPlaceCandidatesIfPossible(
         return undefined;
       }
 
-      const resolvedStops: T[] = [];
-
-      for (const stop of stopList) {
+      const resolvedStops = await Promise.all(stopList.map(async (stop) => {
         if (hasDraftStopHardGate(stop)) {
-          resolvedStops.push(stop);
-          continue;
+          return stop;
         }
 
         if (stop.requiredPlaceKind) {
@@ -1152,8 +1527,7 @@ async function resolveDraftPlaceCandidatesIfPossible(
             message: `${stop.name} 필수 장소의 좌표와 검색 출처를 확인하지 못했습니다.`,
             severity: "error",
           });
-          resolvedStops.push(stop);
-          continue;
+          return stop;
         }
 
         const resolved = await resolveLogicalPlace(stop);
@@ -1171,7 +1545,7 @@ async function resolveDraftPlaceCandidatesIfPossible(
             reason: "중간 장소의 네이버 후보를 최대 2회 대체 후에도 확정하지 못했습니다.",
             source: "input",
           });
-          continue;
+          return null;
         }
 
         const replacementStop = applyPlaceCandidateToStop(stop, resolved.candidate);
@@ -1196,10 +1570,16 @@ async function resolveDraftPlaceCandidatesIfPossible(
           message: `${stop.name} 후보를 ${replacementStop.name}(으)로 확정했습니다.`,
           severity: "warning",
         });
-        resolvedStops.push(replacementStop);
-      }
+        return replacementStop;
+      }));
 
-      return resolvedStops;
+      return resolvedStops.reduce<T[]>((compacted, stop) => {
+        if (stop !== null) {
+          compacted.push(stop as T);
+        }
+
+        return compacted;
+      }, []);
     };
 
     const standardStops = await resolveStopList(day.standardStops);
@@ -1238,6 +1618,27 @@ async function resolveDraftPlaceCandidatesIfPossible(
     resolutionLogs,
     status: "resolved",
     validationIssues,
+  };
+}
+
+/** Runs independent provider lookups concurrently without exceeding the provider burst limit. */
+function createAsyncConcurrencyLimiter(maxConcurrent: number) {
+  let activeCount = 0;
+  const waiters: Array<() => void> = [];
+
+  return async function run<T>(operation: () => Promise<T>): Promise<T> {
+    if (activeCount >= maxConcurrent) {
+      await new Promise<void>((resolve) => waiters.push(resolve));
+    }
+
+    activeCount += 1;
+
+    try {
+      return await operation();
+    } finally {
+      activeCount -= 1;
+      waiters.shift()?.();
+    }
   };
 }
 
@@ -1346,33 +1747,46 @@ function createPlaceCandidateSearcher(options: AiRecommendedItineraryOptions) {
     options.placeCandidateSearcher ??
     ((searchInput) =>
       searchPlanmePlaceCandidates(searchInput, {
+        signal: options.signal,
+        timeoutMs: options.timeoutMs,
         usageRecorder: options.usageRecorder,
       }))
   );
 }
 
 /**
- * Uses an injected AI decision function, or falls back to a conservative clarification decision.
+ * Uses an injected decision function, otherwise accepts the first provider-backed candidate.
  */
 function createPlaceCandidateDecider(
   options: AiRecommendedItineraryOptions,
 ): PlanmePlaceCandidateDecider {
-  return (
-    options.placeCandidateDecider ??
-    createOpenAiPlaceCandidateDecider({ usageRecorder: options.usageRecorder })
-  );
+  if (options.placeCandidateDecider) {
+    return options.placeCandidateDecider;
+  }
+
+  return async ({ candidates }) => {
+    const selected = candidates.find(hasPlanmePlaceCandidateHardGate);
+
+    return selected
+      ? {
+          reason: "네이버 검색 출처와 좌표가 확인된 후보입니다.",
+          selectedCandidateId: selected.candidateId,
+          status: "accepted",
+        }
+      : {
+          reason: "출처와 좌표를 모두 확인할 수 있는 후보가 없습니다.",
+          status: "rejected",
+        };
+  };
 }
 
 /**
- * Uses an injected replacement-query helper or the bounded OpenAI implementation.
+ * Uses an injected replacement-query helper; the default Naver search already tries bounded variants.
  */
 function createReplacementQuerySuggester(
   options: AiRecommendedItineraryOptions,
 ): PlanmeReplacementQuerySuggester {
-  return (
-    options.replacementQuerySuggester ??
-    createOpenAiReplacementQuerySuggester({ usageRecorder: options.usageRecorder })
-  );
+  return options.replacementQuerySuggester ?? (async () => null);
 }
 
 /**
@@ -1381,7 +1795,7 @@ function createReplacementQuerySuggester(
 function applyPlaceCandidateToStop<T extends ResolvableDraftStop>(
   stop: T,
   candidate: PlanmePlaceCandidate,
-) {
+): T {
   const displayName = selectDisplayNameForPlaceCandidate(stop.name, candidate);
 
   return {
@@ -1392,7 +1806,7 @@ function applyPlaceCandidateToStop<T extends ResolvableDraftStop>(
     placeId: candidate.placeId,
     placeSource: candidate.source,
     placeSourceRef: candidate.sourceRef,
-  };
+  } as T;
 }
 
 /**
@@ -1660,6 +2074,7 @@ function replacePlaceNames(
 async function resolveAccommodationCandidates(
   input: RecommendItineraryRequest,
   searcher: AccommodationCandidateSearcher,
+  options: Pick<AiRecommendedItineraryOptions, "signal" | "timeoutMs">,
 ) {
   if (input.accommodationCandidates?.length) {
     return input.accommodationCandidates;
@@ -1669,7 +2084,11 @@ async function resolveAccommodationCandidates(
     return [];
   }
 
-  return searcher(input);
+  return searcher({
+    ...input,
+    signal: options.signal,
+    timeoutMs: options.timeoutMs,
+  });
 }
 
 /**
