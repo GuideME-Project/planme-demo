@@ -3017,6 +3017,11 @@ async function assertGptsActionsRestFacade(): Promise<void> {
     assert.equal("itinerary" in actionResponseProperties, false);
     assert.equal("previewMarkdown" in actionResponseProperties, false);
     assert.equal("resolutionLogs" in actionResponseProperties, false);
+    assert.ok(
+      openApiPayload.components.schemas.ItineraryActionResponse.required.includes(
+        "detailLinkMarkdown",
+      ),
+    );
 
     const compactFixture = getPlanmeItineraryById("busan-bts-1d1n");
     assert.ok(compactFixture);
@@ -3031,6 +3036,15 @@ async function assertGptsActionsRestFacade(): Promise<void> {
     assert.equal("itinerary" in compactActionPayload, false);
     assert.equal("previewMarkdown" in compactActionPayload, false);
     assert.equal("resolutionLogs" in compactActionPayload, false);
+    assert.equal("detailLinkMarkdown" in compactActionPayload, true);
+
+    if ("detailLinkMarkdown" in compactActionPayload) {
+      assert.equal(
+        compactActionPayload.detailLinkMarkdown,
+        `[상세 일정 열기](${compactActionPayload.pageUrl})`,
+      );
+    }
+
     assert.ok(Buffer.byteLength(compactActionText, "utf8") < 16_384);
 
     const planningResponse = await fetch(`${origin}/api/gpt/planning/start`, {
