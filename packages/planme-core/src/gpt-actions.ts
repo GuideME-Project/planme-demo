@@ -728,6 +728,16 @@ function applyRequiredPlacesToDraft(
           return undefined;
         }
 
+        const nextIndexByOriginalIndex = new Map(
+          stops.map((_stop, index) => [index, index]),
+        );
+        const shiftOriginalIndexes = (insertIndex: number) => {
+          for (const [originalIndex, nextIndex] of nextIndexByOriginalIndex) {
+            if (nextIndex >= insertIndex) {
+              nextIndexByOriginalIndex.set(originalIndex, nextIndex + 1);
+            }
+          }
+        };
         let nextStops = stops.map((stop) => {
           const requiredPlace = findRequiredPlaceForStop(
             stop,
@@ -767,6 +777,10 @@ function applyRequiredPlacesToDraft(
           nextStops = firstIsOrigin
             ? [originStop, ...nextStops.slice(1)]
             : [originStop, ...nextStops];
+
+          if (!firstIsOrigin) {
+            shiftOriginalIndexes(0);
+          }
         }
 
         for (const requiredPlace of requiredPlaces.destinations) {
@@ -788,6 +802,7 @@ function applyRequiredPlacesToDraft(
             nextStops.length - (dayIndex === lastDayIndex ? 1 : 0),
           );
 
+          shiftOriginalIndexes(insertIndex);
           nextStops = [
             ...nextStops.slice(0, insertIndex),
             requiredStop,
@@ -810,17 +825,32 @@ function applyRequiredPlacesToDraft(
               : [...nextStops, returnStop];
         }
 
-        return nextStops;
+        return { nextIndexByOriginalIndex, stops: nextStops };
       };
-      const standardStops = normalizeList(day.standardStops);
-      const carrymeStops = normalizeList(day.carrymeStops);
-      const stops = normalizeList(day.stops);
+      const standard = normalizeList(day.standardStops);
+      const carryme = normalizeList(day.carrymeStops);
+      const legacy = normalizeList(day.stops);
+      const standardStops = standard?.stops;
+      const carrymeStops = carryme?.stops;
+      const stops = legacy?.stops;
 
       return {
         ...day,
         standardStops,
         carrymeStops,
         stops,
+        standardTimeline: remapTimelineStopIndexes(
+          day.standardTimeline,
+          standard?.nextIndexByOriginalIndex,
+        ),
+        carrymeTimeline: remapTimelineStopIndexes(
+          day.carrymeTimeline,
+          carryme?.nextIndexByOriginalIndex,
+        ),
+        timeline: remapTimelineStopIndexes(
+          day.timeline,
+          legacy?.nextIndexByOriginalIndex,
+        ),
         standardRouteText:
           standardStops?.map((stop) => stop.name).join(" → ") ?? day.standardRouteText,
         carrymeRouteText:
@@ -828,6 +858,24 @@ function applyRequiredPlacesToDraft(
       };
     }),
   };
+}
+
+/** Keeps AI timeline references attached to their original stops after server anchor insertion. */
+function remapTimelineStopIndexes(
+  timeline: PlanmeDraftPreviewRequest["days"][number]["timeline"],
+  nextIndexByOriginalIndex: ReadonlyMap<number, number> | undefined,
+) {
+  if (!timeline || !nextIndexByOriginalIndex) {
+    return timeline;
+  }
+
+  return timeline.map((event) => ({
+    ...event,
+    stopIndex:
+      typeof event.stopIndex === "number"
+        ? nextIndexByOriginalIndex.get(event.stopIndex) ?? event.stopIndex
+        : event.stopIndex,
+  }));
 }
 
 function findRequiredPlaceDayIndex(
@@ -1208,20 +1256,42 @@ function alignStopsAndTimeline<
     .map((event) => event.stopIndex)
     .filter((value): value is number => typeof value === "number");
   const uniqueIndexes = [...new Set(referencedIndexes)];
-  const completeContract =
-    uniqueIndexes.length === stops.length &&
+  const validContract =
+    uniqueIndexes.length > 0 &&
     uniqueIndexes.every((index) => Number.isInteger(index) && index >= 0 && index < stops.length);
 
-  if (!completeContract) {
+  if (!validContract) {
     return { stops, timeline };
   }
 
+  const referencedIndexSet = new Set(uniqueIndexes);
+  const unreferencedIndexes = stops
+    .map((_stop, index) => index)
+    .filter((index) => !referencedIndexSet.has(index));
+  const leadingAnchorIndexes = unreferencedIndexes.filter(
+    (index) => stops[index].role === "출발지",
+  );
+  const trailingAnchorIndexes = unreferencedIndexes.filter(
+    (index) => stops[index].role === "복귀지",
+  );
+  const remainingIndexes = unreferencedIndexes.filter(
+    (index) =>
+      stops[index].role !== "출발지" &&
+      stops[index].role !== "복귀지",
+  );
+  const orderedIndexes = [
+    ...leadingAnchorIndexes,
+    ...uniqueIndexes,
+    ...remainingIndexes,
+    ...trailingAnchorIndexes,
+  ];
+
   const newIndexByOldIndex = new Map(
-    uniqueIndexes.map((oldIndex, newIndex) => [oldIndex, newIndex]),
+    orderedIndexes.map((oldIndex, newIndex) => [oldIndex, newIndex]),
   );
 
   return {
-    stops: uniqueIndexes.map((index) => stops[index]),
+    stops: orderedIndexes.map((index) => stops[index]),
     timeline: timeline.map((event) => ({
       ...event,
       stopIndex:
