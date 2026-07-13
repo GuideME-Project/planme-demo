@@ -1397,12 +1397,32 @@ function normalizeTimelineTitle(event: PlanmeDraftTimelineEvent, fallbackStop?: 
   // region tokens and other titles that no longer identify the resolved stop shown beside it.
   if (
     canonicalLabel &&
-    (normalizedTitle === canonicalLabel || normalizedTitle.startsWith(`${canonicalLabel} `))
+    (normalizedTitle === canonicalLabel ||
+      (normalizedTitle.startsWith(`${canonicalLabel} `) &&
+        !startsWithRepeatedCanonicalSuffix(normalizedTitle, canonicalLabel)))
   ) {
     return normalizedTitle;
   }
 
   return `${canonicalLabel || getPrimaryRouteLabel(fallbackStop.label)} ${inferTimelineActionLabel(event)}`.trim();
+}
+
+/**
+ * Detects model-authored titles that repeat the resolved stop's trailing words after its full label.
+ */
+function startsWithRepeatedCanonicalSuffix(title: string, canonicalLabel: string) {
+  const remainder = title.slice(canonicalLabel.length).trim();
+  const canonicalTokens = canonicalLabel.split(/\s+/).filter(Boolean);
+
+  for (let length = 1; length <= canonicalTokens.length; length += 1) {
+    const suffix = canonicalTokens.slice(-length).join(" ");
+
+    if (remainder === suffix || remainder.startsWith(`${suffix} `)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**
