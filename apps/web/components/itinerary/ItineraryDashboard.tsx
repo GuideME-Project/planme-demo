@@ -1760,7 +1760,7 @@ function formatSavingLabelFromMinutes(standardMinutes: number, carrymeMinutes: n
 
   return savedMinutes > 0
     ? `${formatDurationFromMinutes(savedMinutes)} 절약`
-    : "시간 절약 없음 · 짐 없이 바로 이동";
+    : "시간 절약 없음";
 }
 
 /**
@@ -2154,6 +2154,10 @@ export function ItineraryDashboard({
     : shouldHideProviderResult
       ? hiddenDurationLabel
       : savingLabel;
+  const displayCarrymeBenefitLabel =
+    displaySavingLabel === "시간 절약 없음"
+      ? "짐 없이 바로 이동 가능!"
+      : displaySavingLabel;
 
   useEffect(() => {
     if (routesFinalized || !activeFinalizationToken) {
@@ -2655,7 +2659,7 @@ export function ItineraryDashboard({
                       selectedDayPlan.day === editableDays.at(-1)?.day
                     }
                     mode={mode}
-                    savingLabel={displaySavingLabel}
+                    savingLabel={displayCarrymeBenefitLabel}
                     standardDurationLabel={displayStandardRoute.durationLabel}
                     standardEvents={
                       computedRoutes.standard?.timeline ??
