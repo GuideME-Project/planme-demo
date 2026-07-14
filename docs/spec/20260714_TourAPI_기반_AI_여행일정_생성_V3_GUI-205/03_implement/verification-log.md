@@ -5,7 +5,7 @@
 - 실행일: 2026-07-14
 - 단계: Goal WP0~WP7 구현·회귀 검증 완료
 - 소스 코드 변경: V3 core, 웹 공급자·저장소·오케스트레이터·API·상세 화면, GPTs·MCP·위젯
-- 외부 API smoke: 실행하지 않음
+- 외부 API smoke: 운영 GPT Action으로 시도했으나 TourAPI 환경 설정 누락으로 공급자 호출 전에 중단
 
 ## 환경 준비
 
@@ -167,4 +167,46 @@ GUI-157 완료 기준을 현재 V3 정책에 맞춰 다시 분류한 결과는 [
 
 ### 외부 검증
 
-실제 TourAPI·OpenAI·Naver·ODsay를 사용하는 양양 → 거제 생성과 실제 Upstash Lua 동작은 실행하지 않았다. 별도 승인 전에는 완료로 표시하지 않는다.
+실제 TourAPI·OpenAI·Naver·ODsay를 사용하는 양양 → 거제 생성과 실제 Upstash Lua 성공은 확인하지 못했다. 아래 운영 반복 검증에서 GPT Action까지는 실행했지만 웹 환경 설정 누락으로 공급자 호출과 Upstash 작업 생성 전에 중단됐다.
+
+## 2026-07-14 운영 배포 반복 검증
+
+### 배포와 개선
+
+| PR | 운영 개선 | 결과 |
+| --- | --- | --- |
+| [#67](https://github.com/GuideME-Project/planme-demo/pull/67) | V3 기준선과 불필요한 안정화 변경 정리 | `main` 병합·배포 |
+| [#68](https://github.com/GuideME-Project/planme-demo/pull/68) | 저장소 설정 오류 분류 | `main` 병합·배포 |
+| [#69](https://github.com/GuideME-Project/planme-demo/pull/69) | Redis 실패 진단 | `main` 병합·배포 |
+| [#70](https://github.com/GuideME-Project/planme-demo/pull/70) | `invocationId`·`transportMode`가 없는 구형 GPT Action 요청을 V3로 연결 | `main` 병합·MCP 배포 |
+| [#71](https://github.com/GuideME-Project/planme-demo/pull/71) | 저장소 시작 실패를 생성·checkpoint 조회·phase 저장·상태 조회로 구분 | `main` 병합·웹 배포 |
+| [#72](https://github.com/GuideME-Project/planme-demo/pull/72) | TourAPI 설정 누락을 저장소 장애와 분리 | `main` 병합·웹 배포 |
+
+### 운영 GPT 새 채팅 시나리오
+
+PlanME GPT의 새 채팅에서 다음 요청을 실행했다.
+
+```text
+강원도 양양군에서 경상남도 거제시로 대중교통을 이용하는 1박 2일 여행 일정을 만들어줘.
+```
+
+1. 최초 호출은 기존 GPT Action이 `invocationId`와 `transportMode`를 보내지 않아 요청 형식 오류가 발생했다.
+2. PR #70 배포 뒤 같은 새 채팅 시나리오는 형식 오류 없이 V3 웹 시작 API까지 도달했다.
+3. PR #71 배포 뒤에도 저장 단계별 코드가 아니라 `STORE_UNAVAILABLE`이어서 저장소 호출 전 런타임 초기화 실패로 범위를 좁혔다.
+4. Vercel 운영 환경에서 `UPSTASH_REDIS_REST_URL`·`UPSTASH_REDIS_REST_TOKEN`은 존재하지만 `TOUR_API_SERVICE_KEY`와 웹의 `OPENAI_API_KEY`가 없음을 확인했다. MCP 프로젝트에는 `OPENAI_API_KEY`가 존재한다.
+5. PR #72 배포 뒤 운영 Action과 GPT 새 채팅 모두 `TOUR_API_CONFIGURATION_MISSING`을 반환해 원인 분류가 일치함을 확인했다.
+
+키 값은 출력하거나 문서에 기록하지 않았다. `TOUR_API_SERVICE_KEY`가 없으므로 실제 TourAPI 후보 조회, Luna 선택, Naver·ODsay 경로 계산과 Upstash 작업 생성 성공은 아직 검증되지 않았다.
+
+### 현재 main 재검증
+
+| 명령 | 결과 | 관측 |
+| --- | --- | --- |
+| `npm run test:completion` | 통과 | 장거리 partial 경로·탑승/하차 marker 계약 통과 |
+| `npm run test:actions` | 통과 | GPT Actions 계약 통과 |
+| `npm run test:mcp` | 통과 | MCP 계약 통과 |
+| `npm run test:v3` | 통과 | V3-01~V3-10 통과 |
+| `npm run test:local-v3` | 통과 | 웹 3011·MCP 8791, 실제 JSON-RPC, revision 1 ready 링크와 Chromium 렌더링 통과 |
+| `PLANME_INTERNAL_API_TOKEN=playwright-local-token npx playwright test apps/web/e2e/itinerary-map-view-layout.spec.ts apps/web/e2e/destination-editor-recorded-flow.spec.ts apps/web/e2e/planme-v3-widget.spec.ts --project=chromium` | 통과 | 관련 Playwright 5건 통과 |
+
+로컬 두 서버 검증이 만든 일정 ID는 일회성 메모리 fixture 데이터이며 서버 종료와 함께 폐기됐다. 테스트 스크립트가 웹·MCP 프로세스를 종료해 백그라운드 서버는 남아 있지 않다.
