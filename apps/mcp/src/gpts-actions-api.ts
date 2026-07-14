@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import { writeCorsHeaders, writeJson } from "./http-utils.js";
@@ -127,6 +127,10 @@ export async function handleGptsRecommendItineraryRequest(
     requestedPlaces: input.requestedPlaces ?? mustVisitPlaces,
     transportMode,
   } satisfies PlanmeV3StartInput;
+  const recoveredIdempotencyKey = createPlanmeIdempotencyKey(
+    "gpts",
+    createRecoveredSourceId(sourceId, startInput),
+  );
 
   try {
     let result;
@@ -145,13 +149,13 @@ export async function handleGptsRecommendItineraryRequest(
       }
       result = await startPlanmeV3Itinerary(
         startInput,
-        createPlanmeIdempotencyKey("gpts", `recovered:${randomUUID()}`),
+        recoveredIdempotencyKey,
       );
     }
     if (invocationId && result.status === "failed") {
       result = await startPlanmeV3Itinerary(
         startInput,
-        createPlanmeIdempotencyKey("gpts", `recovered:${randomUUID()}`),
+        recoveredIdempotencyKey,
       );
     }
     if (result.status === "processing") {
@@ -180,6 +184,14 @@ export async function handleGptsRecommendItineraryRequest(
     }
     writeJson(response, 503, { error: "PLANME_WEB_UNAVAILABLE" });
   }
+}
+
+function createRecoveredSourceId(sourceId: string, input: PlanmeV3StartInput) {
+  const fingerprint = createHash("sha256")
+    .update(JSON.stringify(input))
+    .digest("hex")
+    .slice(0, 24);
+  return `recovered:${sourceId}:${fingerprint}`;
 }
 
 function resolveLegacyTransportMode(message: string | undefined) {
@@ -371,7 +383,7 @@ function buildGptsOpenApiSchema(serverUrl: string) {
           operationId: "recommendPlanmeItinerary",
           summary: "TourAPI 기반 일정을 42초 안에 생성",
           description:
-            "대화 전체에서 출발지, 목적지, 여행 일수, 이동 수단이 모두 확정된 뒤 한 번만 호출합니다. 최신 사용자 메시지에 없는 값도 이전 턴의 확정값을 누적해 네 필드를 모두 전달합니다.",
+            "대화 전체에서 출발지, 목적지, 여행 일수, 이동 수단이 모두 확정된 뒤 한 번만 호출합니다. 최신 사용자 메시지에 없는 값도 이전 턴의 확정값을 누적해 네 필드를 모두 전달합니다. status=ready 응답은 pageUrl을 반드시 [상세 일정 열기](pageUrl) 형식의 클릭 가능한 Markdown 링크로 출력하며 일반 텍스트로 대체하지 않습니다.",
           requestBody: {
             required: true,
             content: {
@@ -487,7 +499,12 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             status: { type: "string", enum: ["ready"] },
             itineraryId: { type: "string" },
             revision: { type: "integer" },
-            pageUrl: { type: "string", format: "uri" },
+            pageUrl: {
+              type: "string",
+              format: "uri",
+              description:
+                "사용자에게 [상세 일정 열기](pageUrl) 형식의 클릭 가능한 Markdown 링크로 제공할 상세 일정 URL입니다.",
+            },
             widget: { type: "object" },
             excludedRequestedPlaces: { type: "array", items: { type: "object" } },
             excludedNotice: {

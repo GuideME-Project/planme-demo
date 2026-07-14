@@ -3015,6 +3015,7 @@ async function assertV3ChannelContract(): Promise<void> {
       assert.match(openApiText, /이전 턴에서 확정한 값을 반드시 다시 포함/);
       assert.match(openApiText, /대화 전체의 확정값을 각각 별도 필드로 전달/);
       assert.match(openApiText, /동탄처럼 넓은 지역명도 유효/);
+      assert.match(openApiText, /\[상세 일정 열기\]\(pageUrl\)/);
       assert.doesNotMatch(openApiText, /hotelName|clarificationContext|arrivalAirport/);
       assert.deepEqual(
         openApiPayload.components?.schemas?.PlanningSlot?.enum,
@@ -3127,6 +3128,25 @@ async function assertV3ChannelContract(): Promise<void> {
       }
       assert.match(idempotencyKeys.at(-1) ?? "", /^gpts:recovered:/);
       assert.match(idempotencyKeys.at(-3) ?? "", /^gpts:recovered:/);
+
+      const recoveredKeyBeforeRepeat = idempotencyKeys.at(-3);
+      const repeatedRecovery = await originalFetch(
+        `${actions.origin}/api/gpt/itineraries/recommend`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            invocationId: "gpts-conflict-recovery",
+            origin: "동탄",
+            destination: "부산역",
+            transportMode: "자동차",
+            durationDays: 2,
+          }),
+        },
+      );
+      assert.equal(repeatedRecovery.status, 200);
+      assert.equal((await repeatedRecovery.json()).status, "ready");
+      assert.equal(idempotencyKeys.at(-1), recoveredKeyBeforeRepeat);
     } finally {
       actions.server.close();
     }
@@ -3206,7 +3226,7 @@ async function assertV3ChannelContract(): Promise<void> {
       await client.close();
       mcp.server.close();
     }
-    assert.equal(startCount, 5);
+    assert.equal(startCount, 6);
   } finally {
     if (originalWebOrigin === undefined) delete process.env.PLANME_WEB_ORIGIN;
     else process.env.PLANME_WEB_ORIGIN = originalWebOrigin;
