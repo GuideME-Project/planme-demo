@@ -550,13 +550,16 @@ export function createPlanmeV3Orchestrator(
       dependencies.resolveRegion(queued.intent.destination, signal),
     ]);
     const originCoordinate = requireAnchor(origin, "ORIGIN_NOT_RESOLVED");
-    const destinationCoordinate = requireAnchor(
-      destination,
-      "DESTINATION_NOT_RESOLVED",
-    );
     if (!region) {
       throw new OrchestratorFailure("DESTINATION_NOT_RESOLVED");
     }
+    const resolvedDestination = destination.status === "not_found"
+      ? await dependencies.geocodeAnchor(regionAnchorQuery(region), signal)
+      : destination;
+    const destinationCoordinate = requireAnchor(
+      resolvedDestination,
+      "DESTINATION_NOT_RESOLVED",
+    );
 
     await saveNextPhase({
       itineraryId,
@@ -1378,6 +1381,10 @@ function requireAnchor(
       ? "INTERNAL_CONFIGURATION_ERROR"
       : notFoundCode,
   );
+}
+
+function regionAnchorQuery(region: TourRegion) {
+  return [region.regionName, region.districtName].filter(Boolean).join(" ");
 }
 
 function calculateTravelEndDate(startDate: string | undefined, durationDays: number) {
