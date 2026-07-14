@@ -246,3 +246,11 @@ PlanME GPT의 새 채팅에서 다음 요청을 실행했다.
 - Vercel Production의 기존 브라우저용 키와 로컬 값이 같은지 확인했고, 별도의 서버용 키는 저장소 환경 파일에서 발견되지 않았다.
 - ODsay 인증 실패는 `ODSAY_CONFIGURATION_ERROR`로 분류하고 오케스트레이터가 `INTERNAL_CONFIGURATION_ERROR`로 전달하도록 보정했다. 장거리 구간을 추정 경로로 대체하지 않는다.
 - `npm run test:v3`, `npm run lint`, `npm run build`가 다시 통과했다. 기존 린트 경고 3건 외 오류는 없다.
+
+### PR #77 운영 최종 확인
+
+- PR #77 병합 커밋 `ce30129`의 웹·MCP 운영 배포가 모두 성공했다.
+- PlanME GPT 기본 주소에서 새 채팅을 만들고 같은 양양 → 거제 시나리오의 Action을 허용했다.
+- ChatGPT 응답은 일반 경로 실패 대신 내부 설정 오류로 표시됐고, 해당 작업 상태 API는 `INTERNAL_CONFIGURATION_ERROR`를 반환했다.
+- TourAPI 키·지역·관광지·숙소·음식점 조회는 실제 운영 흐름에서 통과했다.
+- 전체 일정 생성 완료와 상세 페이지 검증은 유효한 ODsay 서버 키가 반영되기 전까지 미완료다. 현재 키는 ODsay가 `ApiKeyAuthFailed`로 거부한다.
