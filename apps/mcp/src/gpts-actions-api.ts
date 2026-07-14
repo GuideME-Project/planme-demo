@@ -19,6 +19,12 @@ const transportModeSchema = z
   .transform((value) =>
     value === "자동차" ? "drive" as const : value === "대중교통" ? "transit" as const : value,
   );
+const requestedPlacesSchema = z
+  .union([
+    z.string().trim().min(1),
+    z.array(z.string().trim().min(1)),
+  ])
+  .transform((value) => Array.isArray(value) ? value : [value]);
 const planningRequestSchema = z
   .object({
     message: z.string().optional(),
@@ -39,7 +45,7 @@ const recommendationRequestSchema = z
     transportMode: transportModeSchema.optional(),
     travelStartDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     preferences: z.array(z.string()).optional(),
-    requestedPlaces: z.array(z.string()).optional(),
+    requestedPlaces: requestedPlacesSchema.optional(),
     travelerCount: z.number().int().min(1).max(20).optional(),
     luggageCount: z.number().int().min(0).max(20).optional(),
   })
