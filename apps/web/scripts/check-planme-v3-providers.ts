@@ -284,6 +284,7 @@ const nearbyTo = {
   coordinate: { lat: 37.504, lng: 127 },
 };
 const odsayCalls: URL[] = [];
+const odsayReferers: Array<string | null> = [];
 const routeUsageEvents: PlanmeUsageCounterEvent[] = [];
 const estimatedWalkResult = await routePlanmeSegment(
   {
@@ -294,12 +295,14 @@ const estimatedWalkResult = await routePlanmeSegment(
   },
   {
     odsayApiKey: "server-only-odsay-key",
+    odsayReferer: "https://planme.example/itinerary/example",
     usageRecorder: (event) => {
       routeUsageEvents.push(event);
     },
-    fetchImpl: async (input) => {
+    fetchImpl: async (input, init) => {
       const url = new URL(String(input));
       odsayCalls.push(url);
+      odsayReferers.push(new Headers(init?.headers).get("referer"));
       return url.pathname.endsWith("/searchWalkPathV2")
         ? jsonResponse({
             result: {
@@ -318,6 +321,10 @@ if (estimatedWalkResult.status === "ready") {
 }
 assert.equal(odsayCalls.length, 2);
 assert.equal(odsayCalls[1].pathname.endsWith("/searchWalkPathV2"), true);
+assert.deepEqual(odsayReferers, [
+  "https://planme.example/",
+  "https://planme.example/",
+]);
 
 let retriedWalkCalls = 0;
 const retriedWalkResult = await routePlanmeSegment(
@@ -398,6 +405,40 @@ const retryResult = await routePlanmeSegment(
 );
 assert.equal(retryResult.status, "ready");
 assert.equal(transientAttempt, 2);
+
+const laneReferers: Array<string | null> = [];
+const laneResult = await routePlanmeSegment(
+  {
+    from: nearbyFrom,
+    to: { ref: "lane-destination", coordinate: { lat: 37.52, lng: 127 } },
+    transportMode: "transit",
+    requiredSegment: true,
+  },
+  {
+    odsayApiKey: "server-only-odsay-key",
+    odsayReferer: "https://planme.example/path?ignored=true",
+    fetchImpl: async (input, init) => {
+      const url = new URL(String(input));
+      laneReferers.push(new Headers(init?.headers).get("referer"));
+      return url.pathname.endsWith("/loadLane")
+        ? jsonResponse({
+            result: {
+              lane: [{ section: [{ graphPos: [{ x: 127, y: 37.5 }, { x: 127.01, y: 37.51 }] }] }],
+            },
+          })
+        : jsonResponse({
+            result: {
+              path: [{ info: { mapObj: "1:2", totalDistance: 2000, totalTime: 15 } }],
+            },
+          });
+    },
+  },
+);
+assert.equal(laneResult.status, "ready");
+assert.deepEqual(laneReferers, [
+  "https://planme.example/",
+  "https://planme.example/",
+]);
 
 const authenticationFailureResult = await routePlanmeSegment(
   {

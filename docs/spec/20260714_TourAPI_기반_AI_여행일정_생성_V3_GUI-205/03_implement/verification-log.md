@@ -254,3 +254,11 @@ PlanME GPT의 새 채팅에서 다음 요청을 실행했다.
 - ChatGPT 응답은 일반 경로 실패 대신 내부 설정 오류로 표시됐고, 해당 작업 상태 API는 `INTERNAL_CONFIGURATION_ERROR`를 반환했다.
 - TourAPI 키·지역·관광지·숙소·음식점 조회는 실제 운영 흐름에서 통과했다.
 - 전체 일정 생성 완료와 상세 페이지 검증은 유효한 ODsay 서버 키가 반영되기 전까지 미완료다. 현재 키는 ODsay가 `ApiKeyAuthFailed`로 거부한다.
+
+### ODsay 인증 원인 정정
+
+- 서버 키 또는 Vercel 고정 IP가 필요하다는 이전 판단은 철회한다.
+- 같은 운영 키와 같은 좌표로 ODsay를 다시 호출한 결과, `Referer`가 없으면 `ApiKeyAuthFailed`가 발생하고 ODsay에 등록된 PlanME 웹 주소를 `Referer`로 보내면 대중교통 경로 3건이 반환됐다.
+- 로컬 브라우저에서 성공한 이유도 브라우저가 등록된 로컬 주소를 `Referer`로 자동 전달했기 때문이다.
+- V3 서버의 ODsay 요청은 이 헤더를 누락하고 있었다. 런타임이 확정한 PlanME 웹 주소를 URL 출처로 정규화해 대중교통·도보·노선선형 요청 모두에 전달하도록 수정했다.
+- `npm run test:v3`, `npm run test:completion`, `npm run test:actions`, `npm run test:mcp`, `npm run test:route-normalization`, `npm run test:local-v3`, `npm run lint`, `npm run build`가 통과했다. 로컬 통합 검사는 웹·MCP 두 서버의 V3 생성과 상세 화면 렌더링까지 확인했다. 기존 `ItineraryDashboard.tsx` 린트 경고 3건 외 오류는 없다.
