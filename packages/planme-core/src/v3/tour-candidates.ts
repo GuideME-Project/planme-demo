@@ -20,6 +20,7 @@ export type TourApiCandidateRecord = {
 export type NormalizeTourCandidatesOptions = {
   fetchedAt: string;
   cacheStatus?: "fresh" | "stale";
+  expectedContentTypeId?: AllowedTourContentTypeId;
   expectedRegionCode?: string;
   expectedDistrictCode?: string;
   travelStartDate?: string;
@@ -102,6 +103,8 @@ export function normalizeTourCandidate(
     !contentId ||
     !title ||
     !isAllowedContentTypeId(rawContentTypeId) ||
+    (options.expectedContentTypeId !== undefined &&
+      rawContentTypeId !== options.expectedContentTypeId) ||
     !isValidCoordinate(lat, lng) ||
     (options.expectedRegionCode && regionCode !== options.expectedRegionCode) ||
     (options.expectedDistrictCode && districtCode !== options.expectedDistrictCode) ||

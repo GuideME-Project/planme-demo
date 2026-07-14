@@ -192,6 +192,7 @@ async function searchV3TourPlaces(
             places: normalizeTourCandidates(
               result.status === "empty" ? [] : result.records,
               {
+                expectedContentTypeId: contentTypeId,
                 expectedRegionCode: regionCode,
                 expectedDistrictCode: districtCode ?? undefined,
                 fetchedAt: new Date().toISOString(),
