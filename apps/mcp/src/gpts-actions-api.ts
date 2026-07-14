@@ -128,6 +128,7 @@ export async function handleGptsRecommendItineraryRequest(
     requestedPlaces: input.requestedPlaces ?? mustVisitPlaces,
     transportMode,
   } satisfies PlanmeV3StartInput;
+  const requestSourceId = createRequestSourceId(sourceId, startInput);
   const recoveredIdempotencyKey = createPlanmeIdempotencyKey(
     "gpts",
     createRecoveredSourceId(sourceId, startInput),
@@ -138,7 +139,7 @@ export async function handleGptsRecommendItineraryRequest(
     try {
       result = await startPlanmeV3Itinerary(
         startInput,
-        createPlanmeIdempotencyKey("gpts", sourceId),
+        createPlanmeIdempotencyKey("gpts", requestSourceId),
       );
     } catch (error) {
       if (
@@ -272,11 +273,18 @@ function createActionPageUrl(request: IncomingMessage, itineraryId: string) {
 }
 
 function createRecoveredSourceId(sourceId: string, input: PlanmeV3StartInput) {
-  const fingerprint = createHash("sha256")
+  return `recovered:${sourceId}:${createInputFingerprint(input)}`;
+}
+
+function createRequestSourceId(sourceId: string, input: PlanmeV3StartInput) {
+  return `request:${sourceId}:${createInputFingerprint(input)}`;
+}
+
+function createInputFingerprint(input: PlanmeV3StartInput) {
+  return createHash("sha256")
     .update(JSON.stringify(input))
     .digest("hex")
     .slice(0, 24);
-  return `recovered:${sourceId}:${fingerprint}`;
 }
 
 function resolveLegacyTransportMode(message: string | undefined) {

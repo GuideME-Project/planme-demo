@@ -189,7 +189,9 @@ assert.doesNotMatch(
 );
 assert.match(mcpSources, /startPlanmeV3Itinerary/);
 assert.match(mcpSources, /const sourceId = invocationId \?\?/);
-assert.match(mcpSources, /createPlanmeIdempotencyKey\("gpts", sourceId\)/);
+assert.match(mcpSources, /createRequestSourceId\(sourceId, startInput\)/);
+assert.match(mcpSources, /createPlanmeIdempotencyKey\("gpts", requestSourceId\)/);
+assert.match(mcpSources, /createRecoveredSourceId\(sourceId, startInput\)/);
 assert.match(mcpSources, /createPlanmeIdempotencyKey\("mcp", requestId\)/);
 
 console.log("PlanME V3 API/browser boundary checks passed (V3-09). ");

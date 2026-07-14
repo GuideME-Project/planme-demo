@@ -2964,10 +2964,10 @@ async function assertV3ChannelContract(): Promise<void> {
         const idempotencyKey =
           new Headers(init?.headers).get("idempotency-key") ?? "";
         idempotencyKeys.push(idempotencyKey);
-        if (idempotencyKey === "gpts:gpts-conflict-recovery") {
+        if (idempotencyKey.startsWith("gpts:request:gpts-conflict-recovery:")) {
           return jsonResponse({ error: "IDEMPOTENCY_CONFLICT" }, 409);
         }
-        if (idempotencyKey === "gpts:gpts-failed-recovery") {
+        if (idempotencyKey.startsWith("gpts:request:gpts-failed-recovery:")) {
           return jsonResponse({
             status: "failed",
             itineraryId: "planme-v3-stale-failure",
@@ -3081,7 +3081,7 @@ async function assertV3ChannelContract(): Promise<void> {
       const legacyTerminal = await legacyRecommendation.json();
       assert.equal(legacyRecommendation.status, 200);
       assert.equal(legacyTerminal.status, "ready");
-      assert.match(idempotencyKeys[0] ?? "", /^gpts:legacy:/);
+      assert.match(idempotencyKeys[0] ?? "", /^gpts:request:legacy:/);
       assert.equal(startInputs[0]?.transportMode, "transit");
 
       const beforeRequest = Date.now();
@@ -3126,10 +3126,32 @@ async function assertV3ChannelContract(): Promise<void> {
         terminal.excludedNotice,
         '요청한 장소 "확인되지 않은 장소": TourAPI에서 확인되지 않아 일정에서 제외되었습니다.',
       );
-      assert.equal(idempotencyKeys[1], "gpts:gpts-contract-1");
+      assert.match(idempotencyKeys[1] ?? "", /^gpts:request:gpts-contract-1:/);
       assert.ok(capturedDeadline >= beforeRequest + 41_000);
       assert.ok(capturedDeadline <= Date.now() + 55_000);
       assert.ok(capturedDeadline > Date.now() + 50_000);
+
+      const firstContractKey = idempotencyKeys[1] ?? "";
+      const changedTransportRecommendation = await originalFetch(
+        `${actions.origin}/api/gpt/itineraries/recommend`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            invocationId: "gpts-contract-1",
+            origin: "서울역",
+            destination: "부산",
+            transportMode: "자동차",
+            durationDays: 1,
+            mustVisitPlaces: "확인되지 않은 장소",
+          }),
+        },
+      );
+      assert.equal(changedTransportRecommendation.status, 200);
+      assert.equal((await changedTransportRecommendation.json()).status, "ready");
+      assert.equal(startInputs[2]?.transportMode, "drive");
+      assert.match(idempotencyKeys[2] ?? "", /^gpts:request:gpts-contract-1:/);
+      assert.notEqual(idempotencyKeys[2], firstContractKey);
 
       for (const invocationId of [
         "gpts-conflict-recovery",
@@ -3252,7 +3274,7 @@ async function assertV3ChannelContract(): Promise<void> {
       await client.close();
       mcp.server.close();
     }
-    assert.equal(startCount, 6);
+    assert.equal(startCount, 7);
   } finally {
     if (originalWebOrigin === undefined) delete process.env.PLANME_WEB_ORIGIN;
     else process.env.PLANME_WEB_ORIGIN = originalWebOrigin;
