@@ -7,6 +7,7 @@ import {
   PlanmeWebClientHttpError,
   runPlanmeV3Itinerary,
   startPlanmeV3Itinerary,
+  getPlanmeWebOrigin,
   type PlanmeV3StartInput,
 } from "./planme-web-client.js";
 
@@ -170,10 +171,14 @@ export async function handleGptsRecommendItineraryRequest(
       });
       return;
     }
+    const actionPageUrl = result.status === "ready"
+      ? createActionPageUrl(request, result.itineraryId)
+      : undefined;
     writeJson(response, 200, result.status === "ready"
       ? {
           ...result,
-          detailLinkMarkdown: `[상세 일정 열기](${result.pageUrl})`,
+          pageUrl: actionPageUrl,
+          detailLinkMarkdown: `[상세 일정 열기](${actionPageUrl})`,
           excludedNotice: buildExcludedNotice(result.excludedRequestedPlaces),
         }
       : result);
@@ -185,6 +190,35 @@ export async function handleGptsRecommendItineraryRequest(
     }
     writeJson(response, 503, { error: "PLANME_WEB_UNAVAILABLE" });
   }
+}
+
+export function handleGptsItineraryOpenRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+): void {
+  if (request.method !== "GET") {
+    writeJson(response, 405, { error: "METHOD_NOT_ALLOWED" });
+    return;
+  }
+  const requestUrl = new URL(request.url ?? "/", getRequestOrigin(request));
+  const itineraryId = requestUrl.searchParams.get("itineraryId")?.trim() ?? "";
+  if (!/^planme-v3-[A-Za-z0-9-]+$/.test(itineraryId)) {
+    writeJson(response, 400, { error: "INVALID_ITINERARY_ID" });
+    return;
+  }
+  response.statusCode = 302;
+  response.setHeader(
+    "Location",
+    new URL(`/itinerary/${encodeURIComponent(itineraryId)}`, getPlanmeWebOrigin()).toString(),
+  );
+  response.setHeader("Cache-Control", "no-store");
+  response.end();
+}
+
+function createActionPageUrl(request: IncomingMessage, itineraryId: string) {
+  const url = new URL("/api/gpt/itineraries/open", getRequestOrigin(request));
+  url.searchParams.set("itineraryId", itineraryId);
+  return url.toString();
 }
 
 function createRecoveredSourceId(sourceId: string, input: PlanmeV3StartInput) {
@@ -304,8 +338,10 @@ function handleOptionsRequest(request: IncomingMessage, response: ServerResponse
 }
 
 function getRequestOrigin(request: IncomingMessage) {
-  const forwardedProto = firstHeaderValue(request.headers["x-forwarded-proto"]) ?? "https";
   const host = firstHeaderValue(request.headers.host) ?? "planme-demo-mcp.vercel.app";
+  const localHost = /^(?:localhost|127\.0\.0\.1)(?::\d+)?$/.test(host);
+  const forwardedProto = firstHeaderValue(request.headers["x-forwarded-proto"])
+    ?? (localHost ? "http" : "https");
   return `${forwardedProto}://${host}`;
 }
 
@@ -505,7 +541,7 @@ function buildGptsOpenApiSchema(serverUrl: string) {
               type: "string",
               format: "uri",
               description:
-                "사용자에게 [상세 일정 열기](pageUrl) 형식의 클릭 가능한 Markdown 링크로 제공할 상세 일정 URL입니다.",
+                "Action 서버와 같은 도메인에서 웹 상세 화면으로 안전하게 연결되는 URL입니다. 사용자에게 [상세 일정 열기](pageUrl) 형식의 클릭 가능한 Markdown 링크로 제공합니다.",
             },
             detailLinkMarkdown: {
               type: "string",

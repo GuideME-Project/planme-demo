@@ -32,6 +32,7 @@ import {
   readMemoryUsageCounter,
 } from "../src/usage-counters.js";
 import {
+  handleGptsItineraryOpenRequest,
   handleGptsOpenApiRequest,
   handleGptsPlanningStartRequest,
   handleGptsRecommendItineraryRequest,
@@ -188,6 +189,11 @@ async function startGptsActionsServer() {
 
     if (request.url === "/api/gpt/itineraries/recommend") {
       await handleGptsRecommendItineraryRequest(request, response);
+      return;
+    }
+
+    if (request.url?.startsWith("/api/gpt/itineraries/open?")) {
+      handleGptsItineraryOpenRequest(request, response);
       return;
     }
 
@@ -3099,6 +3105,15 @@ async function assertV3ChannelContract(): Promise<void> {
       assert.equal(
         terminal.detailLinkMarkdown,
         `[상세 일정 열기](${terminal.pageUrl})`,
+      );
+      assert.equal(new URL(terminal.pageUrl).origin, actions.origin);
+      const detailRedirect = await originalFetch(terminal.pageUrl, {
+        redirect: "manual",
+      });
+      assert.equal(detailRedirect.status, 302);
+      assert.equal(
+        detailRedirect.headers.get("location"),
+        `${internalOrigin}/itinerary/planme-v3-contract`,
       );
       assert.deepEqual(startInputs[1]?.requestedPlaces, ["확인되지 않은 장소"]);
       assert.equal(
