@@ -258,6 +258,7 @@ function matchTourRegion(
   records: TourApiLegalDongRecord[],
 ): TourRegion | null {
   const comparableDestination = normalizeRegionName(destination);
+  const compactDestination = compactRegionName(destination);
   const normalized = records.flatMap((record) => {
     const regionCode = normalizeScalar(record.lDongRegnCd);
     const regionName = record.lDongRegnNm?.trim();
@@ -281,6 +282,7 @@ function matchTourRegion(
   const candidates = normalized.map((region) => {
     const regionName = normalizeRegionName(region.regionName);
     const districtName = normalizeRegionName(region.districtName ?? "");
+    const compactDistrictName = compactRegionName(region.districtName ?? "");
     return {
       ...region,
       regionMatch: Boolean(
@@ -289,7 +291,9 @@ function matchTourRegion(
             regionName.includes(comparableDestination)),
       ),
       districtMatch: Boolean(
-        districtName && comparableDestination.includes(districtName),
+        districtName &&
+          ((compactDistrictName && compactDestination.endsWith(compactDistrictName)) ||
+            (districtName.length >= 2 && comparableDestination.endsWith(districtName))),
       ),
     };
   });
@@ -427,6 +431,10 @@ function normalizeRegionName(value: string) {
     return normalized;
   }
   return normalized.replace(/(도|시|군|구)$/g, "");
+}
+
+function compactRegionName(value: string) {
+  return value.replace(/\s+/g, "").trim();
 }
 
 function normalizeScalar(value: string | number | undefined) {

@@ -101,7 +101,7 @@ const tourClient = createTourApiClient({
         response: {
           header: { resultCode: "0000", resultMsg: "OK" },
           body: {
-            totalCount: 9,
+            totalCount: 10,
             items: {
               item: [
                 { lDongRegnCd: "11", lDongRegnNm: "서울특별시" },
@@ -137,6 +137,12 @@ const tourClient = createTourApiClient({
                   lDongRegnNm: "경상북도",
                   lDongSignguCd: "47190",
                   lDongSignguNm: "구미시",
+                },
+                {
+                  lDongRegnCd: "48",
+                  lDongRegnNm: "경상남도",
+                  lDongSignguCd: "48840",
+                  lDongSignguNm: "남해군",
                 },
               ],
             },
@@ -201,6 +207,18 @@ assert.deepEqual(await tourClient.resolveRegion("구미시"), {
   districtCode: "47190",
   districtName: "구미시",
 });
+assert.deepEqual(await tourClient.resolveRegion("남해"), {
+  regionCode: "48",
+  regionName: "경상남도",
+  districtCode: "48840",
+  districtName: "남해군",
+});
+assert.deepEqual(await tourClient.resolveRegion("남해군"), {
+  regionCode: "48",
+  regionName: "경상남도",
+  districtCode: "48840",
+  districtName: "남해군",
+});
 assert.deepEqual(await tourClient.resolveRegion("인천광역시 중구"), {
   regionCode: "28",
   regionName: "인천광역시",
@@ -236,6 +254,8 @@ const stayRequest = requestedUrls.at(-1);
 assert.equal(stayRequest?.pathname.endsWith("/searchStay2"), true);
 assert.equal(stayRequest?.searchParams.get("contentTypeId"), null);
 assert.deepEqual(tourUsageEvents, [
+  "tourapi_request",
+  "tourapi_request",
   "tourapi_request",
   "tourapi_request",
   "tourapi_request",
