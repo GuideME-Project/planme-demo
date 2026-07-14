@@ -3,6 +3,8 @@ export type PlanmeUsageCounterEvent =
   | "function_place_search_call"
   | "naver_local_search_request"
   | "naver_geocode_request"
+  | "naver_directions_request"
+  | "tourapi_request"
   | "odsay_request"
   | "itinerary_ready"
   | "needs_clarification"

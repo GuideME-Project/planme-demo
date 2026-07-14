@@ -1,455 +1,261 @@
-import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
-import {
-  assessPlanmePlanningInput,
-  createPlanmeTransportModeClarification,
-  isPlanmeClarificationResponse,
-  PLANME_EXTERNAL_DURATION_ERROR_MESSAGE,
-  PLANME_EXTERNAL_MAX_DURATION_DAYS,
-  resolvePlanmeTransportModeFromUserMessage,
-  runPlanmeUserConfirmedRecommendation,
-  type PlanmeClarificationResponse,
-  type PlanmePlanningRequest,
-  type PlanmeRecommendationResponse,
-} from "@planme/core";
 import { writeCorsHeaders, writeJson } from "./http-utils.js";
 import {
-  createNaverGeocoder,
-  hasNaverGeocoderRuntimeConfig,
-} from "./naver-geocoding.js";
-import {
-  getPlanmeWebOrigin,
-  persistItineraryForDetailPage,
-} from "./planme-mcp.js";
-import { createPlanmeUsageRecorder } from "./usage-counters.js";
-import { recommendAndPersistItinerary } from "./itinerary-recommendation-flow.js";
-import {
-  classifyPlanmeRecommendationFailure,
-  createPlanmePublicFailurePayload,
-  logPlanmeRecommendationFailure,
-  mapPlanmeMeasurementToCompletionStage,
-  PLANME_PUBLIC_FAILURE_STAGES,
-} from "./recommendation-error-response.js";
+  createPlanmeIdempotencyKey,
+  PlanmeWebClientHttpError,
+  runPlanmeV3Itinerary,
+  startPlanmeV3Itinerary,
+  type PlanmeV3StartInput,
+} from "./planme-web-client.js";
 
 type BodyRequest = IncomingMessage & {
   body?: object | string | Buffer;
 };
 
-const gptsTransportModeSchema = z
+const transportModeSchema = z
   .enum(["drive", "transit", "자동차", "대중교통"])
-  .transform((value) => {
-    // GPTs can repeat the user's Korean choice even when the internal contract uses English values.
-    if (value === "자동차") {
-      return "drive" as const;
-    }
-
-    if (value === "대중교통") {
-      return "transit" as const;
-    }
-
-    return value;
-  });
-const externalDurationDaysSchema = z
-  .number()
-  .int()
-  .min(1)
-  .max(PLANME_EXTERNAL_MAX_DURATION_DAYS, PLANME_EXTERNAL_DURATION_ERROR_MESSAGE);
-const planningRequestSchema = z.object({
-  latestUserMessage: z.string().min(1).optional(),
-  message: z.string().optional(),
-  destination: z.string().optional(),
-  destinationType: z.enum(["region", "place"]).optional(),
-  mustVisitPlaces: z.array(z.string().min(1)).optional(),
-  durationDays: externalDurationDaysSchema.optional(),
-  arrivalAirport: z.string().optional(),
-  arrivalTime: z.string().optional(),
-  hotelName: z.string().optional(),
-  origin: z.string().optional(),
-  travelerCount: z.number().int().min(1).max(20).optional(),
-  luggageCount: z.number().int().min(0).max(20).optional(),
-  preferences: z.array(z.string()).optional(),
-  theme: z.enum(["light", "dark"]).optional(),
-  transportMode: gptsTransportModeSchema.optional(),
-});
+  .transform((value) =>
+    value === "자동차" ? "drive" as const : value === "대중교통" ? "transit" as const : value,
+  );
+const planningRequestSchema = z
+  .object({
+    message: z.string().optional(),
+    destination: z.string().optional(),
+    durationDays: z.number().int().min(1).max(14).optional(),
+    origin: z.string().optional(),
+    transportMode: transportModeSchema.optional(),
+  })
+  .strict();
 const recommendationRequestSchema = z
   .object({
-    latestUserMessage: z.string().min(1).optional(),
-    destination: z.string().min(1),
-    destinationType: z.enum(["region", "place"]).optional(),
-    mustVisitPlaces: z.array(z.string().min(1)).optional(),
-    durationDays: externalDurationDaysSchema,
-    arrivalAirport: z.string().optional(),
-    arrivalTime: z.string().optional(),
-    hotelName: z.string().optional(),
-    origin: z.string().optional(),
+    invocationId: z.string().regex(/^[A-Za-z0-9._:-]{1,128}$/),
+    origin: z.string().trim().min(1),
+    destination: z.string().trim().min(1),
+    durationDays: z.number().int().min(1).max(14),
+    transportMode: transportModeSchema,
+    travelStartDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    preferences: z.array(z.string()).optional(),
+    requestedPlaces: z.array(z.string()).optional(),
     travelerCount: z.number().int().min(1).max(20).optional(),
     luggageCount: z.number().int().min(0).max(20).optional(),
-    preferences: z.array(z.string()).optional(),
-    clarificationAnswers: z.union([z.string(), z.array(z.string())]).optional(),
-    clarificationContext: z
-      .object({
-        previousAnswers: z.array(z.string()),
-        previousQuestions: z.array(z.string()),
-        round: z.number().int().min(0).max(2),
-        unresolvedPlaces: z.array(z.string()),
-      })
-      .optional(),
-    theme: z.enum(["light", "dark"]).optional(),
-    // Old imported GPT Action schemas can still send this field, but it is ignored.
-    transportMode: gptsTransportModeSchema.optional(),
   })
-  .refine((input) => Boolean(input.origin?.trim() || input.arrivalAirport?.trim()), {
-    message: "origin or arrivalAirport is required",
-  });
+  .strict();
 
-/**
- * Serves the OpenAPI schema used by GPTs Actions.
- */
+type PlanningSlot = "origin" | "destination" | "transportMode" | "durationDays";
+
 export function handleGptsOpenApiRequest(
   request: IncomingMessage,
   response: ServerResponse,
 ): void {
   writeCorsHeaders(response);
-
   if (handleOptionsRequest(request, response)) {
     return;
   }
-
   if (request.method !== "GET") {
     writeJson(response, 405, { error: "METHOD_NOT_ALLOWED" });
     return;
   }
-
-  // GPT Builder imports this schema and then calls the same MCP deployment as REST.
   writeJson(response, 200, buildGptsOpenApiSchema(getRequestOrigin(request)));
 }
 
-/**
- * Handles GPTs Actions preflight planning requests.
- */
 export async function handleGptsPlanningStartRequest(
   request: IncomingMessage,
   response: ServerResponse,
 ): Promise<void> {
   writeCorsHeaders(response);
-
   if (handleOptionsRequest(request, response)) {
     return;
   }
-
   if (request.method !== "POST") {
     writeJson(response, 405, { error: "METHOD_NOT_ALLOWED" });
     return;
   }
-
   const parsed = planningRequestSchema.safeParse(await readJsonBody(request));
-
   if (!parsed.success) {
-    writeJson(response, 400, {
-      error: "INVALID_PLANME_PLANNING_REQUEST",
-      validationIssues: createGptsValidationIssues(parsed.error),
-    });
+    writeJson(response, 400, invalidRequest(parsed.error));
     return;
   }
-
-  const explicitTransportMode = resolvePlanmeTransportModeFromUserMessage(
-    parsed.data.latestUserMessage,
-  );
-
-  // A model-filled enum is not proof that the user selected a mode.
-  writeJson(
-    response,
-    200,
-    assessPlanmePlanningInput({
-      ...parsed.data,
-      transportMode: explicitTransportMode ?? undefined,
-    }),
-  );
+  writeJson(response, 200, assessPlanningInput(parsed.data));
 }
 
-/**
- * Handles GPTs Actions itinerary recommendation requests.
- */
 export async function handleGptsRecommendItineraryRequest(
   request: IncomingMessage,
   response: ServerResponse,
 ): Promise<void> {
   writeCorsHeaders(response);
-
   if (handleOptionsRequest(request, response)) {
     return;
   }
-
   if (request.method !== "POST") {
     writeJson(response, 405, { error: "METHOD_NOT_ALLOWED" });
     return;
   }
-
-  const traceId = randomUUID();
+  const deadlineEpochMs = Date.now() + 42_000;
+  const parsed = recommendationRequestSchema.safeParse(await readJsonBody(request));
+  if (!parsed.success) {
+    writeJson(response, 400, invalidRequest(parsed.error));
+    return;
+  }
+  const { invocationId, ...input } = parsed.data;
 
   try {
-    const parsed = recommendationRequestSchema.safeParse(await readJsonBody(request));
-
-    if (!parsed.success) {
-      console.error("PlanME GPTs Actions request validation failure", {
-        completionStage: "input_interpretation",
-        event: "planme_gpts_request_validation_failure",
-        internalCode: "INVALID_PLANME_RECOMMENDATION_REQUEST",
-        retryable: false,
-        stage: "request_validation",
-        status: 400,
-        traceId,
-      });
-      writeJson(response, 400, {
-        error: "INVALID_PLANME_RECOMMENDATION_REQUEST",
-        traceId,
-        validationIssues: createGptsValidationIssues(parsed.error),
+    let result = await startPlanmeV3Itinerary(
+      input satisfies PlanmeV3StartInput,
+      createPlanmeIdempotencyKey("gpts", invocationId),
+    );
+    if (result.status === "processing") {
+      result = await runPlanmeV3Itinerary(result.itineraryId, deadlineEpochMs);
+    }
+    if (result.status === "processing") {
+      writeJson(response, 200, {
+        status: "failed",
+        itineraryId: result.itineraryId,
+        errorCode: "TIME_BUDGET_EXCEEDED",
+        message: "제한 시간 안에 안전한 일정을 완성하지 못했습니다.",
       });
       return;
     }
-
-    const { latestUserMessage, ...recommendationInput } = parsed.data;
-    const usageRecorder = createPlanmeUsageRecorder();
-    const guardedRecommendation = await runPlanmeUserConfirmedRecommendation(
-      latestUserMessage,
-      recommendationInput,
-      (input) =>
-        recommendAndPersistItinerary(
-          `${getPlanmeWebOrigin()}/api/gpt/itineraries/recommend`,
-          input,
-          traceId,
-          {
-            aiOptions: {
-              draftGeocoder: hasNaverGeocoderRuntimeConfig()
-                ? createNaverGeocoder({ usageRecorder })
-                : undefined,
-              googleMapsReferer: `${getPlanmeWebOrigin()}/`,
-              usageRecorder,
-            },
-            onStage: (event) => {
-              console.info("PlanME GPTs Actions stage", {
-                completionStage: mapPlanmeMeasurementToCompletionStage(event.stage),
-                event: "planme_gpts_stage",
-                ...event,
-                traceId,
-              });
-            },
-            persist: persistItineraryForDetailPage,
-          },
-        ),
-    );
-
-    if (guardedRecommendation.status === "needs_transport_confirmation") {
-      writeGptsRecommendationResponse(
-        response,
-        {
-          ...toGptsRestRecommendationResponse(
-            createPlanmeTransportModeClarification(parsed.data.clarificationContext),
-          ),
-          traceId,
-        },
-        traceId,
-        "clarification",
-      );
-      return;
-    }
-
-    const result = guardedRecommendation.value;
-
-    if (result.status === "needs_clarification") {
-      writeGptsRecommendationResponse(
-        response,
-        { ...toGptsRestRecommendationResponse(result), traceId },
-        traceId,
-        "clarification",
-      );
-      return;
-    }
-
-    writeGptsRecommendationResponse(
-      response,
-      { ...toGptsRestRecommendationResponse(result.response), traceId },
-      traceId,
-      "ready",
-    );
+    writeJson(response, 200, result);
   } catch (error) {
-    const failure = classifyPlanmeRecommendationFailure(
-      error instanceof Error ? error : new Error("PLANME_RECOMMENDATION_FAILED"),
-    );
-
-    logPlanmeRecommendationFailure("gpts", traceId, failure);
-    writeJson(response, 500, createPlanmePublicFailurePayload(failure, traceId));
+    if (error instanceof PlanmeWebClientHttpError) {
+      const status = [400, 409, 429].includes(error.status) ? error.status : 503;
+      writeJson(response, status, { error: error.errorCode });
+      return;
+    }
+    writeJson(response, 503, { error: "PLANME_WEB_UNAVAILABLE" });
   }
 }
 
-/** Records response byte size without logging the GPTs payload itself. */
-function writeGptsRecommendationResponse(
-  response: ServerResponse,
-  payload: object,
-  traceId: string,
-  stage: "clarification" | "ready",
-) {
-  const responseBytes = Buffer.byteLength(JSON.stringify(payload), "utf8");
-
-  console.info("PlanME GPTs Actions response", {
-    completionStage: "response_delivery",
-    event: "planme_gpts_response",
-    responseBytes,
-    stage,
-    status: 200,
-    traceId,
-  });
-  writeJson(response, 200, payload);
+function assessPlanningInput(input: {
+  origin?: string;
+  destination?: string;
+  durationDays?: number;
+  transportMode?: "drive" | "transit";
+}) {
+  const missingSlots: PlanningSlot[] = [];
+  if (!input.origin?.trim()) missingSlots.push("origin");
+  if (!input.destination?.trim()) missingSlots.push("destination");
+  if (!input.transportMode) missingSlots.push("transportMode");
+  if (!input.durationDays) missingSlots.push("durationDays");
+  const questions = missingSlots.map((slot) => ({
+    slot,
+    required: true,
+    text: planningQuestion(slot),
+    examples: planningExamples(slot),
+  }));
+  return {
+    status: missingSlots.length > 0 ? "needs_input" as const : "ready" as const,
+    missingSlots,
+    questions,
+    normalizedInput: {
+      origin: input.origin?.trim() || null,
+      destination: input.destination?.trim() || null,
+      durationDays: input.durationDays ?? null,
+      transportMode: input.transportMode ?? null,
+    },
+    nextAction:
+      missingSlots.length > 0 ? "ask_user" as const : "recommend_planme_itinerary" as const,
+  };
 }
 
-/**
- * Reads a JSON request body from Node or serverless adapters.
- */
+function planningQuestion(slot: PlanningSlot) {
+  if (slot === "origin") return "어디에서 출발하시나요?";
+  if (slot === "destination") return "어디로 여행하시나요?";
+  if (slot === "transportMode") return "자동차와 대중교통 중 어떤 이동 수단을 이용하시나요?";
+  return "며칠 동안 여행하시나요?";
+}
+
+function planningExamples(slot: PlanningSlot) {
+  if (slot === "origin") return ["서울역", "동탄"];
+  if (slot === "destination") return ["부산", "경주"];
+  if (slot === "transportMode") return ["자동차", "대중교통"];
+  return ["1일", "2일"];
+}
+
 async function readJsonBody(request: IncomingMessage): Promise<object> {
   const requestWithBody = request as BodyRequest;
-
   if (typeof requestWithBody.body === "string") {
-    // Vercel can expose the raw JSON body as a string.
     return JSON.parse(requestWithBody.body) as object;
   }
-
   if (Buffer.isBuffer(requestWithBody.body)) {
-    // Normalize buffered request bodies before passing them to shared core logic.
     return JSON.parse(requestWithBody.body.toString("utf8")) as object;
   }
-
   if (typeof requestWithBody.body === "object" && requestWithBody.body !== null) {
     return requestWithBody.body;
   }
-
   const chunks: Buffer[] = [];
-
   for await (const chunk of request) {
-    // IncomingMessage yields Buffer|string chunks depending on the runtime adapter.
     chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : Buffer.from(chunk));
   }
-
-  if (chunks.length === 0) {
-    return {};
-  }
-
-  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as object;
+  return chunks.length === 0
+    ? {}
+    : JSON.parse(Buffer.concat(chunks).toString("utf8")) as object;
 }
 
-/**
- * Finishes CORS preflight requests before route-specific logic runs.
- */
-function handleOptionsRequest(request: IncomingMessage, response: ServerResponse): boolean {
+function invalidRequest(error: z.ZodError) {
+  return {
+    error: "INVALID_PLANME_REQUEST",
+    validationIssues: error.issues.map((issue) => ({
+      message: issue.message,
+      path: issue.path.join(".") || "request",
+    })),
+  };
+}
+
+function handleOptionsRequest(request: IncomingMessage, response: ServerResponse) {
   if (request.method !== "OPTIONS") {
     return false;
   }
-
-  // GPT Builder may preflight unauthenticated Action endpoints.
   response.writeHead(204);
   response.end();
   return true;
 }
 
-/**
- * Returns field-level request errors without echoing user input or provider credentials.
- */
-function createGptsValidationIssues(error: z.ZodError) {
-  return error.issues.map((issue) => ({
-    message: issue.message,
-    path: issue.path.join(".") || "request",
-  }));
-}
-
-/**
- * Builds a public origin from Vercel and local Node request headers.
- */
-function getRequestOrigin(request: IncomingMessage): string {
+function getRequestOrigin(request: IncomingMessage) {
   const forwardedProto = firstHeaderValue(request.headers["x-forwarded-proto"]) ?? "https";
   const host = firstHeaderValue(request.headers.host) ?? "planme-demo-mcp.vercel.app";
-
-  // OpenAPI servers must point at the MCP REST deployment, not the web detail app.
   return `${forwardedProto}://${host}`;
 }
 
-/**
- * Returns the first value from a Node HTTP header.
- */
-function firstHeaderValue(value: string | string[] | undefined): string | undefined {
+function firstHeaderValue(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-/**
- * Keeps GPTs Actions responses link-focused after the full itinerary is persisted.
- * Route geometry, preview markup, and internal resolution logs stay on the detail surface.
- */
-export function toGptsRestRecommendationResponse(response: PlanmeRecommendationResponse) {
-  if (isPlanmeClarificationResponse(response)) {
-    return toRestClarificationResponse(response);
-  }
-
-  return {
-    itineraryId: response.itineraryId,
-    title: response.title,
-    summary: response.summary,
-    standardTotalMinutes: response.standardTotalMinutes,
-    carrymeTotalMinutes: response.carrymeTotalMinutes,
-    days: response.days,
-    ...(response.savedMinutes === undefined
-      ? {}
-      : { savedMinutes: response.savedMinutes }),
-    savingStatus: response.savingStatus,
-    pageUrl: response.pageUrl,
-    detailLinkMarkdown: `[상세 일정 열기](${response.pageUrl})`,
-    ogImageUrl: response.ogImageUrl,
-    highlights: response.highlights,
-    transportMode: response.itinerary.transportMode,
-    status: "ready",
-    validationIssues: response.validationIssues?.map((issue) => issue.message),
-  };
-}
-
-/**
- * Converts coordinate-resolution clarification into a GPTs-readable REST payload.
- */
-function toRestClarificationResponse(response: PlanmeClarificationResponse) {
-  return {
-    clarificationContext: response.clarificationContext,
-    feedbackMessage: response.feedbackMessage,
-    message: response.message,
-    questions: response.questions,
-    resolutionLogs: response.resolutionLogs,
-    status: response.status,
-    unresolvedStops: response.unresolvedStops,
-    validationIssues: response.validationIssues.map((issue) => issue.message),
-  };
-}
-
-/**
- * Builds the OpenAPI document imported by GPT Builder Actions.
- */
 function buildGptsOpenApiSchema(serverUrl: string) {
+  const transportMode = {
+    type: "string",
+    enum: ["drive", "transit", "자동차", "대중교통"],
+  };
+  const startProperties = {
+    origin: { type: "string" },
+    destination: { type: "string" },
+    durationDays: { type: "integer", minimum: 1, maximum: 14 },
+    transportMode,
+  };
   return {
     openapi: "3.1.0",
     info: {
       title: "PlanME GPTs Actions API",
-      version: "0.1.0",
+      version: "3.0.0",
       description:
-        "PlanME planning and itinerary generation API for GPTs Actions. The MCP endpoint remains available separately at /mcp.",
+        "TourAPI 장소만 사용하는 PlanME V3 일정 API입니다. invocationId는 도구가 생성하며 사용자에게 묻거나 보여주지 않습니다.",
     },
     servers: [{ url: serverUrl }],
     paths: {
       "/api/gpt/planning/start": {
         post: {
           operationId: "startPlanmePlanning",
-          summary: "Check whether a PlanME itinerary request has enough detail",
-          description:
-            "Check origin, destination, trip length (1-3 days), and transport mode. Pass the exact latest user message in latestUserMessage. Never infer transport mode or ask for an exact origin; broad origins such as 동탄 are valid. Ask required questions once; do not ask for lodging or preferences.",
+          summary: "출발지, 목적지, 이동 수단, 기간의 누락 여부 확인",
           requestBody: {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/PlanmePlanningRequest" },
+                schema: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: { message: { type: "string" }, ...startProperties },
+                },
               },
             },
           },
@@ -462,106 +268,85 @@ function buildGptsOpenApiSchema(serverUrl: string) {
                 },
               },
             },
-            "400": {
-              description: "Invalid planning request with field-level validation issues",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/InvalidRequestResponse" },
-                },
-              },
-            },
+            "400": { description: "Invalid planning request" },
           },
         },
       },
       "/api/gpt/itineraries/recommend": {
         post: {
           operationId: "recommendPlanmeItinerary",
-          summary: "Generate a PlanME itinerary and return a detail page link",
-          description:
-            "Call only after the user explicitly chooses 자동차 or 대중교통. Pass that exact latest message in latestUserMessage and preserve the original origin across turns. Never infer transport mode or ask for an exact origin; broad origins such as 동탄 are valid. Trips are limited to 1-3 days.",
+          summary: "TourAPI 기반 일정을 42초 안에 생성",
           requestBody: {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/RecommendItineraryRequest" },
+                schema: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: [
+                    "invocationId",
+                    "origin",
+                    "destination",
+                    "durationDays",
+                    "transportMode",
+                  ],
+                  properties: {
+                    invocationId: {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 128,
+                      pattern: "^[A-Za-z0-9._:-]+$",
+                      description:
+                        "도구 호출용 식별자입니다. 새 생성에는 새 값을 만들고 재전송에는 같은 값을 사용하며 사용자에게 질문하지 않습니다.",
+                    },
+                    ...startProperties,
+                    travelStartDate: { type: "string", format: "date" },
+                    preferences: { type: "array", items: { type: "string" } },
+                    requestedPlaces: { type: "array", items: { type: "string" } },
+                    travelerCount: { type: "integer", minimum: 1, maximum: 20 },
+                    luggageCount: { type: "integer", minimum: 0, maximum: 20 },
+                  },
+                },
               },
             },
           },
           responses: {
             "200": {
-              description: "Generated itinerary response or place clarification request",
+              description: "Terminal ready or failed response; processing is never returned",
               content: {
                 "application/json": {
                   schema: {
                     oneOf: [
-                      { $ref: "#/components/schemas/ItineraryActionResponse" },
-                      { $ref: "#/components/schemas/PlanmeClarificationResponse" },
+                      { $ref: "#/components/schemas/ItineraryReadyResponse" },
+                      { $ref: "#/components/schemas/ItineraryFailedResponse" },
                     ],
                   },
                 },
               },
             },
-            "500": {
-              description: "AI generation or web handoff failed",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/PlanmeErrorResponse" },
-                },
-              },
-            },
-            "400": {
-              description: "Invalid recommendation request with field-level validation issues",
-              content: {
-                "application/json": {
-                  schema: {
-                    $ref: "#/components/schemas/InvalidRecommendationRequestResponse",
-                  },
-                },
-              },
-            },
+            "400": { description: "Invalid request" },
+            "409": { description: "Idempotency conflict" },
+            "429": { description: "Rate limited" },
+            "503": { description: "Job could not be created" },
           },
         },
       },
     },
     components: {
       schemas: {
-        PlanmePlanningRequest: {
+        PlanningSlot: {
+          type: "string",
+          enum: ["origin", "destination", "transportMode", "durationDays"],
+        },
+        PlanmePlanningQuestion: {
           type: "object",
-          required: ["latestUserMessage"],
+          additionalProperties: false,
+          required: ["slot", "text", "required", "examples"],
           properties: {
-            latestUserMessage: {
-              type: "string",
-              minLength: 1,
-              description:
-                "The exact latest user-authored message. Do not summarize, combine turns, or add a transport mode that the user did not write.",
-            },
-            message: { type: "string" },
-            destination: { type: "string", description: "Travel destination city or region." },
-            destinationType: {
-              type: "string",
-              enum: ["region", "place"],
-              default: "region",
-              description: "Exact single places use place; omitted values are treated as region.",
-            },
-            mustVisitPlaces: { type: "array", items: { type: "string" } },
-            durationDays: {
-              type: "integer",
-              minimum: 1,
-              maximum: PLANME_EXTERNAL_MAX_DURATION_DAYS,
-              description: PLANME_EXTERNAL_DURATION_ERROR_MESSAGE,
-            },
-            arrivalAirport: { type: "string" },
-            arrivalTime: { type: "string" },
-            hotelName: { type: "string" },
-            origin: {
-              type: "string",
-              description:
-                "The user's origin text. Broad regions such as 동탄 are valid; never ask for a more exact place name or address, and pass the text unchanged.",
-            },
-            travelerCount: { type: "integer", minimum: 1, maximum: 20 },
-            luggageCount: { type: "integer", minimum: 0, maximum: 20 },
-            preferences: { type: "array", items: { type: "string" } },
-            theme: { type: "string", enum: ["light", "dark"] },
+            slot: { $ref: "#/components/schemas/PlanningSlot" },
+            text: { type: "string" },
+            required: { type: "boolean" },
+            examples: { type: "array", items: { type: "string" } },
           },
         },
         PlanmePlanningAssessment: {
@@ -571,330 +356,48 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             status: { type: "string", enum: ["needs_input", "ready"] },
             missingSlots: {
               type: "array",
-              items: {
-                type: "string",
-                enum: [
-                  "destination",
-                  "origin",
-                  "durationDays",
-                  "transportMode",
-                  "hotelName",
-                  "preferences",
-                ],
-              },
+              items: { $ref: "#/components/schemas/PlanningSlot" },
             },
             questions: {
               type: "array",
               items: { $ref: "#/components/schemas/PlanmePlanningQuestion" },
             },
-            normalizedInput: { $ref: "#/components/schemas/NormalizedPlanningInput" },
-            nextAction: { type: "string", enum: ["ask_user", "recommend_planme_itinerary"] },
-          },
-        },
-        PlanmePlanningQuestion: {
-          type: "object",
-          required: ["slot", "text", "required", "examples"],
-          properties: {
-            slot: {
+            normalizedInput: { type: "object" },
+            nextAction: {
               type: "string",
-              enum: [
-                "destination",
-                "origin",
-                "durationDays",
-                "transportMode",
-                "hotelName",
-                "preferences",
-              ],
+              enum: ["ask_user", "recommend_planme_itinerary"],
             },
-            text: { type: "string" },
-            required: { type: "boolean" },
-            examples: { type: "array", items: { type: "string" } },
           },
         },
-        NormalizedPlanningInput: {
+        ItineraryReadyResponse: {
           type: "object",
+          additionalProperties: false,
           required: [
-            "destination",
-            "destinationType",
-            "origin",
-            "arrivalAirport",
-            "durationDays",
-            "hotelName",
-            "preferences",
-            "mustVisitPlaces",
-            "transportMode",
-          ],
-          properties: {
-            destination: { type: ["string", "null"] },
-            destinationType: {
-              type: ["string", "null"],
-              enum: ["region", "place", null],
-            },
-            origin: { type: ["string", "null"] },
-            arrivalAirport: { type: ["string", "null"] },
-            durationDays: { type: ["integer", "null"] },
-            hotelName: { type: ["string", "null"] },
-            preferences: { type: "array", items: { type: "string" } },
-            mustVisitPlaces: { type: "array", items: { type: "string" } },
-            transportMode: {
-              type: ["string", "null"],
-              enum: ["drive", "transit", null],
-            },
-          },
-        },
-        RecommendItineraryRequest: {
-          type: "object",
-          required: ["latestUserMessage", "destination", "durationDays"],
-          anyOf: [{ required: ["origin"] }, { required: ["arrivalAirport"] }],
-          properties: {
-            latestUserMessage: {
-              type: "string",
-              minLength: 1,
-              description:
-                "The exact latest user-authored message. Do not summarize, combine turns, or insert a transport choice. The server derives the confirmed mode from this text.",
-            },
-            destination: {
-              type: "string",
-              description: "A Korean region, city, or user-selected place such as 경주월드.",
-            },
-            destinationType: {
-              type: "string",
-              enum: ["region", "place"],
-              default: "region",
-              description:
-                "Use region for a travel area that must not become a stop; use place for a user-selected destination. Omitted values are treated as region.",
-            },
-            mustVisitPlaces: {
-              type: "array",
-              items: { type: "string" },
-              description: "Exact user-requested places that must remain fixed.",
-            },
-            durationDays: {
-              type: "integer",
-              minimum: 1,
-              maximum: PLANME_EXTERNAL_MAX_DURATION_DAYS,
-              description: PLANME_EXTERNAL_DURATION_ERROR_MESSAGE,
-            },
-            arrivalAirport: { type: "string" },
-            arrivalTime: { type: "string" },
-            hotelName: { type: "string" },
-            origin: {
-              type: "string",
-              description:
-                "The user's origin text. Broad regions such as 동탄 are valid; never ask for a more exact place name or address. The server resolves a representative departure point.",
-            },
-            travelerCount: { type: "integer", minimum: 1, maximum: 20 },
-            luggageCount: { type: "integer", minimum: 0, maximum: 20 },
-            preferences: { type: "array", items: { type: "string" } },
-            clarificationAnswers: {
-              oneOf: [
-                { type: "string" },
-                { type: "array", items: { type: "string" } },
-              ],
-              description: "User answers for unresolved place clarification questions.",
-            },
-            clarificationContext: {
-              $ref: "#/components/schemas/PlanmeClarificationContext",
-            },
-            theme: { type: "string", enum: ["light", "dark"] },
-          },
-        },
-        ItineraryActionResponse: {
-          type: "object",
-          required: [
-            "itineraryId",
-            "title",
-            "summary",
-            "standardTotalMinutes",
-            "carrymeTotalMinutes",
-            "days",
-            "savingStatus",
-            "pageUrl",
-            "detailLinkMarkdown",
-            "highlights",
-            "traceId",
-          ],
-          properties: {
-            itineraryId: { type: "string" },
-            title: { type: "string" },
-            summary: { type: "string" },
-            standardTotalMinutes: { type: "integer" },
-            carrymeTotalMinutes: { type: "integer" },
-            days: {
-              type: "array",
-              items: { $ref: "#/components/schemas/PlanmeItineraryDaySummary" },
-            },
-            savedMinutes: { type: "integer" },
-            savingStatus: {
-              type: "string",
-              enum: ["verified", "hidden_estimated"],
-            },
-            pageUrl: { type: "string", format: "uri" },
-            detailLinkMarkdown: {
-              type: "string",
-              description:
-                "Render this exact Markdown link in the final answer without changing or omitting its URL.",
-            },
-            ogImageUrl: { type: "string", format: "uri" },
-            highlights: { type: "array", items: { type: "string" } },
-            status: { type: "string", enum: ["ready"] },
-            validationIssues: { type: "array", items: { type: "string" } },
-            transportMode: { type: "string", enum: ["drive", "transit"] },
-            traceId: { type: "string", description: "Operational correlation identifier." },
-          },
-        },
-        PlanmeRouteSummary: {
-          type: "object",
-          required: ["durationMinutes", "end", "start"],
-          properties: {
-            durationMinutes: { type: "integer" },
-            end: { type: "string" },
-            endTime: { type: "string" },
-            start: { type: "string" },
-            startTime: { type: "string" },
-          },
-        },
-        PlanmeLuggageDeliverySummary: {
-          type: "object",
-          required: ["target", "time"],
-          properties: {
-            target: { type: "string" },
-            targetRole: {
-              type: "string",
-              enum: ["출발지", "방문지", "숙소", "복귀지"],
-            },
-            time: { type: "string" },
-          },
-        },
-        PlanmeItineraryDaySummary: {
-          type: "object",
-          required: [
-            "carryme",
-            "day",
-            "isFinalDay",
-            "label",
-            "returnsToTripOrigin",
-            "sameEndpoints",
-            "savingStatus",
-            "standard",
-          ],
-          properties: {
-            carryme: { $ref: "#/components/schemas/PlanmeRouteSummary" },
-            day: { type: "integer" },
-            isFinalDay: { type: "boolean" },
-            label: { type: "string" },
-            luggageDelivery: {
-              $ref: "#/components/schemas/PlanmeLuggageDeliverySummary",
-            },
-            returnsToTripOrigin: { type: "boolean" },
-            sameEndpoints: { type: "boolean" },
-            savedMinutes: { type: "integer" },
-            savingStatus: {
-              type: "string",
-              enum: ["verified", "hidden_estimated"],
-            },
-            standard: { $ref: "#/components/schemas/PlanmeRouteSummary" },
-          },
-        },
-        PlanmeClarificationContext: {
-          type: "object",
-          required: ["previousAnswers", "previousQuestions", "round", "unresolvedPlaces"],
-          properties: {
-            previousAnswers: { type: "array", items: { type: "string" } },
-            previousQuestions: { type: "array", items: { type: "string" } },
-            round: { type: "integer", minimum: 0, maximum: 2 },
-            unresolvedPlaces: { type: "array", items: { type: "string" } },
-          },
-        },
-        InvalidRequestResponse: {
-          type: "object",
-          required: ["error", "validationIssues"],
-          properties: {
-            error: { type: "string" },
-            validationIssues: {
-              type: "array",
-              items: {
-                type: "object",
-                required: ["path", "message"],
-                properties: {
-                  path: { type: "string" },
-                  message: { type: "string" },
-                },
-              },
-            },
-          },
-        },
-        InvalidRecommendationRequestResponse: {
-          type: "object",
-          required: ["error", "traceId", "validationIssues"],
-          properties: {
-            error: { type: "string", enum: ["INVALID_PLANME_RECOMMENDATION_REQUEST"] },
-            traceId: { type: "string", format: "uuid" },
-            validationIssues: {
-              type: "array",
-              items: {
-                type: "object",
-                required: ["path", "message"],
-                properties: {
-                  path: { type: "string" },
-                  message: { type: "string" },
-                },
-              },
-            },
-          },
-        },
-        PlanmeErrorResponse: {
-          type: "object",
-          required: ["error", "message", "retryable", "stage", "status", "traceId"],
-          properties: {
-            error: { type: "string" },
-            message: { type: "string" },
-            retryable: { type: "boolean" },
-            stage: { type: "string", enum: [...PLANME_PUBLIC_FAILURE_STAGES] },
-            status: { type: "string", enum: ["error"] },
-            traceId: { type: "string", format: "uuid" },
-          },
-        },
-        PlanmeClarificationResponse: {
-          type: "object",
-          required: [
-            "clarificationContext",
-            "message",
-            "questions",
-            "resolutionLogs",
             "status",
-            "unresolvedStops",
-            "validationIssues",
-            "traceId",
+            "itineraryId",
+            "revision",
+            "pageUrl",
+            "widget",
+            "excludedRequestedPlaces",
           ],
           properties: {
-            clarificationContext: { $ref: "#/components/schemas/PlanmeClarificationContext" },
-            feedbackMessage: { type: "string" },
-            message: { type: "string" },
-            questions: { type: "array", items: { type: "string" } },
-            resolutionLogs: {
-              type: "array",
-              items: { $ref: "#/components/schemas/PlanmeResolutionLog" },
-            },
-            status: { type: "string", enum: ["needs_clarification"] },
-            unresolvedStops: { type: "array", items: { type: "string" } },
-            validationIssues: { type: "array", items: { type: "string" } },
-            traceId: { type: "string", description: "Operational correlation identifier." },
+            status: { type: "string", enum: ["ready"] },
+            itineraryId: { type: "string" },
+            revision: { type: "integer" },
+            pageUrl: { type: "string", format: "uri" },
+            widget: { type: "object" },
+            excludedRequestedPlaces: { type: "array", items: { type: "object" } },
           },
         },
-        PlanmeResolutionLog: {
+        ItineraryFailedResponse: {
           type: "object",
-          required: ["decisionStatus", "originalName", "reason", "source"],
+          additionalProperties: false,
+          required: ["status", "itineraryId", "errorCode", "message"],
           properties: {
-            decisionStatus: {
-              type: "string",
-              enum: ["accepted", "ambiguous", "rejected"],
-            },
-            originalName: { type: "string" },
-            query: { type: "string" },
-            reason: { type: "string" },
-            resolvedName: { type: "string" },
-            source: { type: "string" },
+            status: { type: "string", enum: ["failed"] },
+            itineraryId: { type: "string" },
+            errorCode: { type: "string" },
+            message: { type: "string" },
           },
         },
       },

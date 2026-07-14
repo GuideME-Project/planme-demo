@@ -11,3 +11,4 @@ export * from "./usage-events.js";
 export * from "./transit-stop-replacement.js";
 export * from "./itinerary-domain-contract.js";
 export * from "./external-duration-contract.js";
+export * from "./v3/index.js";
