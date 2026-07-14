@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   parseBrowserEditItineraryRequest,
@@ -140,16 +140,21 @@ try {
 }
 
 const root = join(import.meta.dirname, "../../..");
+const removedV3DetailPath = join(
+  root,
+  "apps/web/components/itinerary/V3ItineraryDetail.tsx",
+);
+assert.equal(existsSync(removedV3DetailPath), false);
 const v3BrowserSource = readFileSync(
-  join(root, "apps/web/components/itinerary/V3ItineraryDetail.tsx"),
+  join(root, "apps/web/app/itinerary/[id]/page.tsx"),
   "utf8",
 );
 assert.doesNotMatch(
   v3BrowserSource,
   /api\.odsay\.com|maps\.apigw\.ntruss\.com|routes\/finalize|NEXT_PUBLIC_ODSAY/,
 );
-assert.doesNotMatch(v3BrowserSource, /excludedRequestedPlaces/);
-assert.match(v3BrowserSource, /contentId/);
+assert.match(v3BrowserSource, /createV3DashboardItinerary/);
+assert.match(v3BrowserSource, /editingEnabled=\{false\}/);
 const browserEditRouteSource = readFileSync(
   join(
     root,

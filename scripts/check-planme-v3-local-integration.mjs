@@ -164,9 +164,12 @@ try {
     assert.match(body, /부산 여행 일정/);
     assert.match(body, /해운대/);
     assert.match(body, /부산 호텔/);
-    assert.match(body, /Standard 이동/);
-    assert.match(body, /CarryME 이동/);
+    assert.match(body, /동선 비교/);
+    assert.match(body, /상세 지도/);
+    assert.match(body, /서울역 → 부산 호텔 → 해운대 → 서울역/);
+    assert.match(body, /서울역 → 해운대 → 서울역/);
     assert.doesNotMatch(body, /존재하지 않는 장소/);
+    assert.equal(await page.getByTestId("destination-editor").count(), 0);
     const browserTitle = await page.title();
     assert.match(browserTitle, /^부산 여행 일정/);
     assert.equal(browserTitle.startsWith("PlanME"), false);
@@ -179,10 +182,10 @@ try {
       "부산 여행 일정",
     );
     const standardBox = await page
-      .getByText("Standard 이동", { exact: true })
+      .getByText("서울역 → 부산 호텔 → 해운대 → 서울역", { exact: true })
       .boundingBox();
     const carrymeBox = await page
-      .getByText("CarryME 이동", { exact: true })
+      .getByText("서울역 → 해운대 → 서울역", { exact: true })
       .boundingBox();
     assert.ok(standardBox);
     assert.ok(carrymeBox);

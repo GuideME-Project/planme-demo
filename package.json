@@ -17,7 +17,7 @@
     "test:finalization": "tsx apps/web/scripts/check-itinerary-finalization.ts",
     "test:completion": "npm --workspace @planme/core run build && tsx apps/web/scripts/check-planme-completion-criteria.ts",
     "test:route-normalization": "npm --workspace @planme/core run build && node scripts/check-planme-route-normalization.mjs",
-    "test:v3": "npm --workspace @planme/core run build && node scripts/check-planme-v3.mjs && tsx apps/web/scripts/check-planme-v3-providers.ts && tsx apps/web/scripts/check-planme-v3-store.ts && tsx apps/web/scripts/check-planme-v3-orchestrator.ts && tsx apps/web/scripts/check-planme-v3-api.ts",
+    "test:v3": "npm --workspace @planme/core run build && node scripts/check-planme-v3.mjs && tsx apps/web/scripts/check-planme-v3-providers.ts && tsx apps/web/scripts/check-planme-v3-store.ts && tsx apps/web/scripts/check-planme-v3-orchestrator.ts && tsx apps/web/scripts/check-planme-v3-api.ts && tsx apps/web/scripts/check-planme-v3-dashboard.ts",
     "test:local-v3": "npm --workspace @planme/core run build && node scripts/check-planme-v3-local-integration.mjs",
     "smoke:external": "npm --workspace @planme/mcp run smoke:external"
   },
