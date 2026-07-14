@@ -3016,6 +3016,7 @@ async function assertV3ChannelContract(): Promise<void> {
       assert.match(openApiText, /대화 전체의 확정값을 각각 별도 필드로 전달/);
       assert.match(openApiText, /동탄처럼 넓은 지역명도 유효/);
       assert.match(openApiText, /\[상세 일정 열기\]\(pageUrl\)/);
+      assert.match(openApiText, /detailLinkMarkdown/);
       assert.doesNotMatch(openApiText, /hotelName|clarificationContext|arrivalAirport/);
       assert.deepEqual(
         openApiPayload.components?.schemas?.PlanningSlot?.enum,
@@ -3095,6 +3096,10 @@ async function assertV3ChannelContract(): Promise<void> {
       const terminal = await recommendation.json();
       assert.equal(recommendation.status, 200);
       assert.equal(terminal.status, "ready");
+      assert.equal(
+        terminal.detailLinkMarkdown,
+        `[상세 일정 열기](${terminal.pageUrl})`,
+      );
       assert.deepEqual(startInputs[1]?.requestedPlaces, ["확인되지 않은 장소"]);
       assert.equal(
         terminal.excludedNotice,

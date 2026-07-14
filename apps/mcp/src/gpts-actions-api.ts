@@ -173,6 +173,7 @@ export async function handleGptsRecommendItineraryRequest(
     writeJson(response, 200, result.status === "ready"
       ? {
           ...result,
+          detailLinkMarkdown: `[상세 일정 열기](${result.pageUrl})`,
           excludedNotice: buildExcludedNotice(result.excludedRequestedPlaces),
         }
       : result);
@@ -491,6 +492,7 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             "itineraryId",
             "revision",
             "pageUrl",
+            "detailLinkMarkdown",
             "widget",
             "excludedRequestedPlaces",
             "excludedNotice",
@@ -504,6 +506,11 @@ function buildGptsOpenApiSchema(serverUrl: string) {
               format: "uri",
               description:
                 "사용자에게 [상세 일정 열기](pageUrl) 형식의 클릭 가능한 Markdown 링크로 제공할 상세 일정 URL입니다.",
+            },
+            detailLinkMarkdown: {
+              type: "string",
+              description:
+                "응답 마지막 줄에 한 글자도 바꾸지 않고 출력할 [상세 일정 열기](URL) 형식의 Markdown 링크입니다.",
             },
             widget: { type: "object" },
             excludedRequestedPlaces: { type: "array", items: { type: "object" } },
