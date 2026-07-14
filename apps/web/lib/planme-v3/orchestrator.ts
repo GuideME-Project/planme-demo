@@ -205,44 +205,73 @@ export function createPlanmeV3Orchestrator(
     }
 
     const inputDigest = await digestValue(resolved.value);
-    const created = await dependencies.jobStore.createGeneration({
-      idempotencyKey,
-      inputDigest,
-    });
+    const created = await runStartStorageStage(
+      "PLANME_V3_STORE_CREATE_STAGE_FAILED",
+      () => dependencies.jobStore.createGeneration({
+        idempotencyKey,
+        inputDigest,
+      }),
+    );
     if (created.status === "conflict") {
       return { status: "idempotency_conflict" };
     }
 
     if (created.meta.phase === "queued") {
-      const existing = await dependencies.jobStore.getCheckpoint(
-        created.itineraryId,
-        1,
-        "queued",
+      const existing = await runStartStorageStage(
+        "PLANME_V3_STORE_CHECKPOINT_READ_FAILED",
+        () => dependencies.jobStore.getCheckpoint(
+          created.itineraryId,
+          1,
+          "queued",
+        ),
       );
       if (!existing) {
-        await dependencies.jobStore.savePhase({
-          itineraryId: created.itineraryId,
-          revision: 1,
-          expectedPhase: "queued",
-          nextPhase: "resolving_anchors",
-          checkpoint: {
-            schemaVersion: 3,
-            phaseVersion: 1,
-            inputDigest,
-            payload: toJsonValue({ intent: resolved.value }),
-          },
-        });
+        await runStartStorageStage(
+          "PLANME_V3_STORE_PHASE_SAVE_FAILED",
+          () => dependencies.jobStore.savePhase({
+            itineraryId: created.itineraryId,
+            revision: 1,
+            expectedPhase: "queued",
+            nextPhase: "resolving_anchors",
+            checkpoint: {
+              schemaVersion: 3,
+              phaseVersion: 1,
+              inputDigest,
+              payload: toJsonValue({ intent: resolved.value }),
+            },
+          }),
+        );
       }
     }
 
     return (
-      (await getItineraryStatus(created.itineraryId)) ?? {
+      (await runStartStorageStage(
+        "PLANME_V3_STORE_STATUS_READ_FAILED",
+        () => getItineraryStatus(created.itineraryId),
+      )) ?? {
         status: "failed",
         itineraryId: created.itineraryId,
         errorCode: "JOB_CONFLICT",
         message: safeFailureMessage("JOB_CONFLICT"),
       }
     );
+  }
+
+  async function runStartStorageStage<Value>(
+    errorCode: string,
+    operation: () => Promise<Value>,
+  ): Promise<Value> {
+    try {
+      return await operation();
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.startsWith("PLANME_V3_REDIS_")
+      ) {
+        throw error;
+      }
+      throw new Error(errorCode);
+    }
   }
 
   async function startItineraryEdit(

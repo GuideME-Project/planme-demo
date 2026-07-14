@@ -138,6 +138,18 @@ export function classifyPlanmeV3RuntimeError(error: Error | null) {
   if (error?.message === "PLANME_V3_REDIS_CREATE_GENERATION_FAILED") {
     return "STORE_CREATE_GENERATION_FAILED" as const;
   }
+  if (error?.message === "PLANME_V3_STORE_CREATE_STAGE_FAILED") {
+    return "STORE_CREATE_STAGE_FAILED" as const;
+  }
+  if (error?.message === "PLANME_V3_STORE_CHECKPOINT_READ_FAILED") {
+    return "STORE_CHECKPOINT_READ_FAILED" as const;
+  }
+  if (error?.message === "PLANME_V3_STORE_PHASE_SAVE_FAILED") {
+    return "STORE_PHASE_SAVE_FAILED" as const;
+  }
+  if (error?.message === "PLANME_V3_STORE_STATUS_READ_FAILED") {
+    return "STORE_STATUS_READ_FAILED" as const;
+  }
   return "STORE_UNAVAILABLE" as const;
 }
 

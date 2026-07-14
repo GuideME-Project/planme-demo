@@ -34,6 +34,24 @@ assert.equal(
   ),
   "STORE_CREATE_GENERATION_FAILED",
 );
+assert.equal(
+  classifyPlanmeV3RuntimeError(new Error("PLANME_V3_STORE_CREATE_STAGE_FAILED")),
+  "STORE_CREATE_STAGE_FAILED",
+);
+assert.equal(
+  classifyPlanmeV3RuntimeError(
+    new Error("PLANME_V3_STORE_CHECKPOINT_READ_FAILED"),
+  ),
+  "STORE_CHECKPOINT_READ_FAILED",
+);
+assert.equal(
+  classifyPlanmeV3RuntimeError(new Error("PLANME_V3_STORE_PHASE_SAVE_FAILED")),
+  "STORE_PHASE_SAVE_FAILED",
+);
+assert.equal(
+  classifyPlanmeV3RuntimeError(new Error("PLANME_V3_STORE_STATUS_READ_FAILED")),
+  "STORE_STATUS_READ_FAILED",
+);
 
 const validStart = JSON.stringify({
   origin: "서울역",
@@ -159,7 +177,8 @@ assert.doesNotMatch(
   /createAiRecommendedItineraryResponse|searchPlanmePlaceCandidates|persistItineraryForDetailPage\(response/,
 );
 assert.match(mcpSources, /startPlanmeV3Itinerary/);
-assert.match(mcpSources, /createPlanmeIdempotencyKey\("gpts", invocationId\)/);
+assert.match(mcpSources, /const sourceId = invocationId \?\?/);
+assert.match(mcpSources, /createPlanmeIdempotencyKey\("gpts", sourceId\)/);
 assert.match(mcpSources, /createPlanmeIdempotencyKey\("mcp", requestId\)/);
 
 console.log("PlanME V3 API/browser boundary checks passed (V3-09). ");
