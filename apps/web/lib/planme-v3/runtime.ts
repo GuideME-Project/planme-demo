@@ -126,6 +126,9 @@ export function getPlanmeV3Storage() {
 }
 
 export function classifyPlanmeV3RuntimeError(error: Error | null) {
+  if (error?.message === "PLANME_V3_TOUR_API_CONFIGURATION_MISSING") {
+    return "TOUR_API_CONFIGURATION_MISSING" as const;
+  }
   if (error?.message === "PLANME_V3_STORAGE_CONFIGURATION_MISSING") {
     return "STORE_CONFIGURATION_MISSING" as const;
   }

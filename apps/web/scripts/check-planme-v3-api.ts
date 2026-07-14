@@ -12,6 +12,12 @@ import { classifyPlanmeV3RuntimeError } from "../lib/planme-v3/runtime";
 
 assert.equal(
   classifyPlanmeV3RuntimeError(
+    new Error("PLANME_V3_TOUR_API_CONFIGURATION_MISSING"),
+  ),
+  "TOUR_API_CONFIGURATION_MISSING",
+);
+assert.equal(
+  classifyPlanmeV3RuntimeError(
     new Error("PLANME_V3_STORAGE_CONFIGURATION_MISSING"),
   ),
   "STORE_CONFIGURATION_MISSING",
