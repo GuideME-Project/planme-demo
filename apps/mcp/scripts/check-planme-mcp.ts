@@ -3001,6 +3001,9 @@ async function assertV3ChannelContract(): Promise<void> {
       assert.match(openApiText, /사용자에게 질문하지 않습니다/);
       assert.match(openApiText, /excludedNotice/);
       assert.match(openApiText, /내용을 바꾸지 말고 사용자에게 그대로 출력/);
+      assert.match(openApiText, /이전 턴에서 확정한 값을 반드시 다시 포함/);
+      assert.match(openApiText, /대화 전체의 확정값을 각각 별도 필드로 전달/);
+      assert.match(openApiText, /동탄처럼 넓은 지역명도 유효/);
       assert.doesNotMatch(openApiText, /hotelName|clarificationContext|arrivalAirport/);
       assert.deepEqual(
         openApiPayload.components?.schemas?.PlanningSlot?.enum,
