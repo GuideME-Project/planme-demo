@@ -2939,6 +2939,7 @@ async function assertV3ChannelContract(): Promise<void> {
   };
   let startCount = 0;
   const idempotencyKeys: string[] = [];
+  const startInputs: Array<{ transportMode?: string }> = [];
   let capturedDeadline = 0;
 
   try {
@@ -2958,6 +2959,7 @@ async function assertV3ChannelContract(): Promise<void> {
         idempotencyKeys.push(
           new Headers(init?.headers).get("idempotency-key") ?? "",
         );
+        startInputs.push(JSON.parse(String(init?.body)) as { transportMode?: string });
         return jsonResponse({
           status: "processing",
           itineraryId: "planme-v3-contract",
@@ -3015,7 +3017,7 @@ async function assertV3ChannelContract(): Promise<void> {
         new Set(["origin", "transportMode", "durationDays"]),
       );
 
-      const missingInvocation = await originalFetch(
+      const missingTransport = await originalFetch(
         `${actions.origin}/api/gpt/itineraries/recommend`,
         {
           method: "POST",
@@ -3023,12 +3025,36 @@ async function assertV3ChannelContract(): Promise<void> {
           body: JSON.stringify({
             origin: "서울역",
             destination: "부산",
-            transportMode: "대중교통",
             durationDays: 1,
           }),
         },
       );
-      assert.equal(missingInvocation.status, 400);
+      const missingTransportPayload = (await missingTransport.json()) as PlanningContent;
+      assert.equal(missingTransport.status, 200);
+      assert.equal(missingTransportPayload.status, "needs_input");
+      assert.deepEqual(missingTransportPayload.missingSlots, ["transportMode"]);
+      assert.equal(startCount, 0);
+
+      const legacyRecommendation = await originalFetch(
+        `${actions.origin}/api/gpt/itineraries/recommend`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            latestUserMessage:
+              "강원도 양양군에서 경상남도 거제시로 대중교통을 이용하는 1박 2일 여행 일정을 만들어줘.",
+            origin: "강원도 양양군",
+            destination: "경상남도 거제시",
+            destinationType: "region",
+            durationDays: 2,
+          }),
+        },
+      );
+      const legacyTerminal = await legacyRecommendation.json();
+      assert.equal(legacyRecommendation.status, 200);
+      assert.equal(legacyTerminal.status, "ready");
+      assert.match(idempotencyKeys[0] ?? "", /^gpts:legacy:/);
+      assert.equal(startInputs[0]?.transportMode, "transit");
 
       const beforeRequest = Date.now();
       const recommendation = await originalFetch(
@@ -3048,7 +3074,7 @@ async function assertV3ChannelContract(): Promise<void> {
       const terminal = await recommendation.json();
       assert.equal(recommendation.status, 200);
       assert.equal(terminal.status, "ready");
-      assert.equal(idempotencyKeys[0], "gpts:gpts-contract-1");
+      assert.equal(idempotencyKeys[1], "gpts:gpts-contract-1");
       assert.ok(capturedDeadline >= beforeRequest + 41_000);
       assert.ok(capturedDeadline <= Date.now() + 42_000);
     } finally {
@@ -3099,8 +3125,8 @@ async function assertV3ChannelContract(): Promise<void> {
       });
       const startedContent = started.structuredContent as { status?: string };
       assert.equal(startedContent.status, "processing");
-      assert.match(idempotencyKeys[1] ?? "", /^mcp:/);
-      assert.notEqual(idempotencyKeys[0], idempotencyKeys[1]);
+      assert.match(idempotencyKeys[2] ?? "", /^mcp:/);
+      assert.notEqual(idempotencyKeys[1], idempotencyKeys[2]);
 
       const advanced = await client.callTool({
         name: "get_planme_itinerary",
@@ -3129,7 +3155,7 @@ async function assertV3ChannelContract(): Promise<void> {
       await client.close();
       mcp.server.close();
     }
-    assert.equal(startCount, 2);
+    assert.equal(startCount, 3);
   } finally {
     if (originalWebOrigin === undefined) delete process.env.PLANME_WEB_ORIGIN;
     else process.env.PLANME_WEB_ORIGIN = originalWebOrigin;
