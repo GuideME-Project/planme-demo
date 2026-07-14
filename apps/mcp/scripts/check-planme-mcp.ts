@@ -3023,6 +3023,7 @@ async function assertV3ChannelContract(): Promise<void> {
       assert.match(openApiText, /동탄처럼 넓은 지역명도 유효/);
       assert.match(openApiText, /\[상세 일정 열기\]\(pageUrl\)/);
       assert.match(openApiText, /detailLinkMarkdown/);
+      assert.match(openApiText, /finalAnswerMarkdown을 한 글자도 바꾸거나 덧붙이지 말고/);
       assert.doesNotMatch(openApiText, /hotelName|clarificationContext|arrivalAirport/);
       assert.deepEqual(
         openApiPayload.components?.schemas?.PlanningSlot?.enum,
@@ -3106,6 +3107,11 @@ async function assertV3ChannelContract(): Promise<void> {
         terminal.detailLinkMarkdown,
         `[상세 일정 열기](${terminal.pageUrl})`,
       );
+      assert.match(terminal.finalAnswerMarkdown, /\*\*부산 여행 일정\*\*/);
+      assert.match(terminal.finalAnswerMarkdown, /서울역 출발 · 대중교통 · 1일/);
+      assert.match(terminal.finalAnswerMarkdown, /확인되지 않은 장소/);
+      assert.ok(terminal.finalAnswerMarkdown.endsWith(terminal.detailLinkMarkdown));
+      assert.equal("widget" in terminal, false);
       assert.equal(new URL(terminal.pageUrl).origin, actions.origin);
       const detailRedirect = await originalFetch(terminal.pageUrl, {
         redirect: "manual",

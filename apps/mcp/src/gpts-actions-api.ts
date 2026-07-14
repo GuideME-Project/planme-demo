@@ -174,12 +174,41 @@ export async function handleGptsRecommendItineraryRequest(
     const actionPageUrl = result.status === "ready"
       ? createActionPageUrl(request, result.itineraryId)
       : undefined;
+    const highlights = result.status === "ready"
+      ? result.widget.days.flatMap((day) => day.visits.map((visit) => visit.title))
+      : [];
+    const detailLinkMarkdown = result.status === "ready"
+      ? `[상세 일정 열기](${actionPageUrl})`
+      : undefined;
+    const excludedNotice = result.status === "ready"
+      ? buildExcludedNotice(result.excludedRequestedPlaces)
+      : "";
     writeJson(response, 200, result.status === "ready"
       ? {
-          ...result,
-          pageUrl: actionPageUrl,
-          detailLinkMarkdown: `[상세 일정 열기](${actionPageUrl})`,
-          excludedNotice: buildExcludedNotice(result.excludedRequestedPlaces),
+          status: result.status,
+          finalAnswerMarkdown: buildFinalAnswerMarkdown({
+            detailLinkMarkdown: detailLinkMarkdown!,
+            durationDays: result.widget.durationDays,
+            excludedNotice,
+            highlights,
+            origin: startInput.origin,
+            savedMinutes: result.widget.savedMinutes,
+            title: result.widget.title,
+            transportMode: result.widget.transportMode,
+          }),
+          detailLinkMarkdown: detailLinkMarkdown!,
+          itineraryId: result.itineraryId,
+          revision: result.revision,
+          pageUrl: actionPageUrl!,
+          title: result.widget.title,
+          origin: startInput.origin,
+          destination: startInput.destination,
+          durationDays: result.widget.durationDays,
+          transportMode: result.widget.transportMode,
+          highlights,
+          savedMinutes: result.widget.savedMinutes,
+          excludedRequestedPlaces: result.excludedRequestedPlaces,
+          excludedNotice,
         }
       : result);
   } catch (error) {
@@ -190,6 +219,27 @@ export async function handleGptsRecommendItineraryRequest(
     }
     writeJson(response, 503, { error: "PLANME_WEB_UNAVAILABLE" });
   }
+}
+
+function buildFinalAnswerMarkdown(input: {
+  detailLinkMarkdown: string;
+  durationDays: number;
+  excludedNotice: string;
+  highlights: string[];
+  origin: string;
+  savedMinutes: number;
+  title: string;
+  transportMode: "drive" | "transit";
+}) {
+  const transportLabel = input.transportMode === "drive" ? "자동차" : "대중교통";
+  return [
+    `**${input.title}**이 완성됐습니다.`,
+    `${input.origin} 출발 · ${transportLabel} · ${input.durationDays}일`,
+    input.highlights.length > 0 ? `주요 일정: ${input.highlights.join(", ")}` : "",
+    `CarryME 예상 절약 시간: ${input.savedMinutes}분`,
+    input.excludedNotice,
+    input.detailLinkMarkdown,
+  ].filter(Boolean).join("\n\n");
 }
 
 export function handleGptsItineraryOpenRequest(
@@ -420,7 +470,7 @@ function buildGptsOpenApiSchema(serverUrl: string) {
           operationId: "recommendPlanmeItinerary",
           summary: "TourAPI 기반 일정을 42초 안에 생성",
           description:
-            "대화 전체에서 출발지, 목적지, 여행 일수, 이동 수단이 모두 확정된 뒤 한 번만 호출합니다. 최신 사용자 메시지에 없는 값도 이전 턴의 확정값을 누적해 네 필드를 모두 전달합니다. status=ready 응답은 pageUrl을 반드시 [상세 일정 열기](pageUrl) 형식의 클릭 가능한 Markdown 링크로 출력하며 일반 텍스트로 대체하지 않습니다.",
+            "대화 전체에서 출발지, 목적지, 여행 일수, 이동 수단이 모두 확정된 뒤 한 번만 호출합니다. 최신 사용자 메시지에 없는 값도 이전 턴의 확정값을 누적해 네 필드를 모두 전달합니다. status=ready이면 finalAnswerMarkdown을 한 글자도 바꾸거나 덧붙이지 말고 최종 답변 전체로 그대로 출력합니다.",
           requestBody: {
             required: true,
             content: {
@@ -525,16 +575,33 @@ function buildGptsOpenApiSchema(serverUrl: string) {
           additionalProperties: false,
           required: [
             "status",
+            "finalAnswerMarkdown",
+            "detailLinkMarkdown",
             "itineraryId",
             "revision",
             "pageUrl",
-            "detailLinkMarkdown",
-            "widget",
+            "title",
+            "origin",
+            "destination",
+            "durationDays",
+            "transportMode",
+            "highlights",
+            "savedMinutes",
             "excludedRequestedPlaces",
             "excludedNotice",
           ],
           properties: {
             status: { type: "string", enum: ["ready"] },
+            finalAnswerMarkdown: {
+              type: "string",
+              description:
+                "한 글자도 바꾸거나 덧붙이지 말고 최종 답변 전체로 그대로 출력할 Markdown입니다.",
+            },
+            detailLinkMarkdown: {
+              type: "string",
+              description:
+                "응답 마지막 줄에 포함된 [상세 일정 열기](URL) 형식의 Markdown 링크입니다.",
+            },
             itineraryId: { type: "string" },
             revision: { type: "integer" },
             pageUrl: {
@@ -543,12 +610,13 @@ function buildGptsOpenApiSchema(serverUrl: string) {
               description:
                 "Action 서버와 같은 도메인에서 웹 상세 화면으로 안전하게 연결되는 URL입니다. 사용자에게 [상세 일정 열기](pageUrl) 형식의 클릭 가능한 Markdown 링크로 제공합니다.",
             },
-            detailLinkMarkdown: {
-              type: "string",
-              description:
-                "응답 마지막 줄에 한 글자도 바꾸지 않고 출력할 [상세 일정 열기](URL) 형식의 Markdown 링크입니다.",
-            },
-            widget: { type: "object" },
+            title: { type: "string" },
+            origin: { type: "string" },
+            destination: { type: "string" },
+            durationDays: { type: "integer" },
+            transportMode: { type: "string", enum: ["drive", "transit"] },
+            highlights: { type: "array", items: { type: "string" } },
+            savedMinutes: { type: "integer" },
             excludedRequestedPlaces: { type: "array", items: { type: "object" } },
             excludedNotice: {
               type: "string",
