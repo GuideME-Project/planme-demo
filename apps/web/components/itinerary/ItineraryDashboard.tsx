@@ -56,6 +56,7 @@ import { usePlanmeColorMode } from "@/theme/ThemeRegistry";
 type ItineraryDashboardProps = {
   itinerary: PlanmeItinerary;
   compact: boolean;
+  editingEnabled?: boolean;
   finalizationToken?: string;
   routeFinalized?: boolean;
   routeRevision?: number;
@@ -2083,6 +2084,7 @@ function createPendingRoute(route: RoutePlan, durationLabel: string): RoutePlan 
 export function ItineraryDashboard({
   itinerary,
   compact,
+  editingEnabled = true,
   finalizationToken,
   routeFinalized = false,
   routeRevision = 0,
@@ -2547,15 +2549,17 @@ export function ItineraryDashboard({
                   </ToggleButton>
                 ))}
               </ToggleButtonGroup>
-              <Button
-                aria-label="일자 추가"
-                onClick={handleAddDay}
-                size="small"
-                sx={{ minWidth: 42, px: 1 }}
-                variant="outlined"
-              >
-                <AddRoundedIcon fontSize="small" />
-              </Button>
+              {editingEnabled ? (
+                <Button
+                  aria-label="일자 추가"
+                  onClick={handleAddDay}
+                  size="small"
+                  sx={{ minWidth: 42, px: 1 }}
+                  variant="outlined"
+                >
+                  <AddRoundedIcon fontSize="small" />
+                </Button>
+              ) : null}
             </Stack>
 
             <Stack
@@ -2657,7 +2661,7 @@ export function ItineraryDashboard({
                     standardStops={displayStandardRoute.stops}
                   />
 
-                  <Box
+                  {editingEnabled ? <Box
                     aria-busy={finalizationStatus === "loading"}
                     sx={{
                       opacity: finalizationStatus === "loading" ? 0.55 : 1,
@@ -2678,7 +2682,7 @@ export function ItineraryDashboard({
                       transportMode={transportMode}
                       onTransportModeChange={handleTransportModeChange}
                     />
-                  </Box>
+                  </Box> : null}
                 </>
               ) : null}
 

@@ -278,29 +278,57 @@ function matchTourRegion(
       },
     ];
   });
-  const matches = normalized.filter((region) => {
+  const candidates = normalized.map((region) => {
     const regionName = normalizeRegionName(region.regionName);
     const districtName = normalizeRegionName(region.districtName ?? "");
-    return (
-      comparableDestination.includes(regionName) ||
-      regionName.includes(comparableDestination) ||
-      (districtName && comparableDestination.includes(districtName))
-    );
+    return {
+      ...region,
+      regionMatch: Boolean(
+        regionName &&
+          (comparableDestination.includes(regionName) ||
+            regionName.includes(comparableDestination)),
+      ),
+      districtMatch: Boolean(
+        districtName && comparableDestination.includes(districtName),
+      ),
+    };
   });
+  const hasParentRegion = candidates.some((candidate) => candidate.regionMatch);
+  const matchedParentRegionCodes = new Set(
+    candidates
+      .filter((candidate) => candidate.regionMatch)
+      .map((candidate) => candidate.regionCode),
+  );
+  if (matchedParentRegionCodes.size > 1) {
+    return null;
+  }
+  const parentCandidates = hasParentRegion
+    ? candidates.filter((candidate) => candidate.regionMatch)
+    : candidates.filter((candidate) => candidate.districtMatch);
+  const hasDistrictWithinParent = parentCandidates.some(
+    (candidate) => candidate.districtMatch,
+  );
+  const regionOnlyCandidates = parentCandidates.filter(
+    (candidate) => !candidate.districtCode,
+  );
+  const matches = hasDistrictWithinParent
+    ? parentCandidates.filter((candidate) => candidate.districtMatch)
+    : regionOnlyCandidates.length > 0
+      ? regionOnlyCandidates
+      : parentCandidates;
+
+  if (!hasParentRegion) {
+    const matchedRegionCodes = new Set(matches.map((match) => match.regionCode));
+    if (matchedRegionCodes.size > 1) {
+      return null;
+    }
+  }
 
   matches.sort((left, right) => {
-    const leftDistrictMatch = Boolean(
-      left.districtName &&
-        comparableDestination.includes(normalizeRegionName(left.districtName)),
-    );
-    const rightDistrictMatch = Boolean(
-      right.districtName &&
-        comparableDestination.includes(normalizeRegionName(right.districtName)),
-    );
-    if (leftDistrictMatch !== rightDistrictMatch) {
-      return Number(rightDistrictMatch) - Number(leftDistrictMatch);
+    if (left.districtMatch !== right.districtMatch) {
+      return Number(right.districtMatch) - Number(left.districtMatch);
     }
-    if (!leftDistrictMatch && Boolean(left.districtCode) !== Boolean(right.districtCode)) {
+    if (!left.districtMatch && Boolean(left.districtCode) !== Boolean(right.districtCode)) {
       return Number(Boolean(left.districtCode)) - Number(Boolean(right.districtCode));
     }
     const districtLengthDifference =
@@ -310,7 +338,16 @@ function matchTourRegion(
       : left.regionCode.localeCompare(right.regionCode);
   });
 
-  return matches[0] ?? null;
+  const match = matches[0];
+  if (!match) {
+    return null;
+  }
+  return {
+    regionCode: match.regionCode,
+    regionName: match.regionName,
+    ...(match.districtCode ? { districtCode: match.districtCode } : {}),
+    ...(match.districtName ? { districtName: match.districtName } : {}),
+  };
 }
 
 function createCandidateParams(

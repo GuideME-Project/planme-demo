@@ -61,10 +61,23 @@ const tourClient = createTourApiClient({
         response: {
           header: { resultCode: "0000", resultMsg: "OK" },
           body: {
-            totalCount: 2,
+            totalCount: 9,
             items: {
               item: [
                 { lDongRegnCd: "11", lDongRegnNm: "서울특별시" },
+                {
+                  lDongRegnCd: "11",
+                  lDongRegnNm: "서울특별시",
+                  lDongSignguCd: "11140",
+                  lDongSignguNm: "중구",
+                },
+                { lDongRegnCd: "28", lDongRegnNm: "인천광역시" },
+                {
+                  lDongRegnCd: "28",
+                  lDongRegnNm: "인천광역시",
+                  lDongSignguCd: "28110",
+                  lDongSignguNm: "중구",
+                },
                 { lDongRegnCd: "26", lDongRegnNm: "부산광역시" },
                 {
                   lDongRegnCd: "26",
@@ -73,6 +86,7 @@ const tourClient = createTourApiClient({
                   lDongSignguNm: "해운대구",
                 },
                 { lDongRegnCd: "47", lDongRegnNm: "경상북도" },
+                { lDongRegnCd: "48", lDongRegnNm: "경상남도" },
                 {
                   lDongRegnCd: "47",
                   lDongRegnNm: "경상북도",
@@ -142,6 +156,14 @@ assert.deepEqual(await tourClient.resolveRegion("구미시"), {
   districtCode: "47190",
   districtName: "구미시",
 });
+assert.deepEqual(await tourClient.resolveRegion("인천광역시 중구"), {
+  regionCode: "28",
+  regionName: "인천광역시",
+  districtCode: "28110",
+  districtName: "중구",
+});
+assert.equal(await tourClient.resolveRegion("중구"), null);
+assert.equal(await tourClient.resolveRegion("경상"), null);
 const tourResult: TourCandidateQueryResult = await tourClient.listCandidates({
   contentTypeId: 12,
   region,
@@ -163,6 +185,9 @@ const stayRequest = requestedUrls.at(-1);
 assert.equal(stayRequest?.pathname.endsWith("/searchStay2"), true);
 assert.equal(stayRequest?.searchParams.get("contentTypeId"), null);
 assert.deepEqual(tourUsageEvents, [
+  "tourapi_request",
+  "tourapi_request",
+  "tourapi_request",
   "tourapi_request",
   "tourapi_request",
   "tourapi_request",

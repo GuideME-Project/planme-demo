@@ -6,3 +6,4 @@ export * from "./deterministic-arranger.js";
 export * from "./scheduler.js";
 export * from "./route-policy.js";
 export * from "./display.js";
+export * from "./dashboard.js";
