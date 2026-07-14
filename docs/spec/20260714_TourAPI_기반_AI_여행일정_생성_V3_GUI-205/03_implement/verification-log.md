@@ -217,3 +217,12 @@ PlanME GPT의 새 채팅에서 다음 요청을 실행했다.
 - 현재 worktree와 기준 `main` 체크아웃의 웹 로컬 환경에 TourAPI 키를 반영했다.
 - 민감값 원문은 Git과 검증 문서에 기록하지 않았다.
 - PR #74의 병합 배포 뒤 PlanME GPT 새 채팅 시나리오와 실제 공급자·Upstash 흐름을 다시 검증한다.
+
+### PR #74 운영 재검증
+
+- PR #74 병합 커밋 `1bff3d8`의 웹·MCP 운영 배포가 모두 성공했다.
+- PlanME GPT 새 채팅에서 양양 출발, 거제 도착, 대중교통, 1박 2일 요청을 실행하고 Action을 허용했다.
+- Action은 `INTERNAL_CONFIGURATION_ERROR`를 반환했다.
+- 코드와 Vercel 변수 이름을 대조한 결과 서버 지오코딩이 요구하는 `NAVER_MAPS_CLIENT_ID`와 대중교통 경로가 요구하는 `ODSAY_API_KEY`가 없고, 각각 브라우저용 변수만 존재했다.
+- 기존 로컬 값을 새로 생성하지 않고 서버용 변수 이름으로 복제해 현재 worktree, 기준 `main` 체크아웃, Vercel Production·Preview에 반영했다.
+- 민감값 원문은 Git과 검증 문서에 기록하지 않았다.
