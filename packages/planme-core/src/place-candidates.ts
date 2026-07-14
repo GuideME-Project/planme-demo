@@ -23,7 +23,7 @@ export type PlanmePlaceCandidate = {
   sourceRef: string;
 };
 
-export type PlanmeRequiredPlaceKind = "origin" | "destination" | "must_visit";
+export type PlanmeRequiredPlaceKind = "origin" | "destination";
 
 export type PlanmeResolvedRequiredPlace = {
   address?: string;
@@ -36,7 +36,7 @@ export type PlanmeResolvedRequiredPlace = {
 };
 
 export type PlanmeResolvedRequiredPlaces = {
-  destinations: PlanmeResolvedRequiredPlace[];
+  destination: PlanmeResolvedRequiredPlace;
   origin: PlanmeResolvedRequiredPlace;
 };
 
@@ -46,9 +46,7 @@ export type PlanmePlaceCandidateSearchInput = {
   preferences?: string[];
   query?: string;
   region?: string;
-  signal?: AbortSignal;
   stop: PlanmeDraftStop;
-  timeoutMs?: number;
   userIntent?: string;
 };
 
@@ -79,13 +77,10 @@ type SearchPlanmePlaceCandidateOptions = {
   clientId?: string;
   clientSecret?: string;
   fetchImpl?: typeof fetch;
-  signal?: AbortSignal;
-  timeoutMs?: number;
   usageRecorder?: PlanmeUsageRecorder;
 };
 
 const NAVER_LOCAL_SEARCH_URL = "https://openapi.naver.com/v1/search/local.json";
-const DEFAULT_NAVER_LOCAL_TIMEOUT_MS = 4_000;
 const DEFAULT_PLANME_PLACE_CANDIDATE_LIMIT = 5;
 const MAX_PLANME_PLACE_CANDIDATE_LIMIT = 5;
 const NAVER_LOCAL_COORDINATE_SCALE = 10_000_000;
@@ -149,11 +144,6 @@ export async function searchPlanmePlaceCandidates(
       fetchImpl,
       maxCandidates,
       query,
-      signal: input.signal ?? options.signal,
-      timeoutMs: Math.min(
-        input.timeoutMs ?? DEFAULT_NAVER_LOCAL_TIMEOUT_MS,
-        options.timeoutMs ?? DEFAULT_NAVER_LOCAL_TIMEOUT_MS,
-      ),
       usageRecorder: options.usageRecorder,
     });
 
@@ -199,181 +189,6 @@ export function hasPlanmePlaceCandidateHardGate(
 }
 
 /**
- * Selects a required user place only when the provider name matches the requested place boundary.
- *
- * Local search can rank businesses that merely contain a landmark name above the landmark itself,
- * for example a hair salon named after 동탄호수공원. Required anchors must not silently drift to
- * those nearby businesses.
- */
-export function selectPlanmeRequiredPlaceCandidate(
-  inputText: string,
-  candidates: PlanmePlaceCandidate[],
-): PlanmePlaceCandidate | null {
-  const expectedName = normalizeRequiredPlaceName(inputText);
-  const validCandidates = candidates.filter(hasPlanmePlaceCandidateHardGate);
-
-  if (!expectedName) {
-    return null;
-  }
-
-  const exactCandidate = validCandidates.find(
-    (candidate) => normalizeRequiredPlaceName(candidate.name) === expectedName,
-  );
-
-  if (exactCandidate) {
-    return exactCandidate;
-  }
-
-  const boundaryCandidates = validCandidates
-    .map((candidate, index) => ({
-      candidate,
-      index,
-      normalizedName: normalizeRequiredPlaceName(candidate.name),
-    }))
-    .filter(({ normalizedName }) =>
-      isRequiredPlaceBoundaryMatch(expectedName, normalizedName),
-    )
-    .sort((left, right) =>
-      left.normalizedName.length - right.normalizedName.length || left.index - right.index,
-    );
-
-  const boundaryCandidate = boundaryCandidates[0]?.candidate;
-
-  if (boundaryCandidate) {
-    return boundaryCandidate;
-  }
-
-  // Government-office local searches can return an amenity inside the exact
-  // building instead of the building POI. Accept it only when the provider
-  // address itself names the requested office, and preserve the user's label.
-  if (/(?:구청|시청|군청|도청)$/.test(expectedName)) {
-    const addressCandidate = validCandidates.find((candidate) =>
-      normalizeRequiredPlaceName(candidate.address ?? "").includes(expectedName),
-    );
-
-    if (addressCandidate) {
-      return { ...addressCandidate, name: inputText.trim() };
-    }
-  }
-
-  return null;
-}
-
-/**
- * Selects a provider-backed representative point for a region-like departure.
- *
- * Broad origins such as 동탄 are not exact POIs. Naver Local can return an
- * administrative region together with unrelated businesses that contain the
- * same region name, so only administrative or public-anchor candidates are
- * eligible here. Exact landmarks keep using selectPlanmeRequiredPlaceCandidate.
- */
-export function selectPlanmeBroadOriginCandidate(
-  inputText: string,
-  candidates: PlanmePlaceCandidate[],
-): PlanmePlaceCandidate | null {
-  const aliases = createBroadOriginAliases(inputText);
-  const validCandidates = candidates.filter(hasPlanmePlaceCandidateHardGate);
-
-  if (aliases.length === 0) {
-    return null;
-  }
-
-  const exactCandidate = validCandidates.find((candidate) =>
-    aliases.includes(normalizeRequiredPlaceName(candidate.name)),
-  );
-
-  if (exactCandidate) {
-    return exactCandidate;
-  }
-
-  return validCandidates
-    .map((candidate, index) => {
-      const normalizedAddress = normalizeRequiredPlaceName(candidate.address ?? "");
-      const normalizedCategory = normalizeRequiredPlaceName(candidate.category ?? "");
-      const normalizedName = normalizeRequiredPlaceName(candidate.name);
-      const matchedAlias = aliases.find(
-        (alias) => normalizedName.includes(alias) || normalizedAddress.includes(alias),
-      );
-      const categoryRank = getBroadOriginCategoryRank(normalizedCategory);
-      const hasRepresentativeName = isBroadOriginRepresentativeName(normalizedName);
-
-      if (!matchedAlias || (categoryRank === null && !hasRepresentativeName)) {
-        return null;
-      }
-
-      return {
-        candidate,
-        index,
-        score:
-          (categoryRank ?? 3) * 1000 +
-          (normalizedName.startsWith(matchedAlias) ? 0 : 100) +
-          normalizedName.length * 2 +
-          index,
-      };
-    })
-    .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
-    .sort((left, right) => left.score - right.score)[0]?.candidate ?? null;
-}
-
-/** Keeps both the full region text and its final locality token. */
-function createBroadOriginAliases(inputText: string) {
-  const parts = inputText.trim().split(/\s+/).filter(Boolean);
-
-  return [...new Set(
-    [inputText, parts.at(-1) ?? ""]
-      .map(normalizeRequiredPlaceName)
-      .filter(Boolean),
-  )];
-}
-
-/** Administrative regions outrank transport and civic anchors. */
-function getBroadOriginCategoryRank(category: string) {
-  if (/(?:행정지명|법정동|행정동|신도시|도시지역)/.test(category)) {
-    return 0;
-  }
-
-  if (/(?:기차역|지하철역|철도역|버스터미널|여객터미널|공항)/.test(category)) {
-    return 1;
-  }
-
-  if (/(?:관공서|공공기관|주민센터|행정복지센터|공원|광장|항구|선착장)/.test(category)) {
-    return 2;
-  }
-
-  return null;
-}
-
-/** Allows a clearly named administrative or public anchor when category is absent. */
-function isBroadOriginRepresentativeName(name: string) {
-  return /(?:신도시|지구|특별시|광역시|역|터미널|공항|구청|시청|군청|도청|주민센터|행정복지센터|공원|광장|항구|선착장)$/.test(
-    name,
-  );
-}
-
-/** Keeps exact landmarks and benign provider qualifiers while rejecting embedded branch names. */
-function isRequiredPlaceBoundaryMatch(expectedName: string, candidateName: string) {
-  if (candidateName.endsWith(expectedName)) {
-    return true;
-  }
-
-  if (!candidateName.startsWith(expectedName)) {
-    return false;
-  }
-
-  const suffix = candidateName.slice(expectedName.length);
-
-  return /^(?:\d+호선|\d+번출구)$/.test(suffix);
-}
-
-/** Normalizes provider decoration without weakening the place-name boundary check. */
-function normalizeRequiredPlaceName(value: string) {
-  return value
-    .normalize("NFKC")
-    .toLocaleLowerCase("ko-KR")
-    .replace(/[^\p{L}\p{N}]/gu, "");
-}
-
-/**
  * Calls the official Naver local-search endpoint with a bounded result count.
  */
 async function requestNaverLocalCandidates({
@@ -382,8 +197,6 @@ async function requestNaverLocalCandidates({
   fetchImpl,
   maxCandidates,
   query,
-  signal,
-  timeoutMs,
   usageRecorder,
 }: {
   clientId: string;
@@ -391,8 +204,6 @@ async function requestNaverLocalCandidates({
   fetchImpl: typeof fetch;
   maxCandidates: number;
   query: string;
-  signal?: AbortSignal;
-  timeoutMs: number;
   usageRecorder?: PlanmeUsageRecorder;
 }) {
   const url = new URL(NAVER_LOCAL_SEARCH_URL);
@@ -403,77 +214,21 @@ async function requestNaverLocalCandidates({
 
   await recordPlanmeUsageSafely(usageRecorder, "naver_local_search_request");
 
-  const response = await requestNaverLocalSearch(
-    fetchImpl,
-    url,
-    clientId,
-    clientSecret,
-    signal,
-    timeoutMs,
-  );
+  const response = await fetchImpl(url, {
+    headers: {
+      "X-Naver-Client-Id": clientId,
+      "X-Naver-Client-Secret": clientSecret,
+    },
+    method: "GET",
+  });
+
+  if (!response.ok) {
+    throw new PlanmePlaceSearchProviderError(response.status);
+  }
 
   const payload = (await response.json()) as NaverLocalSearchResponse;
 
   return normalizeNaverLocalItems(payload.items ?? [], query).slice(0, maxCandidates);
-}
-
-/** Retries only transient local-search failures once and bounds every attempt. */
-async function requestNaverLocalSearch(
-  fetchImpl: typeof fetch,
-  url: URL,
-  clientId: string,
-  clientSecret: string,
-  signal: AbortSignal | undefined,
-  timeoutMs: number,
-) {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    const abortFromParent = () => controller.abort(signal?.reason);
-
-    if (signal?.aborted) {
-      abortFromParent();
-    } else {
-      signal?.addEventListener("abort", abortFromParent, { once: true });
-    }
-
-    try {
-      const response = await fetchImpl(url, {
-        headers: {
-          "X-Naver-Client-Id": clientId,
-          "X-Naver-Client-Secret": clientSecret,
-        },
-        method: "GET",
-        signal: controller.signal,
-      });
-      const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
-
-      if (response.ok) {
-        return response;
-      }
-
-      if (!retryable || attempt === 1) {
-        throw new PlanmePlaceSearchProviderError(response.status);
-      }
-    } catch (error) {
-      if (signal?.aborted) {
-        throw new PlanmePlaceSearchProviderError(408);
-      }
-
-      if (error instanceof PlanmePlaceSearchProviderError) {
-        throw error;
-      }
-
-      if (attempt === 1) {
-        throw new PlanmePlaceSearchProviderError(503);
-      }
-    } finally {
-      clearTimeout(timeout);
-      signal?.removeEventListener("abort", abortFromParent);
-    }
-  }
-
-  throw new PlanmePlaceSearchProviderError(503);
 }
 
 /**

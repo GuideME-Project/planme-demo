@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
   RESOURCE_MIME_TYPE,
@@ -8,7 +7,6 @@ import {
 import type { PlanmeItinerary } from "@planme/core";
 import { z } from "zod";
 import { createPlanmeWidgetHtml } from "./planme-widget.js";
-import { PreviewStoreHandoffError } from "./preview-store-handoff-error.js";
 import {
   PlanmeWebClientHttpError,
   advancePlanmeV3Itinerary,
@@ -20,13 +18,9 @@ import {
   type PlanmeWebJobResponse,
 } from "./planme-web-client.js";
 
-export { PreviewStoreHandoffError } from "./preview-store-handoff-error.js";
-
 export const PLANME_WIDGET_URI = "ui://planme/itinerary-widget-v3.html";
 const PLANME_LEGACY_WIDGET_URI = "ui://planme/itinerary-widget-v2.html";
 const PLANME_MCP_ORIGIN = "https://planme-demo-mcp.vercel.app";
-// Web finalization owns a 40-second deadline; MCP allows transport overhead beyond it.
-const PLANME_WEB_FINALIZATION_TIMEOUT_MS = 43_000;
 
 const transportModeSchema = z
   .enum(["drive", "transit", "자동차", "대중교통"])
@@ -367,103 +361,25 @@ export function getPlanmeWebOrigin() {
   return getConfiguredPlanmeWebOrigin();
 }
 
-// Legacy export retained for existing V2 callers and regression boundaries.
-export async function persistItineraryForDetailPage(
-  itinerary: PlanmeItinerary,
-  traceId: string = randomUUID(),
-  timeoutMs = 40_000,
-  signal?: AbortSignal,
-) {
-  const internalToken = getPlanmeInternalApiToken();
-  const controller = new AbortController();
-  const normalizedTimeoutMs = Math.max(1, Math.min(timeoutMs, 40_000));
-  const timeout = setTimeout(
-    () => controller.abort(),
-    Math.min(PLANME_WEB_FINALIZATION_TIMEOUT_MS, normalizedTimeoutMs + 3_000),
-  );
-  const abortFromFlow = () => controller.abort(signal?.reason);
-
-  if (signal?.aborted) {
-    abortFromFlow();
-  } else {
-    signal?.addEventListener("abort", abortFromFlow, { once: true });
-  }
-
-  try {
-    const response = await fetch(buildPlanmeWebUrl("/api/gpt/itineraries/preview-store"), {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${internalToken}`,
-        "Content-Type": "application/json",
-        "X-PlanME-Trace-Id": traceId,
-      },
-      body: JSON.stringify({ itinerary, timeoutMs: normalizedTimeoutMs }),
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      const failure = await readPreviewStoreError(response);
-      throw new PreviewStoreHandoffError(
-        traceId,
-        failure.internalCode,
-        response.status,
-        failure.repair,
-        failure.classification,
-      );
-    }
-
-    return response.json();
-  } catch (error) {
-    if (error instanceof PreviewStoreHandoffError) {
-      throw error;
-    }
-
-    throw new PreviewStoreHandoffError(traceId, "PREVIEW_STORE_HANDOFF_REQUEST_FAILED");
-  } finally {
-    clearTimeout(timeout);
-    signal?.removeEventListener("abort", abortFromFlow);
-  }
-}
-
-async function readPreviewStoreError(response: Response) {
-  try {
-    const body = (await response.json()) as {
-      code?: PreviewStoreHandoffError["repairCode"];
-      context?: PreviewStoreHandoffError["repairContext"];
-      error?: string;
-      retryable?: boolean;
-      stage?: PreviewStoreHandoffError["failureStage"];
-    };
-    const errorCode = body.error?.trim() ?? "";
-
-    return {
-      internalCode: /^[A-Z][A-Z0-9_]{2,80}$/.test(errorCode)
-        ? errorCode
-        : "PREVIEW_STORE_HANDOFF_FAILED",
-      repair:
-        errorCode === "ROUTE_REPAIR_REQUIRED" && body.code && body.context
-          ? { code: body.code, context: body.context }
-          : undefined,
-      classification: {
-        failureStage: body.stage,
-        retryable: typeof body.retryable === "boolean" ? body.retryable : undefined,
-      },
-    };
-  } catch {
-    return { internalCode: "PREVIEW_STORE_HANDOFF_FAILED" };
-  }
-}
-
-function getPlanmeInternalApiToken() {
+// Legacy export retained for existing V2 callers; V3 tools do not use this handoff.
+export async function persistItineraryForDetailPage(itinerary: PlanmeItinerary) {
   const token = process.env.PLANME_INTERNAL_API_TOKEN?.trim();
-
   if (!token) {
     throw new Error("PLANME_INTERNAL_API_TOKEN is required.");
   }
-
-  return token;
-}
-
-function buildPlanmeWebUrl(path: string) {
-  return new URL(path, `${getPlanmeWebOrigin()}/`).toString();
+  const response = await fetch(
+    new URL("/api/gpt/itineraries/preview-store", `${getPlanmeWebOrigin()}/`),
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ itinerary }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`PlanME preview store handoff failed with status ${response.status}`);
+  }
+  return response.json();
 }

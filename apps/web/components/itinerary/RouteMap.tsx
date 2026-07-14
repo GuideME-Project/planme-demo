@@ -4,12 +4,7 @@ import HotelRoundedIcon from "@mui/icons-material/HotelRounded";
 import InfoRoundedIcon from "@mui/icons-material/InfoRounded";
 import TrainRoundedIcon from "@mui/icons-material/TrainRounded";
 import { alpha, Box, Stack, Typography, useTheme } from "@mui/material";
-import type {
-  MapCoordinate,
-  RoutePlan,
-  RouteStop,
-  RouteTransitMarker,
-} from "@planme/core";
+import type { MapCoordinate, RoutePlan, RouteTransitMarker } from "@planme/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PlanmeThemeMode } from "@/theme/theme";
 
@@ -18,11 +13,49 @@ type RouteMapProps = {
   expanded?: boolean;
   standardRoute: RoutePlan;
   carrymeRoute: RoutePlan;
-  savingLabel?: string;
+  savingLabel: string;
   showStandard: boolean;
   showCarryme: boolean;
   themeMode: PlanmeThemeMode;
 };
+
+const mapMarkers = [
+  {
+    id: "icn",
+    label: "인천공항",
+    icon: <FlightTakeoffRoundedIcon fontSize="small" />,
+    x: 14,
+    y: 22,
+    tone: "primary",
+  },
+  {
+    id: "seoul-station",
+    label: "서울역",
+    caption: "KTX 환승",
+    icon: <TrainRoundedIcon fontSize="small" />,
+    x: 25,
+    y: 28,
+    tone: "primary",
+  },
+  {
+    id: "hotel",
+    label: "서면 호텔",
+    caption: "수하물 보관",
+    icon: <HotelRoundedIcon fontSize="small" />,
+    x: 78,
+    y: 74,
+    tone: "primary",
+  },
+  {
+    id: "concert",
+    label: "부산 공연장",
+    caption: "BTS 공연 관람",
+    icon: <AttractionsRoundedIcon fontSize="small" />,
+    x: 84,
+    y: 66,
+    tone: "secondary",
+  },
+] as const;
 
 const naverMapsClientId = process.env.NEXT_PUBLIC_NAVER_MAPS_CLIENT_ID ?? "";
 
@@ -32,7 +65,6 @@ type NaverLatLng = {
 };
 
 type NaverMapInstance = {
-  autoResize: () => void;
   fitBounds: (bounds: object) => void;
 };
 
@@ -126,88 +158,6 @@ const routeLineStyles: Record<"standard" | "carryme", RouteLineStyle> = {
   },
 };
 
-type FallbackMapMarker = {
-  caption: string;
-  icon: RouteStop["icon"];
-  id: string;
-  label: string;
-  x: number;
-  y: number;
-};
-
-/**
- * Builds fallback markers exclusively from the itinerary currently being viewed.
- */
-function createFallbackMapMarkers({
-  standardRoute,
-}: Pick<RouteMapProps, "standardRoute">) {
-  const canUseMapPath =
-    standardRoute.mapPath.length === standardRoute.stops.length &&
-    standardRoute.mapPath.every(
-      (point) =>
-        Number.isFinite(point.x) &&
-        Number.isFinite(point.y) &&
-        point.x >= 0 &&
-        point.x <= 100 &&
-        point.y >= 0 &&
-        point.y <= 100,
-    );
-
-  return standardRoute.stops.map<FallbackMapMarker>((stop, index) => {
-    const mapPoint = canUseMapPath ? standardRoute.mapPath[index] : undefined;
-
-    return {
-      caption: stop.caption,
-      icon: stop.icon,
-      id: `${stop.stopRef ?? stop.placeRef ?? stop.placeSourceRef ?? stop.label}-${index}`,
-      label: stop.label,
-      x:
-        mapPoint?.x ??
-        (standardRoute.stops.length === 1
-          ? 50
-          : 14 + (72 * index) / (standardRoute.stops.length - 1)),
-      y: mapPoint?.y ?? 34 + (index % 2) * 28,
-    };
-  });
-}
-
-/**
- * Keeps the fallback marker icon consistent with each route stop category.
- */
-function renderFallbackMarkerIcon(icon: RouteStop["icon"]) {
-  switch (icon) {
-    case "airport":
-      return <FlightTakeoffRoundedIcon fontSize="small" />;
-    case "hotel":
-      return <HotelRoundedIcon fontSize="small" />;
-    case "station":
-      return <TrainRoundedIcon fontSize="small" />;
-    case "attraction":
-    case "event":
-      return <AttractionsRoundedIcon fontSize="small" />;
-    default: {
-      const exhaustiveIcon: never = icon;
-
-      return exhaustiveIcon;
-    }
-  }
-}
-
-/**
- * Escapes AI-provided place labels before inserting them into Naver marker HTML.
- */
-function escapeMarkerHtml(value: string) {
-  const entities: Record<string, string> = {
-    '"': "&quot;",
-    "&": "&amp;",
-    "'": "&#39;",
-    "<": "&lt;",
-    ">": "&gt;",
-  };
-
-  return value.replace(/[&<>"']/g, (character) => entities[character] ?? character);
-}
-
 /**
  * Returns transit markers for the currently visible comparison routes.
  */
@@ -243,10 +193,10 @@ function getVisibleTransitMarkers({
 /**
  * Builds the Roller copy agreed for CarryME benefit states.
  */
-function createRollerGuidanceContent(savingLabel?: string): RollerGuidanceContent {
-  const savingDurationLabel = savingLabel?.replace(/\s*절약$/, "").trim() ?? "";
+function createRollerGuidanceContent(savingLabel: string): RollerGuidanceContent {
+  const savingDurationLabel = savingLabel.replace(/\s*절약$/, "").trim();
   const hasPositiveSaving =
-    savingDurationLabel.length > 0 && !savingLabel?.startsWith("시간 절약 없음");
+    savingDurationLabel.length > 0 && !savingLabel.startsWith("시간 절약 없음");
 
   // Keep the map bubble in sync with the same saving label used by the header and timeline.
   return {
@@ -306,7 +256,6 @@ function loadNaverMaps(clientId: string): Promise<NaverMapsNamespace> {
 type NaverRouteMapProps = {
   carrymeColor: string;
   carrymeRoute: RoutePlan;
-  expanded: boolean;
   onLoadFailed: () => void;
   showCarryme: boolean;
   showStandard: boolean;
@@ -320,7 +269,6 @@ type NaverRouteMapProps = {
 function NaverRouteMap({
   carrymeColor,
   carrymeRoute,
-  expanded,
   onLoadFailed,
   showCarryme,
   showStandard,
@@ -328,8 +276,6 @@ function NaverRouteMap({
   standardRoute,
 }: NaverRouteMapProps) {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
-  const mapInstanceRef = useRef<NaverMapInstance | null>(null);
-  const expandedRef = useRef(expanded);
   const markers = useMemo(
     () => standardRoute.stops.filter((stop) => Boolean(stop.coordinate)),
     [standardRoute.stops],
@@ -346,28 +292,7 @@ function NaverRouteMap({
   );
 
   useEffect(() => {
-    expandedRef.current = expanded;
-  }, [expanded]);
-
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-
-    if (!map) {
-      return;
-    }
-
-    const resizeFrame = window.requestAnimationFrame(() => {
-      map.autoResize();
-    });
-
-    return () => {
-      window.cancelAnimationFrame(resizeFrame);
-    };
-  }, [expanded]);
-
-  useEffect(() => {
     let cancelled = false;
-    let initialResizeFrame: number | undefined;
 
     if (!naverMapsClientId || !mapElementRef.current) {
       return;
@@ -401,14 +326,6 @@ function NaverRouteMap({
           zoom: 10,
           zoomControl: true,
         });
-        mapInstanceRef.current = map;
-        if (expandedRef.current) {
-          initialResizeFrame = window.requestAnimationFrame(() => {
-            if (!cancelled && mapInstanceRef.current === map) {
-              map.autoResize();
-            }
-          });
-        }
         const bounds = new maps.LatLngBounds();
         let hasBounds = false;
 
@@ -511,10 +428,6 @@ function NaverRouteMap({
 
     return () => {
       cancelled = true;
-      if (initialResizeFrame !== undefined) {
-        window.cancelAnimationFrame(initialResizeFrame);
-      }
-      mapInstanceRef.current = null;
     };
   }, [
     carrymeColor,
@@ -539,11 +452,7 @@ function NaverRouteMap({
       }}
     >
       <Box sx={{ inset: 0, position: "absolute" }}>
-        <Box
-          ref={mapElementRef}
-          data-testid="naver-map-container"
-          sx={{ height: "100%", width: "100%" }}
-        />
+        <Box ref={mapElementRef} sx={{ height: "100%", width: "100%" }} />
       </Box>
       <Stack
         spacing={0.8}
@@ -593,7 +502,7 @@ function createNaverMarkerIcon({
         ${index}
       </div>
       <div style="position:absolute;left:50%;top:39px;transform:translateX(-50%);white-space:nowrap;border:1px solid rgba(15,23,42,.12);border-radius:8px;background:white;padding:5px 8px;box-shadow:0 8px 20px rgba(15,23,42,.12);color:#172033;font-size:11px;font-weight:800;">
-        ${escapeMarkerHtml(label)}
+        ${label}
       </div>
     </div>`;
 
@@ -633,7 +542,7 @@ function createNaverTransitMarkerIcon({
         ${shortLabel}
       </div>
       <div style="position:absolute;left:50%;top:34px;transform:translateX(-50%);white-space:nowrap;border:1px solid rgba(15,23,42,.12);border-radius:8px;background:white;padding:5px 8px;box-shadow:0 8px 20px rgba(15,23,42,.12);color:#172033;font-size:11px;font-weight:800;">
-        ${escapeMarkerHtml(marker.label)}
+        ${marker.label}
       </div>
     </div>`;
 
@@ -813,9 +722,6 @@ export function RouteMap({
     showStandard,
     standardRoute,
   });
-  const fallbackMarkers = createFallbackMapMarkers({
-    standardRoute,
-  });
   const mapBackground = isDark
     ? "linear-gradient(135deg, #111827 0%, #17212d 48%, #0e2530 100%)"
     : "linear-gradient(135deg, #dceeff 0%, #f6fbff 48%, #e9f8ec 100%)";
@@ -854,7 +760,6 @@ export function RouteMap({
             <NaverRouteMap
               carrymeColor={carrymeColor}
               carrymeRoute={carrymeRoute}
-              expanded={expanded}
               onLoadFailed={handleNaverLoadFailed}
               showCarryme={showCarryme}
               showStandard={showStandard}
@@ -931,17 +836,9 @@ export function RouteMap({
 
       </Box>
 
-      <Box
-        aria-label="일정 경유지"
-        role="list"
-        sx={{ inset: 0, pointerEvents: "none", position: "absolute" }}
-      >
-      {fallbackMarkers.map((marker, index) => (
+      {mapMarkers.map((marker) => (
         <Stack
-          aria-label={`${index + 1}번 경유지 ${marker.label} ${marker.caption}`.trim()}
-          data-testid="route-map-fallback-marker"
           key={marker.id}
-          role="listitem"
           spacing={0.5}
           sx={{
             alignItems: "center",
@@ -955,11 +852,15 @@ export function RouteMap({
           <Box
             sx={{
               alignItems: "center",
-              bgcolor: "primary.main",
+              bgcolor:
+                marker.tone === "secondary" ? "secondary.main" : "primary.main",
               border: "3px solid",
               borderColor: isDark ? "#0f1720" : "#ffffff",
               borderRadius: "999px",
-              boxShadow: `0 10px 28px ${alpha(standardColor, 0.32)}`,
+              boxShadow:
+                marker.tone === "secondary"
+                  ? `0 10px 28px ${alpha(carrymeColor, 0.35)}`
+                  : `0 10px 28px ${alpha(standardColor, 0.32)}`,
               color: "#fff",
               display: "flex",
               height: 42,
@@ -967,9 +868,7 @@ export function RouteMap({
               width: 42,
             }}
           >
-            <Box aria-hidden="true" sx={{ display: "flex" }}>
-              {renderFallbackMarkerIcon(marker.icon)}
-            </Box>
+            {marker.icon}
           </Box>
           <Box
             sx={{
@@ -980,27 +879,23 @@ export function RouteMap({
               boxShadow: isDark
                 ? "0 10px 24px rgba(0,0,0,0.28)"
                 : "0 10px 24px rgba(23, 32, 51, 0.12)",
-              maxWidth: { xs: 132, md: 180 },
               px: 1.2,
               py: 0.75,
               textAlign: "center",
+              whiteSpace: "nowrap",
             }}
           >
-            <Typography sx={{ fontSize: 12, fontWeight: 800, overflowWrap: "anywhere" }}>
+            <Typography sx={{ fontSize: 12, fontWeight: 800 }}>
               {marker.label}
             </Typography>
-            {marker.caption ? (
-              <Typography
-                color="text.secondary"
-                sx={{ fontSize: 11, overflowWrap: "anywhere" }}
-              >
+            {"caption" in marker ? (
+              <Typography color="text.secondary" sx={{ fontSize: 11 }}>
                 {marker.caption}
               </Typography>
             ) : null}
           </Box>
         </Stack>
       ))}
-      </Box>
 
       {visibleTransitMarkers.map((marker, index) => (
         <Stack

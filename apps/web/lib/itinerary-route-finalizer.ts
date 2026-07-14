@@ -3,26 +3,12 @@ import type {
   PlanmeItinerary,
   RoutePlan,
   RouteStop,
-  TimelineEvent,
 } from "@planme/core";
 import { resolveMissingItineraryCoordinates } from "./itinerary-coordinate-resolver";
 import { computeNaverDirectionsRoute } from "./route-providers/naver-directions";
-import {
-  computeOdsayTransitRoute,
-  type OdsayTransitRouteOptions,
-} from "./route-providers/odsay";
-import {
-  createTransitRecoveryRuntime,
-  RouteProviderRuntimeError,
-  type TransitRecoveryRuntime,
-} from "./route-segment-cache";
+import { computeOdsayTransitRoute } from "./route-providers/odsay";
 import { formatRouteDuration } from "./route-providers/shared";
-import {
-  RouteProviderError,
-  TransitAccessDecisionError,
-  type RouteProviderResult,
-  type RouteProviderStop,
-} from "./route-providers/types";
+import type { RouteProviderResult, RouteProviderStop } from "./route-providers/types";
 
 export const ROUTE_FINALIZATION_TIMEOUT_MS = 40_000;
 const ROUTE_FINALIZATION_CONCURRENCY = 2;
@@ -36,64 +22,10 @@ export class RouteFinalizationTimeoutError extends Error {
 }
 
 export class RouteFinalizationError extends Error {
-  readonly dayIndex?: number;
-  readonly destinationCoordinate?: RouteProviderStop["coordinate"];
-  readonly destinationPlaceName?: string;
-  readonly internalCode: string;
-  readonly originCoordinate?: RouteProviderStop["coordinate"];
-  readonly originPlaceName?: string;
-  readonly placeConstraint?: RouteProviderStop["placeConstraint"];
-  readonly provider?: "naver-directions" | "odsay";
-  readonly retried: boolean;
-  readonly retriable: boolean;
-  readonly routeId?: "standard" | "carryme";
-  readonly stopRef?: string;
-  readonly transitAccessReason?: TransitAccessDecisionError["reason"];
-  readonly segmentIndex?: number;
-  readonly stage:
-    | "coordinate_resolution"
-    | "route_provider"
-    | "route_result"
-    | "timeline_validation";
-
   /** Wraps a provider failure without exposing credentials or request URLs. */
-  constructor(
-    message: string,
-    context: {
-      dayIndex?: number;
-      destinationCoordinate?: RouteProviderStop["coordinate"];
-      destinationPlaceName?: string;
-      internalCode?: string;
-      originCoordinate?: RouteProviderStop["coordinate"];
-      originPlaceName?: string;
-      placeConstraint?: RouteProviderStop["placeConstraint"];
-      provider?: "naver-directions" | "odsay";
-      retried?: boolean;
-      retriable?: boolean;
-      routeId?: "standard" | "carryme";
-      stopRef?: string;
-      transitAccessReason?: TransitAccessDecisionError["reason"];
-      segmentIndex?: number;
-      stage?: RouteFinalizationError["stage"];
-    } = {},
-  ) {
+  constructor(message: string) {
     super(message);
     this.name = "RouteFinalizationError";
-    this.dayIndex = context.dayIndex;
-    this.destinationCoordinate = context.destinationCoordinate;
-    this.destinationPlaceName = context.destinationPlaceName;
-    this.internalCode = context.internalCode ?? "ROUTE_FINALIZATION_FAILED";
-    this.originCoordinate = context.originCoordinate;
-    this.originPlaceName = context.originPlaceName;
-    this.placeConstraint = context.placeConstraint;
-    this.provider = context.provider;
-    this.retried = context.retried ?? false;
-    this.retriable = context.retriable ?? false;
-    this.routeId = context.routeId;
-    this.stopRef = context.stopRef;
-    this.transitAccessReason = context.transitAccessReason;
-    this.segmentIndex = context.segmentIndex;
-    this.stage = context.stage ?? "route_result";
   }
 }
 
@@ -109,20 +41,8 @@ type RouteTaskResult = RouteTask & {
 
 type RouteFinalizationOptions = {
   computeDriveRoute?: typeof computeNaverDirectionsRoute;
-  computeTransitRoute?: (
-    stops: RouteProviderStop[],
-    signal: AbortSignal,
-    options?: OdsayTransitRouteOptions,
-  ) => Promise<RouteProviderResult>;
-  allowTransitRecoverySmoke?: boolean;
-  traceId?: string;
-  transitRecoveryRuntime?: TransitRecoveryRuntime | null;
+  computeTransitRoute?: typeof computeOdsayTransitRoute;
   timeoutMs?: number;
-};
-
-export type TransitPreflightResult = {
-  estimatedSegmentCount: number;
-  status: "accessible";
 };
 
 /** Finalizes every day and comparison route while preserving all AI timeline arrays byte-for-byte. */
@@ -130,7 +50,7 @@ export async function finalizeItineraryRoutes(
   itinerary: PlanmeItinerary,
   options: RouteFinalizationOptions = {},
 ): Promise<PlanmeItinerary> {
-  const timelineSnapshot = serializeLegacyTimelineArrays(itinerary.days);
+  const timelineSnapshot = serializeTimelineArrays(itinerary.days);
   const controller = new AbortController();
   const timeoutError = new RouteFinalizationTimeoutError();
   const timeout = setTimeout(
@@ -139,36 +59,19 @@ export async function finalizeItineraryRoutes(
   );
 
   try {
-    let coordinateResolvedItinerary: PlanmeItinerary;
-
-    try {
-      coordinateResolvedItinerary = await resolveMissingItineraryCoordinates(
-        itinerary,
-        controller.signal,
-      );
-    } catch {
-      // Place names and coordinates are intentionally removed from the propagated error context.
-      throw new RouteFinalizationError("일정 장소 좌표를 확인하지 못했습니다.", {
-        internalCode: "ITINERARY_COORDINATE_RESOLUTION_FAILED",
-        stage: "coordinate_resolution",
-      });
-    }
+    const coordinateResolvedItinerary = await resolveMissingItineraryCoordinates(
+      itinerary,
+      controller.signal,
+    );
     const tasks = coordinateResolvedItinerary.days.flatMap((day, dayIndex): RouteTask[] => [
       { dayIndex, route: day.standard, routeId: "standard" },
       { dayIndex, route: day.carryme, routeId: "carryme" },
     ]);
-    const recoveryRuntime = createFinalizationRecoveryRuntime(
-      coordinateResolvedItinerary,
-      options,
-    );
-    validateComparableRouteEndpoints(coordinateResolvedItinerary.days);
-    validateRecoveryStopContracts(tasks, recoveryRuntime);
     const results = await runRouteTasks(
       tasks,
       coordinateResolvedItinerary.transportMode,
       controller.signal,
       options,
-      recoveryRuntime,
     );
     const finalizedDays = applyRouteTaskResults(
       coordinateResolvedItinerary.days,
@@ -180,11 +83,8 @@ export async function finalizeItineraryRoutes(
       finalizedDays,
     );
 
-    if (serializeLegacyTimelineArrays(finalizedItinerary.days) !== timelineSnapshot) {
-      throw new RouteFinalizationError("경로 계산 중 AI 시간표가 변경되었습니다.", {
-        internalCode: "ITINERARY_TIMELINE_CHANGED",
-        stage: "timeline_validation",
-      });
+    if (serializeTimelineArrays(finalizedItinerary.days) !== timelineSnapshot) {
+      throw new RouteFinalizationError("경로 계산 중 AI 시간표가 변경되었습니다.");
     }
 
     return finalizedItinerary;
@@ -203,181 +103,27 @@ export async function finalizeItineraryRoutes(
   }
 }
 
-/** Computes and caches every transit leg without writing a preview revision. */
-export async function preflightTransitItineraryRoutes(
-  itinerary: PlanmeItinerary,
-  options: RouteFinalizationOptions = {},
-): Promise<TransitPreflightResult> {
-  if (itinerary.transportMode !== "transit") {
-    throw new RouteFinalizationError("대중교통 일정만 사전검사할 수 있습니다.", {
-      internalCode: "INVALID_TRANSIT_PREFLIGHT_REQUEST",
-      stage: "route_result",
-    });
-  }
-
-  const controller = new AbortController();
-  const timeoutError = new RouteFinalizationTimeoutError();
-  const timeout = setTimeout(
-    () => controller.abort(timeoutError),
-    options.timeoutMs ?? ROUTE_FINALIZATION_TIMEOUT_MS,
-  );
-
-  try {
-    const coordinateResolvedItinerary = await resolveMissingItineraryCoordinates(
-      itinerary,
-      controller.signal,
-    );
-    const tasks = coordinateResolvedItinerary.days.flatMap((day, dayIndex): RouteTask[] => [
-      { dayIndex, route: day.standard, routeId: "standard" },
-      { dayIndex, route: day.carryme, routeId: "carryme" },
-    ]);
-    const recoveryRuntime = createFinalizationRecoveryRuntime(
-      coordinateResolvedItinerary,
-      options,
-    );
-
-    if (!recoveryRuntime) {
-      throw new RouteFinalizationError("대중교통 접근 복구가 비활성 상태입니다.", {
-        internalCode: "TRANSIT_RECOVERY_DISABLED",
-        stage: "route_result",
-      });
-    }
-
-    validateRecoveryStopContracts(tasks, recoveryRuntime);
-    const results = await runRouteTasks(
-      tasks,
-      "transit",
-      controller.signal,
-      options,
-      recoveryRuntime,
-    );
-
-    return {
-      estimatedSegmentCount: results.reduce(
-        (count, result) =>
-          count + result.result.segments.filter(
-            (segment) => segment.durationSource === "estimated",
-          ).length,
-        0,
-      ),
-      status: "accessible",
-    };
-  } catch (error) {
-    if (controller.signal.aborted) {
-      throw timeoutError;
-    }
-
-    throw error instanceof RouteFinalizationError
-      ? error
-      : new RouteFinalizationError("대중교통 접근성 사전검사에 실패했습니다.", {
-          internalCode:
-            error instanceof RouteProviderRuntimeError
-              ? error.code
-              : "TRANSIT_PREFLIGHT_FAILED",
-          stage: "route_provider",
-        });
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-/** Activates recovery only for transit requests carrying a shared trace identifier. */
-function createFinalizationRecoveryRuntime(
-  itinerary: PlanmeItinerary,
-  options: RouteFinalizationOptions,
-) {
-  if (itinerary.transportMode !== "transit") {
-    return null;
-  }
-
-  if (options.transitRecoveryRuntime !== undefined) {
-    return options.transitRecoveryRuntime;
-  }
-
-  if (!options.traceId) {
-    return null;
-  }
-
-  try {
-    return createTransitRecoveryRuntime(options.traceId, {
-      allowSmoke: options.allowTransitRecoverySmoke,
-    });
-  } catch (error) {
-    throw new RouteFinalizationError("대중교통 복구 실행 설정을 확인하지 못했습니다.", {
-      internalCode:
-        error instanceof RouteProviderRuntimeError
-          ? error.code
-          : "ROUTE_PROVIDER_CONFIGURATION_ERROR",
-      provider: "odsay",
-      stage: "route_provider",
-    });
-  }
-}
-
-/** Rejects a new recovery flow before any provider call when stable stop semantics are missing. */
-function validateRecoveryStopContracts(
-  tasks: RouteTask[],
-  runtime: TransitRecoveryRuntime | null,
-) {
-  if (!runtime) {
-    return;
-  }
-
-  for (const task of tasks) {
-    for (const stop of task.route.stops) {
-      if (!stop.stopRef || !stop.placeConstraint) {
-        throw new RouteFinalizationError("신규 대중교통 장소 참조 계약이 누락되었습니다.", {
-          dayIndex: task.dayIndex,
-          internalCode: "INVALID_TRANSIT_STOP_CONTRACT",
-          routeId: task.routeId,
-          stage: "route_result",
-        });
-      }
-    }
-  }
-}
-
-/** Rejects new generated comparisons whose routes do not cover the same journey. */
-function validateComparableRouteEndpoints(days: ItineraryDay[]) {
-  days.forEach((day, dayIndex) => {
-    if (!hasStableDayTimelineContract(day)) {
-      return;
-    }
-
-    const standardStart = day.standard.stops[0];
-    const carrymeStart = day.carryme.stops[0];
-    const standardEnd = day.standard.stops.at(-1);
-    const carrymeEnd = day.carryme.stops.at(-1);
-
-    if (
-      !standardStart ||
-      !carrymeStart ||
-      !standardEnd ||
-      !carrymeEnd ||
-      !isSamePhysicalPlace(standardStart, carrymeStart) ||
-      !isSamePhysicalPlace(standardEnd, carrymeEnd)
-    ) {
-      throw new RouteFinalizationError("비교 경로의 출발지와 도착지가 일치하지 않습니다.", {
-        dayIndex,
-        internalCode: "INVALID_ROUTE_COMPARISON_ENDPOINTS",
-        stage: "route_result",
-      });
-    }
-  });
-}
-
 /** Runs at most two complete comparison routes concurrently. */
 async function runRouteTasks(
   tasks: RouteTask[],
   transportMode: PlanmeItinerary["transportMode"],
   signal: AbortSignal,
   options: RouteFinalizationOptions,
-  recoveryRuntime: TransitRecoveryRuntime | null,
 ) {
   const results: RouteTaskResult[] = [];
+  const taskController = new AbortController();
+  const abortTasks = () => taskController.abort(signal.reason);
+  let firstError: Error | null = null;
   let nextIndex = 0;
 
-  while (nextIndex < tasks.length) {
+  if (signal.aborted) {
+    taskController.abort(signal.reason);
+  } else {
+    signal.addEventListener("abort", abortTasks, { once: true });
+  }
+
+  try {
+    while (!firstError && nextIndex < tasks.length) {
       const batch = tasks.slice(
         nextIndex,
         nextIndex + ROUTE_FINALIZATION_CONCURRENCY,
@@ -385,8 +131,9 @@ async function runRouteTasks(
       nextIndex += batch.length;
 
       // A batch boundary prevents the next day from starting after either comparison fails.
-      const batchResults = await Promise.allSettled(
+      await Promise.all(
         batch.map(async (task) => {
+          try {
             const stops = createProviderStops({
               ...task.route,
               stops: normalizeRouteStops(task.route.stops, transportMode),
@@ -397,161 +144,35 @@ async function runRouteTasks(
                 : transportMode === "drive"
                 ? await (options.computeDriveRoute ?? computeNaverDirectionsRoute)(
                     stops,
-                    signal,
+                    taskController.signal,
                   )
                 : await (options.computeTransitRoute ?? computeOdsayTransitRoute)(
                     stops,
-                    signal,
-                    { recoveryRuntime },
+                    taskController.signal,
                   );
 
-            return { ...task, result };
+            results.push({ ...task, result });
+          } catch (error) {
+            if (!firstError) {
+              firstError = error instanceof Error
+                ? error
+                : new RouteFinalizationError("일부 일정 경로를 계산하지 못했습니다.");
+              // The first failed comparison route cancels every in-flight and unscheduled sibling.
+              taskController.abort(firstError);
+            }
+          }
         }),
       );
+    }
+  } finally {
+    signal.removeEventListener("abort", abortTasks);
+  }
 
-      const failures = batchResults
-        .map((result, index) =>
-          result.status === "rejected"
-            ? createRouteTaskError(
-                result.reason instanceof Error ? result.reason : null,
-                batch[index],
-                transportMode,
-              )
-            : null,
-        )
-        .filter((error): error is RouteFinalizationError => error !== null);
-
-      if (failures.length > 0) {
-        throw failures.sort(compareRouteFinalizationErrors)[0];
-      }
-
-      results.push(
-        ...batchResults
-          .filter(
-            (result): result is PromiseFulfilledResult<RouteTaskResult> =>
-              result.status === "fulfilled",
-          )
-          .map((result) => result.value),
-      );
+  if (firstError) {
+    throw firstError;
   }
 
   return results;
-}
-
-/** Preserves provider diagnostics while removing request payload and provider response details. */
-function createRouteTaskError(
-  error: Error | null,
-  task: RouteTask,
-  transportMode: PlanmeItinerary["transportMode"],
-) {
-  if (error instanceof RouteFinalizationError) {
-    return error;
-  }
-
-  if (error instanceof TransitAccessDecisionError) {
-    const destination = createLoggableFailureStop(error.destinationStop);
-
-    return new RouteFinalizationError(error.message, {
-      dayIndex: task.dayIndex,
-      destinationCoordinate: destination?.coordinate,
-      destinationPlaceName: destination?.label,
-      internalCode:
-        error.status === "replacement_required"
-          ? "TRANSIT_PLACE_REPLACEMENT_REQUIRED"
-          : "USER_PLACE_CONFIRMATION_REQUIRED",
-      placeConstraint: error.destinationStop.placeConstraint,
-      provider: "odsay",
-      routeId: task.routeId,
-      segmentIndex: error.segmentIndex,
-      stage: "route_provider",
-      stopRef: error.destinationStop.stopRef,
-      transitAccessReason: error.reason,
-    });
-  }
-
-  if (error instanceof RouteProviderRuntimeError) {
-    return new RouteFinalizationError("대중교통 복구 실행 설정을 확인하지 못했습니다.", {
-      dayIndex: task.dayIndex,
-      internalCode: error.code,
-      provider: "odsay",
-      retriable: error.code === "PROVIDER_CALL_BUDGET_EXCEEDED",
-      routeId: task.routeId,
-      stage: "route_provider",
-    });
-  }
-
-  if (error instanceof RouteProviderError) {
-    return new RouteFinalizationError("일부 일정 경로를 계산하지 못했습니다.", {
-      dayIndex: task.dayIndex,
-      ...createFailureLocationContext(error),
-      internalCode: error.code,
-      provider: transportMode === "drive" ? "naver-directions" : "odsay",
-      retried: error.retried,
-      retriable: error.retriable,
-      routeId: task.routeId,
-      stage: "route_provider",
-    });
-  }
-
-  return new RouteFinalizationError("일부 일정 경로를 계산하지 못했습니다.", {
-    dayIndex: task.dayIndex,
-    internalCode: "ROUTE_PROVIDER_UNCLASSIFIED_FAILURE",
-    provider: transportMode === "drive" ? "naver-directions" : "odsay",
-    retriable: true,
-    routeId: task.routeId,
-    stage: "route_provider",
-  });
-}
-
-/** Selects the same domain failure regardless of provider completion timing. */
-function compareRouteFinalizationErrors(
-  left: RouteFinalizationError,
-  right: RouteFinalizationError,
-) {
-  return (
-    Number(isTransitDomainDecision(right)) - Number(isTransitDomainDecision(left)) ||
-    (left.dayIndex ?? Number.MAX_SAFE_INTEGER) -
-      (right.dayIndex ?? Number.MAX_SAFE_INTEGER) ||
-    routeIdPriority(left.routeId) - routeIdPriority(right.routeId) ||
-    (left.segmentIndex ?? Number.MAX_SAFE_INTEGER) -
-      (right.segmentIndex ?? Number.MAX_SAFE_INTEGER) ||
-    (left.stopRef ?? "").localeCompare(right.stopRef ?? "")
-  );
-}
-
-function isTransitDomainDecision(error: RouteFinalizationError) {
-  return error.internalCode === "TRANSIT_PLACE_REPLACEMENT_REQUIRED" ||
-    error.internalCode === "USER_PLACE_CONFIRMATION_REQUIRED";
-}
-
-function routeIdPriority(routeId: RouteFinalizationError["routeId"]) {
-  return routeId === "standard" ? 0 : routeId === "carryme" ? 1 : 2;
-}
-
-/** Keeps AI-authored places while excluding user origin and return locations from logs. */
-function createFailureLocationContext(error: RouteProviderError) {
-  const origin = createLoggableFailureStop(error.originStop);
-  const destination = createLoggableFailureStop(error.destinationStop);
-
-  return {
-    destinationCoordinate: destination?.coordinate,
-    destinationPlaceName: destination?.label,
-    originCoordinate: origin?.coordinate,
-    originPlaceName: origin?.label,
-    segmentIndex: error.segmentIndex,
-  };
-}
-
-/** Excludes stops that represent the user-provided trip origin. */
-function createLoggableFailureStop(stop: RouteProviderStop | undefined) {
-  if (!stop || stop.role === "출발지" || stop.role === "복귀지") {
-    return undefined;
-  }
-
-  return {
-    coordinate: stop.coordinate,
-    label: stop.label,
-  };
 }
 
 /** Applies successful provider results without changing the existing AI timeline fields. */
@@ -560,68 +181,17 @@ function applyRouteTaskResults(
   taskResults: RouteTaskResult[],
   transportMode: PlanmeItinerary["transportMode"],
 ) {
-  return days.map((day, dayIndex): ItineraryDay => {
+  return days.map((day, dayIndex) => {
     const standard = getTaskResult(taskResults, dayIndex, "standard");
     const carryme = getTaskResult(taskResults, dayIndex, "carryme");
     const standardRoute = applyProviderResult(day.standard, standard.result, transportMode);
     const carrymeRoute = applyProviderResult(day.carryme, carryme.result, transportMode);
-    const stableContract = hasStableDayTimelineContract(day);
-    const standardTimeline = stableContract
-      ? adjustTimelineEvents(day.standardTimeline ?? [], standardRoute, standard.result, {
-          dayIndex,
-          routeId: "standard",
-          sourceRoute: day.standard,
-        })
-      : day.standardTimeline;
-    const adjustedCarrymeTimeline = stableContract
-      ? adjustTimelineEvents(day.carrymeTimeline ?? [], carrymeRoute, carryme.result, {
-          dayIndex,
-          routeId: "carryme",
-          sourceRoute: day.carryme,
-        })
-      : day.carrymeTimeline;
-    const adjustedTimeline = stableContract
-      ? adjustTimelineEvents(day.timeline, carrymeRoute, carryme.result, {
-          dayIndex,
-          routeId: "carryme",
-          sourceRoute: day.carryme,
-        })
-      : day.timeline;
-    const carrymeTimeline = stableContract
-      ? alignCarrymeDeliveryTimes(adjustedCarrymeTimeline ?? [], standardTimeline ?? [], {
-          carrymeRoute,
-          dayIndex,
-          isFinalDay: dayIndex === days.length - 1,
-          standardRoute,
-        })
-      : adjustedCarrymeTimeline;
-    const timeline = stableContract
-      ? alignCarrymeDeliveryTimes(adjustedTimeline, standardTimeline ?? [], {
-          carrymeRoute,
-          dayIndex,
-          isFinalDay: dayIndex === days.length - 1,
-          standardRoute,
-        })
-      : adjustedTimeline;
-    const hasEstimatedDuration = stableContract &&
-      (standardRoute.durationSource === "estimated" ||
-        carrymeRoute.durationSource === "estimated");
 
     return {
       ...day,
       carryme: carrymeRoute,
-      carrymeTimeline: hasEstimatedDuration
-        ? hideTimelineSavings(carrymeTimeline)
-        : carrymeTimeline,
-      savingMinutes: hasEstimatedDuration
-        ? undefined
-        : Math.max(0, standardRoute.durationMinutes - carrymeRoute.durationMinutes),
-      savingStatus: hasEstimatedDuration ? "hidden_estimated" : "verified",
+      savingMinutes: Math.max(0, standardRoute.durationMinutes - carrymeRoute.durationMinutes),
       standard: standardRoute,
-      standardTimeline: hasEstimatedDuration
-        ? hideTimelineSavings(standardTimeline)
-        : standardTimeline,
-      timeline: hasEstimatedDuration ? hideTimelineSavings(timeline) : timeline,
     };
   });
 }
@@ -637,12 +207,7 @@ function getTaskResult(
   );
 
   if (!result) {
-    throw new RouteFinalizationError("일부 일정 경로 계산 결과가 누락되었습니다.", {
-      dayIndex,
-      internalCode: "ROUTE_TASK_RESULT_MISSING",
-      routeId,
-      stage: "route_result",
-    });
+    throw new RouteFinalizationError("일부 일정 경로 계산 결과가 누락되었습니다.");
   }
 
   return result;
@@ -659,19 +224,13 @@ function applyProviderResult(
     .flatMap((segment) => segment.paths)
     .filter((path) => path.length > 2);
   const durationMinutes = Math.max(0, Math.round(result.totalDurationSeconds / 60));
-  const estimatedSegmentIndexes = result.segments
-    .map((segment, index) => segment.durationSource === "estimated" ? index : -1)
-    .filter((index) => index >= 0);
 
   return {
     ...route,
-    durationSource: estimatedSegmentIndexes.length > 0 ? "estimated" : "provider",
     durationLabel: formatRouteDuration(result.totalDurationSeconds),
     durationMinutes,
     geoPath: undefined,
     geoSegments: geoSegments.length > 0 ? geoSegments : undefined,
-    estimatedSegmentIndexes:
-      estimatedSegmentIndexes.length > 0 ? estimatedSegmentIndexes : undefined,
     routeText: stops.map((stop) => stop.label).join(" → "),
     stops,
     transitMarkers: result.transitMarkers.length > 0 ? result.transitMarkers : undefined,
@@ -708,15 +267,6 @@ function normalizeRouteStops(stops: RouteStop[], transportMode: PlanmeItinerary[
 
 /** Compares adjacent route stops by provider identity, coordinate, then label. */
 function isSameRouteStop(left: RouteStop, right: RouteStop) {
-  return isSamePhysicalPlace(left, right);
-}
-
-/** Compares physical place identity without mixing it with one route visit occurrence. */
-function isSamePhysicalPlace(left: RouteStop, right: RouteStop) {
-  if (left.placeRef && right.placeRef) {
-    return left.placeRef === right.placeRef;
-  }
-
   if (left.placeSourceRef && right.placeSourceRef) {
     return left.placeSourceRef === right.placeSourceRef;
   }
@@ -741,431 +291,40 @@ function createProviderStops(route: RoutePlan): RouteProviderStop[] {
     coordinate: stop.coordinate,
     id: `${route.id}-${index}-${stop.label}`,
     label: stop.label,
-    placeConstraint: stop.placeConstraint,
     placeId: stop.placeId,
     placeSourceRef: stop.placeSourceRef,
-    role: stop.role,
-    stopRef: stop.stopRef,
   }));
 }
 
-/** Detects only the new server-generated stop and stay-duration contract. */
-function hasStableDayTimelineContract(day: ItineraryDay) {
-  const routeStops = [...day.standard.stops, ...day.carryme.stops];
-  const events = [
-    ...(day.standardTimeline ?? []),
-    ...(day.carrymeTimeline ?? []),
-    ...day.timeline,
-  ];
-
-  return routeStops.length > 0 &&
-    routeStops.every((stop) => Boolean(stop.stopRef && stop.placeConstraint)) &&
-    events.some((event) => event.stopRef !== undefined || event.stayDurationMinutes !== undefined);
-}
-
-/** Recomputes displayed event times and transport copy from provider legs. */
-function adjustTimelineEvents(
-  events: TimelineEvent[],
-  route: RoutePlan,
-  result: RouteProviderResult,
-  context: {
-    dayIndex: number;
-    routeId: "standard" | "carryme";
-    sourceRoute: RoutePlan;
-  },
-) {
-  if (events.length === 0) {
-    return events;
-  }
-
-  let cursorMinutes = parseTimelineMinutes(events[0].time);
-  let lastStopIndex: number | null = null;
-
-  return events.map((event, eventIndex) => {
-    let referencedStop: RouteStop | undefined;
-
-    if (!Number.isInteger(event.stayDurationMinutes) || (event.stayDurationMinutes ?? -1) < 0) {
-      throw new RouteFinalizationError("시간표 체류시간 계약이 올바르지 않습니다.", {
-        dayIndex: context.dayIndex,
-        internalCode: "INVALID_TIMELINE_STAY_DURATION",
-        routeId: context.routeId,
-        stage: "timeline_validation",
-        stopRef: event.stopRef,
-      });
-    }
-
-    if (eventIndex > 0) {
-      cursorMinutes += events[eventIndex - 1].stayDurationMinutes ?? 0;
-    }
-
-    if (event.stopRef) {
-      const stopIndex = findTimelineStopIndex(
-        event.stopRef,
-        route,
-        context.sourceRoute,
-      );
-
-      if (stopIndex < 0) {
-        throw new RouteFinalizationError("시간표 장소 참조 계약이 올바르지 않습니다.", {
-          dayIndex: context.dayIndex,
-          internalCode: "INVALID_TIMELINE_STOP_REFERENCE",
-          routeId: context.routeId,
-          stage: "timeline_validation",
-          stopRef: event.stopRef,
-        });
-      }
-
-      if (lastStopIndex !== null && stopIndex < lastStopIndex) {
-        throw new RouteFinalizationError("시간표 장소 순서 계약이 올바르지 않습니다.", {
-          dayIndex: context.dayIndex,
-          internalCode: "INVALID_TIMELINE_STOP_ORDER",
-          routeId: context.routeId,
-          stage: "timeline_validation",
-          stopRef: event.stopRef,
-        });
-      }
-
-      if (lastStopIndex !== null) {
-        const travelSeconds = result.segments
-          .slice(lastStopIndex, stopIndex)
-          .reduce((sum, segment) => sum + segment.durationSeconds, 0);
-        cursorMinutes += Math.round(travelSeconds / 60);
-      }
-
-      referencedStop = route.stops[stopIndex];
-      lastStopIndex = stopIndex;
-    }
-
-    if (cursorMinutes >= 24 * 60) {
-      throw new RouteFinalizationError("경로 보정 결과가 같은 일차의 날짜 경계를 넘었습니다.", {
-        dayIndex: context.dayIndex,
-        internalCode: "TIMELINE_DATE_BOUNDARY_EXCEEDED",
-        routeId: context.routeId,
-        stage: "timeline_validation",
-        stopRef: event.stopRef,
-      });
-    }
-
-    const adjustedEvent: TimelineEvent = {
-      ...event,
-      movementMode:
-        event.eventKind === "luggage_delivery" || event.category === "carryme"
-          ? undefined
-          : route.stops[0]?.mode,
-      time: formatTimelineMinutes(cursorMinutes),
-    };
-
-    return normalizeTravelerMovementPresentation(
-      adjustedEvent,
-      referencedStop,
-      route.stops[0]?.mode,
-    );
-  });
-}
-
-/** Rewrites only traveler movement rows so every rendered surface shows the committed mode. */
-function normalizeTravelerMovementPresentation(
-  event: TimelineEvent,
-  stop: RouteStop | undefined,
-  transportMode: PlanmeItinerary["transportMode"] | undefined,
-): TimelineEvent {
-  if (!stop || !transportMode || !isTravelerMovementEvent(event)) {
-    return event;
-  }
-
-  const modeLabel = transportMode === "drive" ? "자동차" : "대중교통";
-  const action = inferTravelerMovementAction(event, stop);
-  const description =
-    action === "출발"
-      ? `${modeLabel} 경로로 이동을 시작합니다.`
-      : action === "도착"
-        ? `${modeLabel} 경로로 ${stop.label}에 도착합니다.`
-        : `${modeLabel} 경로로 다음 일정까지 이동합니다.`;
-
-  return {
-    ...event,
-    category: transportMode,
-    description,
-    title: `${stop.label} ${action}`,
-  };
-}
-
-/** Detects movement rows by stable references and visible movement semantics, not old mode alone. */
-function isTravelerMovementEvent(event: TimelineEvent) {
-  if (!event.stopRef || isLuggageDeliveryTimelineEvent(event)) {
-    return false;
-  }
-
-  return (
-    event.category === "arrival" ||
-    event.category === "drive" ||
-    event.category === "transit" ||
-    /출발|도착|복귀|이동|탑승|하차|운전|주행|drive|driving|transit|자동차|차량|자가용|대중교통/i.test(
-      `${event.title} ${event.description}`,
-    )
-  );
-}
-
-/** Keeps departure and arrival intent while removing stale vehicle-specific wording. */
-function inferTravelerMovementAction(event: TimelineEvent, stop: RouteStop) {
-  if (stop.role === "출발지" || /출발|이동\s*시작|운행\s*시작/i.test(event.title)) {
-    return "출발";
-  }
-
-  if (stop.role === "복귀지" || /도착|복귀|하차|체크인/i.test(event.title)) {
-    return "도착";
-  }
-
-  return "이동";
-}
-
-/** Maps a timeline reference through adjacent same-place route normalization. */
-function findTimelineStopIndex(
-  stopRef: string,
-  route: RoutePlan,
-  sourceRoute: RoutePlan,
-) {
-  const directIndex = route.stops.findIndex((stop) => stop.stopRef === stopRef);
-
-  if (directIndex >= 0) {
-    return directIndex;
-  }
-
-  const sourceStop = sourceRoute.stops.find((stop) => stop.stopRef === stopRef);
-
-  if (!sourceStop) {
-    return -1;
-  }
-
-  return route.stops.findIndex((stop) => isSameRouteStop(stop, sourceStop));
-}
-
-function hideTimelineSavings(events: TimelineEvent[]): TimelineEvent[];
-function hideTimelineSavings(events: TimelineEvent[] | undefined): TimelineEvent[] | undefined;
-function hideTimelineSavings(
-  events: TimelineEvent[] | undefined,
-): TimelineEvent[] | undefined {
-  return events?.map((event) => ({ ...event, savingLabel: undefined }));
-}
-
-/** Anchors luggage arrival to the Standard target visit and validates traveler ordering. */
-function alignCarrymeDeliveryTimes(
-  carrymeEvents: TimelineEvent[],
-  standardEvents: TimelineEvent[],
-  context: {
-    carrymeRoute: RoutePlan;
-    dayIndex: number;
-    isFinalDay: boolean;
-    standardRoute: RoutePlan;
-  },
-) {
-  const deliveryEvents = carrymeEvents.filter(isLuggageDeliveryTimelineEvent);
-  const expectedSourceStop = context.standardRoute.stops[0];
-  const expectedTargetStop = context.isFinalDay
-    ? context.standardRoute.stops.at(-1)
-    : context.standardRoute.stops.find(
-        (stop, stopIndex) => stopIndex > 0 && stop.role === "숙소",
-      );
-  const requiresDelivery = Boolean(
-    expectedSourceStop &&
-      expectedTargetStop &&
-      !isSamePhysicalPlace(expectedSourceStop, expectedTargetStop),
-  );
-
-  if (!requiresDelivery) {
-    if (deliveryEvents.length > 0) {
-      throw new RouteFinalizationError("출발지와 배송지가 같으면 짐 배송을 만들지 않습니다.", {
-        dayIndex: context.dayIndex,
-        internalCode: "CARRYME_DELIVERY_UNEXPECTED",
-        routeId: "carryme",
-        stage: "timeline_validation",
-      });
-    }
-
-    return carrymeEvents;
-  }
-
-  if (deliveryEvents.length !== 1) {
-    throw new RouteFinalizationError("CarryME 짐 배송 이벤트는 일차별로 하나여야 합니다.", {
-      dayIndex: context.dayIndex,
-      internalCode: "CARRYME_DELIVERY_COUNT_INVALID",
-      routeId: "carryme",
-      stage: "timeline_validation",
-    });
-  }
-
-  const deliveryEvent = deliveryEvents[0] as TimelineEvent;
-  const carrymeSourceStop = context.carrymeRoute.stops[0];
-  const targetStopRef = deliveryEvent.deliveryTargetStopRef;
-  const carrymeTargetStop = context.carrymeRoute.stops.find(
-    (stop) => stop.stopRef === targetStopRef,
-  );
-
-  if (
-    !expectedTargetStop ||
-    !targetStopRef ||
-    expectedTargetStop.stopRef !== targetStopRef ||
-    !expectedTargetStop.placeRef ||
-    deliveryEvent.deliveryTargetPlaceRef !== expectedTargetStop.placeRef ||
-    !carrymeTargetStop ||
-    !isSamePhysicalPlace(carrymeTargetStop, expectedTargetStop)
-  ) {
-    throw new RouteFinalizationError("CarryME 짐 배송 대상 참조가 일정 도착지와 다릅니다.", {
-      dayIndex: context.dayIndex,
-      internalCode: "CARRYME_DELIVERY_TARGET_INVALID",
-      routeId: "carryme",
-      stage: "timeline_validation",
-      stopRef: targetStopRef,
-    });
-  }
-
-  if (
-    !expectedSourceStop?.placeRef ||
-    !carrymeSourceStop ||
-    !isSamePhysicalPlace(expectedSourceStop, carrymeSourceStop) ||
-    deliveryEvent.deliverySourcePlaceRef !== expectedSourceStop.placeRef
-  ) {
-    throw new RouteFinalizationError("CarryME 짐 배송 출발지 참조가 여행자 출발지와 다릅니다.", {
-      dayIndex: context.dayIndex,
-      internalCode: "CARRYME_DELIVERY_SOURCE_INVALID",
-      routeId: "carryme",
-      stage: "timeline_validation",
-    });
-  }
-
-  const standardTargetEvent = standardEvents.find((event) => event.stopRef === targetStopRef);
-  const carrymeDepartureEvent = carrymeEvents.find(
-    (event) => !isLuggageDeliveryTimelineEvent(event) &&
-      event.stopRef === carrymeSourceStop.stopRef,
-  );
-  const carrymeTargetEvent = carrymeEvents.find(
-    (event) => !isLuggageDeliveryTimelineEvent(event) && event.stopRef === targetStopRef,
-  );
-
-  if (!standardTargetEvent || !carrymeDepartureEvent || !carrymeTargetEvent) {
-    throw new RouteFinalizationError("CarryME 짐 배송 시각을 맞출 여행자 일정 참조가 없습니다.", {
-      dayIndex: context.dayIndex,
-      internalCode: "CARRYME_DELIVERY_TIMELINE_REFERENCE_MISSING",
-      routeId: "carryme",
-      stage: "timeline_validation",
-      stopRef: targetStopRef,
-    });
-  }
-
-  const alignedDeliveryTime = standardTargetEvent.time;
-  const departureMinutes = parseTimelineMinutes(carrymeDepartureEvent.time);
-  const deliveryMinutes = parseTimelineMinutes(alignedDeliveryTime);
-  const travelerArrivalMinutes = parseTimelineMinutes(carrymeTargetEvent.time);
-
-  if (deliveryMinutes <= departureMinutes) {
-    throw new RouteFinalizationError("짐 도착 시각은 여행자 출발 이후여야 합니다.", {
-      dayIndex: context.dayIndex,
-      internalCode: "CARRYME_DELIVERY_NOT_AFTER_DEPARTURE",
-      routeId: "carryme",
-      stage: "timeline_validation",
-      stopRef: targetStopRef,
-    });
-  }
-
-  if (deliveryMinutes > travelerArrivalMinutes) {
-    throw new RouteFinalizationError("짐은 여행자보다 늦게 도착할 수 없습니다.", {
-      dayIndex: context.dayIndex,
-      internalCode: "CARRYME_DELIVERY_AFTER_TRAVELER_ARRIVAL",
-      routeId: "carryme",
-      stage: "timeline_validation",
-      stopRef: targetStopRef,
-    });
-  }
-
-  const alignedEvents = carrymeEvents.map((event) =>
-    event === deliveryEvent ? { ...event, time: alignedDeliveryTime } : event,
-  );
-
-  return alignedEvents
-    .map((event, index) => ({ event, index }))
-    .sort((left, right) =>
-      parseTimelineMinutes(left.event.time) - parseTimelineMinutes(right.event.time) ||
-      Number(right.event.eventKind === "luggage_delivery") -
-        Number(left.event.eventKind === "luggage_delivery") ||
-      left.index - right.index,
-    )
-    .map(({ event }) => event);
-}
-
-function isLuggageDeliveryTimelineEvent(event: TimelineEvent) {
-  return event.eventKind === "luggage_delivery" || event.category === "carryme";
-}
-
-function parseTimelineMinutes(value: string) {
-  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
-  const hours = Number(match?.[1]);
-  const minutes = Number(match?.[2]);
-
-  if (!match || !Number.isInteger(hours) || hours < 0 || hours > 23 ||
-      !Number.isInteger(minutes) || minutes < 0 || minutes > 59) {
-    throw new RouteFinalizationError("시간표 시작 시각 형식이 올바르지 않습니다.", {
-      internalCode: "INVALID_TIMELINE_TIME",
-      stage: "timeline_validation",
-    });
-  }
-
-  return hours * 60 + minutes;
-}
-
-function formatTimelineMinutes(value: number) {
-  const hours = Math.floor(value / 60);
-  const minutes = value % 60;
-
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
-}
-
-/** Updates itinerary-level comparison labels from all finalized days. */
+/** Updates itinerary-level comparison labels from the first finalized day. */
 function createFinalizedItinerary(itinerary: PlanmeItinerary, days: ItineraryDay[]) {
-  if (days.length === 0) {
-    throw new RouteFinalizationError("최종화할 일정 일차가 없습니다.", {
-      internalCode: "ITINERARY_DAY_MISSING",
-      stage: "route_result",
-    });
+  const firstDay = days[0];
+
+  if (!firstDay) {
+    throw new RouteFinalizationError("최종화할 일정 일차가 없습니다.");
   }
 
-  const standardMinutes = days.reduce(
-    (total, day) => total + day.standard.durationMinutes,
-    0,
-  );
-  const carrymeMinutes = days.reduce(
-    (total, day) => total + day.carryme.durationMinutes,
-    0,
-  );
-  const hideSavings = days.some((day) => day.savingStatus === "hidden_estimated");
-  const savingMinutes = Math.max(0, standardMinutes - carrymeMinutes);
-  const savedDurationLabel = hideSavings
-    ? undefined
-    : savingMinutes > 0
-      ? `${formatRouteDuration(savingMinutes * 60)} 절약`
-      : "시간 절약 없음";
+  const savedDurationLabel =
+    firstDay.savingMinutes > 0
+      ? `${formatRouteDuration(firstDay.savingMinutes * 60)} 절약`
+      : "시간 절약 없음 · 짐 없이 바로 이동";
 
   return {
     ...itinerary,
-    carrymeSaving: hideSavings ? undefined : savedDurationLabel,
+    carrymeSaving: savedDurationLabel,
     days,
     savedDurationLabel,
-    totalDurationLabel:
-      `${formatRouteDuration(standardMinutes * 60)} → ` +
-      formatRouteDuration(carrymeMinutes * 60),
+    totalDurationLabel: `${firstDay.standard.durationLabel} → ${firstDay.carryme.durationLabel}`,
   };
 }
 
-/** Serializes only legacy timeline arrays that cannot be safely mapped to route stops. */
-function serializeLegacyTimelineArrays(days: ItineraryDay[]) {
+/** Serializes only user-visible AI timeline arrays for byte-level invariance checks. */
+function serializeTimelineArrays(days: ItineraryDay[]) {
   return JSON.stringify(
-    days.map((day) =>
-      hasStableDayTimelineContract(day)
-        ? null
-        : {
-            carrymeTimeline: day.carrymeTimeline,
-            standardTimeline: day.standardTimeline,
-            timeline: day.timeline,
-          },
-    ),
+    days.map((day) => ({
+      carrymeTimeline: day.carrymeTimeline,
+      standardTimeline: day.standardTimeline,
+      timeline: day.timeline,
+    })),
   );
 }

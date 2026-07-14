@@ -5,7 +5,6 @@ import {
   type RouteProviderResult,
   type RouteProviderSegment,
   type RouteProviderStop,
-  withRouteProviderSegmentContext,
 } from "./types";
 
 type NaverDirectionsResult = {
@@ -59,14 +58,7 @@ export async function computeNaverDirectionsRoute(
   for (let index = 0; index < stops.length - 1; index += 1) {
     // A route keeps provider legs sequential while only a failed transient leg is retried.
     segments.push(
-      await requestNaverSegmentWithRetry(
-        stops[index],
-        stops[index + 1],
-        index,
-        keyId,
-        keySecret,
-        signal,
-      ),
+      await requestNaverSegmentWithRetry(stops[index], stops[index + 1], keyId, keySecret, signal),
     );
   }
 
@@ -98,7 +90,6 @@ function getNaverMapsSecret() {
 async function requestNaverSegmentWithRetry(
   origin: RouteProviderStop,
   destination: RouteProviderStop,
-  segmentIndex: number,
   keyId: string,
   keySecret: string,
   signal: AbortSignal,
@@ -106,31 +97,12 @@ async function requestNaverSegmentWithRetry(
   try {
     return await requestNaverSegment(origin, destination, keyId, keySecret, signal);
   } catch (error) {
-    if (!(error instanceof RouteProviderError) || signal.aborted) {
+    if (!(error instanceof RouteProviderError) || !error.retriable || signal.aborted) {
       throw error;
     }
 
-    if (!error.retriable) {
-      throw withRouteProviderSegmentContext(error, origin, destination, segmentIndex);
-    }
-
     // Retry only the failed provider leg so successful legs are never requested twice.
-    try {
-      return await requestNaverSegment(origin, destination, keyId, keySecret, signal);
-    } catch (retryError) {
-      if (retryError instanceof RouteProviderError) {
-        // Preserve that the provider failure was observed after the single allowed retry.
-        throw withRouteProviderSegmentContext(
-          retryError,
-          origin,
-          destination,
-          segmentIndex,
-          true,
-        );
-      }
-
-      throw retryError;
-    }
+    return requestNaverSegment(origin, destination, keyId, keySecret, signal);
   }
 }
 
@@ -202,7 +174,6 @@ async function requestNaverSegment(
 
   return {
     distanceMeters: route?.summary?.distance ?? 0,
-    durationSource: "provider",
     durationSeconds: Math.max(1, Math.round((route?.summary?.duration ?? 0) / 1000)),
     geometryStatus: "complete",
     mode: "drive",

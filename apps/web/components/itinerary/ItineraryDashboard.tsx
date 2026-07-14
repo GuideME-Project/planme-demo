@@ -82,13 +82,10 @@ type DestinationRow = {
   id: string;
   mode?: PlanmeRowMode;
   name: string;
-  placeConstraint?: RouteStop["placeConstraint"];
   placeId?: string;
-  placeRef?: string;
   placeSource?: RouteStop["placeSource"];
   placeSourceRef?: string;
   role?: PlanmeStopRole;
-  stopRef?: string;
 };
 
 type ProviderRoutePoint = Pick<DestinationRow, "coordinate" | "id" | "name">;
@@ -449,13 +446,10 @@ function createDestinationRows(route: RoutePlan): DestinationRow[] {
     id: `destination-${index}-${stop.label}`,
     mode: stop.mode,
     name: stop.label,
-    placeConstraint: stop.placeConstraint,
     placeId: stop.placeId,
-    placeRef: stop.placeRef,
     placeSource: stop.placeSource,
     placeSourceRef: stop.placeSourceRef,
     role: stop.role,
-    stopRef: stop.stopRef,
   }));
 }
 
@@ -469,13 +463,10 @@ function createRouteRequestRows(route: RoutePlan): DestinationRow[] {
     id: `${route.id}-route-${index}-${stop.label}`,
     mode: stop.mode,
     name: stop.label,
-    placeConstraint: stop.placeConstraint,
     placeId: stop.placeId,
-    placeRef: stop.placeRef,
     placeSource: stop.placeSource,
     placeSourceRef: stop.placeSourceRef,
     role: stop.role,
-    stopRef: stop.stopRef,
   }));
 
   return removeAdjacentDuplicateRows(rows);
@@ -531,13 +522,10 @@ function createRouteStopsFromRows(rows: DestinationRow[]): RouteStop[] {
     icon: getRouteStopIconForRole(row.role),
     label: row.name,
     mode: row.mode,
-    placeConstraint: row.placeConstraint,
     placeId: row.placeId,
-    placeRef: row.placeRef,
     placeSource: row.placeSource,
     placeSourceRef: row.placeSourceRef,
     role: row.role,
-    stopRef: row.stopRef,
   }));
 }
 
@@ -1772,7 +1760,7 @@ function formatSavingLabelFromMinutes(standardMinutes: number, carrymeMinutes: n
 
   return savedMinutes > 0
     ? `${formatDurationFromMinutes(savedMinutes)} 절약`
-    : "시간 절약 없음";
+    : "시간 절약 없음 · 짐 없이 바로 이동";
 }
 
 /**
@@ -2114,8 +2102,6 @@ export function ItineraryDashboard({
   const [transportMode, setTransportMode] = useState<PlanmeTransportMode>(
     itinerary.transportMode,
   );
-  const [committedTransportMode, setCommittedTransportMode] =
-    useState<PlanmeTransportMode>(itinerary.transportMode);
   const [routesFinalized, setRoutesFinalized] = useState(routeFinalized);
   const [activeFinalizationToken, setActiveFinalizationToken] = useState(finalizationToken);
   const [activeRouteRevision, setActiveRouteRevision] = useState(routeRevision);
@@ -2148,28 +2134,10 @@ export function ItineraryDashboard({
     [carrymeRoute, hasComputedRoute, itinerary.title],
   );
   const displayBenefits = useMemo(() => createGenericBenefits(), []);
-  const standardTotalMinutes = editableDays.reduce(
-    (total, day) =>
-      total +
-      (day.day === selectedDayPlan.day
-        ? standardRoute.durationMinutes
-        : day.standard.durationMinutes),
-    0,
-  );
-  const carrymeTotalMinutes = editableDays.reduce(
-    (total, day) =>
-      total +
-      (day.day === selectedDayPlan.day
-        ? carrymeRoute.durationMinutes
-        : day.carryme.durationMinutes),
-    0,
-  );
-  const totalDurationLabel =
-    `${formatDurationFromMinutes(standardTotalMinutes)} → ` +
-    formatDurationFromMinutes(carrymeTotalMinutes);
+  const totalDurationLabel = `${standardRoute.durationLabel} → ${carrymeRoute.durationLabel}`;
   const savingLabel = formatSavingLabelFromMinutes(
-    standardTotalMinutes,
-    carrymeTotalMinutes,
+    standardRoute.durationMinutes,
+    carrymeRoute.durationMinutes,
   );
   const shouldHideProviderResult = Boolean(activeFinalizationToken) && !routesFinalized;
   const hiddenDurationLabel = finalizationStatus === "error" ? "계산 실패" : "계산 중";
@@ -2179,18 +2147,7 @@ export function ItineraryDashboard({
   const displayCarrymeRoute = shouldHideProviderResult
     ? createPendingRoute(carrymeRoute, hiddenDurationLabel)
     : carrymeRoute;
-  const shouldHideSavings =
-    editableDays.some((day) => day.savingStatus === "hidden_estimated") ||
-    finalizationStatus === "error";
-  const displaySavingLabel = shouldHideSavings
-    ? undefined
-    : shouldHideProviderResult
-      ? hiddenDurationLabel
-      : savingLabel;
-  const displayCarrymeBenefitLabel =
-    displaySavingLabel === "시간 절약 없음"
-      ? "짐 없이 바로 이동 가능!"
-      : displaySavingLabel;
+  const displaySavingLabel = shouldHideProviderResult ? hiddenDurationLabel : savingLabel;
 
   useEffect(() => {
     if (routesFinalized || !activeFinalizationToken) {
@@ -2225,7 +2182,6 @@ export function ItineraryDashboard({
         // Replace every day only after the server has atomically finalized the entire itinerary.
         setEditableDays(createEditableDays(payload.itinerary.days));
         setTransportMode(payload.itinerary.transportMode);
-        setCommittedTransportMode(payload.itinerary.transportMode);
         setActiveRouteRevision(payload.revision ?? activeRouteRevision + 1);
         setActiveFinalizationToken(payload.token);
         setComputedRoutes({});
@@ -2274,10 +2230,7 @@ export function ItineraryDashboard({
     async function computeInitialRoute(rows: DestinationRow[], routeId: RoutePlanId) {
       try {
         // Initial map rendering uses verified provider coordinates instead of bundled demo lines.
-        const { payload, responseOk } = await requestRouteCheck(
-          rows,
-          committedTransportMode,
-        );
+        const { payload, responseOk } = await requestRouteCheck(rows, transportMode);
 
         if (cancelled || !responseOk || !payload.ok || !payload.path?.length) {
           if (!cancelled) {
@@ -2321,7 +2274,6 @@ export function ItineraryDashboard({
     };
   }, [
     activeFinalizationToken,
-    committedTransportMode,
     itinerary.savedDurationLabel,
     routesFinalized,
     selectedDayPlan,
@@ -2339,13 +2291,11 @@ export function ItineraryDashboard({
     carrymeRows: DestinationRow[],
   ): Promise<EditedItineraryFinalizationResult> => {
     if (!activeFinalizationToken) {
-      setTransportMode(committedTransportMode);
       return { message: "서버 저장 일정이 아니어서 기존 경로 계산을 사용합니다.", ok: false };
     }
 
     const days = editableDays.map((day) => {
       const { uiId: _uiId, ...storedDay } = day;
-      void _uiId;
 
       if (day.day !== selectedDayPlan.day) {
         return storedDay;
@@ -2384,7 +2334,6 @@ export function ItineraryDashboard({
       const payload = (await response.json()) as FinalizationApiResponse;
 
       if (!response.ok || payload.status !== "ready" || !payload.itinerary) {
-        setTransportMode(committedTransportMode);
         return {
           message: payload.message ?? "변경한 일정의 경로를 계산하지 못했습니다.",
           ok: false,
@@ -2394,7 +2343,6 @@ export function ItineraryDashboard({
       // The previous successful itinerary remains visible until this full replacement succeeds.
       setEditableDays(createEditableDays(payload.itinerary.days));
       setTransportMode(payload.itinerary.transportMode);
-      setCommittedTransportMode(payload.itinerary.transportMode);
       setActiveRouteRevision(payload.revision ?? activeRouteRevision + 1);
       setActiveFinalizationToken(payload.token);
       setComputedRoutes({});
@@ -2402,7 +2350,6 @@ export function ItineraryDashboard({
 
       return { message: "변경한 일정과 경로를 저장했습니다.", ok: true };
     } catch {
-      setTransportMode(committedTransportMode);
       return { message: "변경한 일정의 경로를 계산하지 못했습니다.", ok: false };
     }
   };
@@ -2412,9 +2359,20 @@ export function ItineraryDashboard({
    */
   const handleTransportModeChange = (nextMode: PlanmeTransportMode) => {
     setTransportMode(nextMode);
-    // Keep the last fully committed provider result visible until the server
-    // atomically accepts the recalculated itinerary. A failed recalculation
-    // restores `committedTransportMode` without discarding the good map/times.
+
+    if (!selectedDayPlan) {
+      setComputedRoutes({});
+      return;
+    }
+
+    setComputedRoutes({
+      standard: createUnavailableComputedRoute(
+        createRouteRequestRows(selectedDayPlan.standard),
+      ),
+      carryme: createUnavailableComputedRoute(
+        createRouteRequestRows(selectedDayPlan.carryme),
+      ),
+    });
   };
 
   /**
@@ -2516,14 +2474,12 @@ export function ItineraryDashboard({
               tone="primary"
               value={shouldHideProviderResult ? hiddenDurationLabel : totalDurationLabel}
             />
-            {displaySavingLabel ? (
-              <MetricCard
-                icon={<WbSunnyRoundedIcon />}
-                label="절약 시간"
-                tone="error"
-                value={displaySavingLabel}
-              />
-            ) : null}
+            <MetricCard
+              icon={<WbSunnyRoundedIcon />}
+              label="절약 시간"
+              tone="error"
+              value={displaySavingLabel}
+            />
           </Stack>
         </Box>
 
@@ -2691,7 +2647,7 @@ export function ItineraryDashboard({
                       selectedDayPlan.day === editableDays.at(-1)?.day
                     }
                     mode={mode}
-                    savingLabel={displayCarrymeBenefitLabel}
+                    savingLabel={displaySavingLabel}
                     standardDurationLabel={displayStandardRoute.durationLabel}
                     standardEvents={
                       computedRoutes.standard?.timeline ??
@@ -2718,6 +2674,7 @@ export function ItineraryDashboard({
                       }
                       savingLabel={displaySavingLabel}
                       standardRoute={selectedDayPlan.standard}
+                      carrymeTimeline={selectedDayPlan.carrymeTimeline ?? selectedDayPlan.timeline}
                       transportMode={transportMode}
                       onTransportModeChange={handleTransportModeChange}
                     />
@@ -2925,13 +2882,14 @@ function RouteComparisonCard({
 }
 
 type DestinationEditorProps = {
+  carrymeTimeline: TimelineEvent[];
   initialRows: DestinationRow[];
   mode: "light" | "dark";
   onRoutesComputed: (payload: RouteComputationPayload) => void;
   onFinalizeItinerary?: (
     carrymeRows: DestinationRow[],
   ) => Promise<EditedItineraryFinalizationResult>;
-  savingLabel?: string;
+  savingLabel: string;
   standardRoute: RoutePlan;
   transportMode: PlanmeTransportMode;
   onTransportModeChange: (transportMode: PlanmeTransportMode) => void;
@@ -2941,6 +2899,7 @@ type DestinationEditorProps = {
  * Renders the local destination editor prototype between the comparison cards and map.
  */
 function DestinationEditor({
+  carrymeTimeline,
   initialRows,
   mode,
   onRoutesComputed,
@@ -3146,13 +3105,10 @@ function DestinationEditor({
    * Adds a waypoint before the final destination so start and end stay visually stable.
    */
   const handleAddWaypoint = () => {
-    const rowId = `destination-local-${Date.now()}`;
     const newRow: DestinationRow = {
-      id: rowId,
+      id: `destination-local-${Date.now()}`,
       name: "새 행선지",
-      placeConstraint: "replaceable",
       role: "방문지",
-      stopRef: rowId,
     };
 
     // Insert before the last row because new stops are usually intermediate waypoints.
@@ -3194,7 +3150,6 @@ function DestinationEditor({
               ...row,
               coordinate: undefined,
               name: nextName,
-              placeRef: undefined,
               placeId: undefined,
               placeSource: undefined,
               placeSourceRef: undefined,
@@ -3253,7 +3208,6 @@ function DestinationEditor({
               ...row,
               coordinate: candidate.coordinate,
               name: candidate.name,
-              placeRef: `edited-place:${candidate.placeSourceRef}`,
               placeId: undefined,
               placeSource: candidate.placeSource,
               placeSourceRef: candidate.placeSourceRef,

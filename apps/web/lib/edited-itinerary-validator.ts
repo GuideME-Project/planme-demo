@@ -11,6 +11,7 @@ export async function validateEditedItineraryPlaces(
   stored: PlanmeItinerary,
   signal: AbortSignal,
 ): Promise<PlanmeItinerary> {
+  const trustedStops = createTrustedStopIndex(stored);
   const days = [] as PlanmeItinerary["days"];
 
   if (candidate.days.length !== stored.days.length) {
@@ -27,9 +28,8 @@ export async function validateEditedItineraryPlaces(
     const carrymeStops = await validateStops(
       candidateDay.carryme.stops,
       stored.region,
-      createTrustedStopIndex(storedDay.carryme.stops),
+      trustedStops,
       signal,
-      storedDay.day,
     );
 
     // Only CarryME stop order and the itinerary-wide mode are editable; AI copy and timelines stay stored.
@@ -42,86 +42,43 @@ export async function validateEditedItineraryPlaces(
   return { ...stored, days, transportMode: candidate.transportMode };
 }
 
-type TrustedStopIndex = {
-  byPlaceIdentity: Map<string, RouteStop[]>;
-  byStopRef: Map<string, RouteStop>;
-};
+/** Indexes server-stored place identities so reordered rows never trust browser coordinates. */
+function createTrustedStopIndex(itinerary: PlanmeItinerary) {
+  const index = new Map<string, RouteStop>();
 
-/** Indexes one stored CarryME route by logical visit and physical place identity. */
-function createTrustedStopIndex(stops: RouteStop[]): TrustedStopIndex {
-  const byPlaceIdentity = new Map<string, RouteStop[]>();
-  const byStopRef = new Map<string, RouteStop>();
+  itinerary.days.forEach((day) => {
+    [...day.standard.stops, ...day.carryme.stops].forEach((stop) => {
+      const key = getStopIdentity(stop);
 
-  stops.forEach((stop) => {
-    const placeIdentity = getPlaceIdentity(stop);
-
-    if (placeIdentity && stop.coordinate) {
-      byPlaceIdentity.set(placeIdentity, [
-        ...(byPlaceIdentity.get(placeIdentity) ?? []),
-        stop,
-      ]);
-    }
-
-    if (stop.stopRef) {
-      byStopRef.set(stop.stopRef, stop);
-    }
+      if (key && stop.coordinate) {
+        index.set(key, stop);
+      }
+    });
   });
 
-  return { byPlaceIdentity, byStopRef };
+  return index;
 }
 
 /** Validates route stops sequentially to avoid bursting Naver place search. */
 async function validateStops(
   stops: RouteStop[],
   region: string,
-  trustedStops: TrustedStopIndex,
+  trustedStops: Map<string, RouteStop>,
   signal: AbortSignal,
-  dayNumber: number,
 ) {
   const validated: RouteStop[] = [];
-  const usedStopRefs = new Set<string>();
 
-  for (const [stopIndex, stop] of stops.entries()) {
-    const storedStopByRef = stop.stopRef
-      ? trustedStops.byStopRef.get(stop.stopRef)
-      : undefined;
-    const placeIdentity = getPlaceIdentity(stop);
-    const keepsStoredPlace =
-      storedStopByRef && getPlaceIdentity(storedStopByRef) === placeIdentity;
-
-    if (storedStopByRef?.placeConstraint === "fixed" && !keepsStoredPlace) {
-      throw new RouteFinalizationError(`고정 장소는 변경할 수 없습니다: ${storedStopByRef.label}`);
-    }
-
-    const storedStop = keepsStoredPlace
-      ? storedStopByRef
-      : storedStopByRef
-        ? undefined
-        : findUnusedStoredStopByPlace(
-            placeIdentity,
-            stop.role,
-            trustedStops,
-            usedStopRefs,
-          );
+  for (const stop of stops) {
+    const identity = getStopIdentity(stop);
+    const storedStop = identity ? trustedStops.get(identity) : undefined;
 
     if (storedStop?.coordinate) {
-      if (storedStop.stopRef) {
-        usedStopRefs.add(storedStop.stopRef);
-      }
-
       validated.push({
         ...stop,
-        caption: storedStop.caption,
         coordinate: storedStop.coordinate,
-        icon: storedStop.icon,
-        label: storedStop.label,
-        placeConstraint: storedStop.placeConstraint,
         placeId: storedStop.placeId,
-        placeRef: storedStop.placeRef,
         placeSource: storedStop.placeSource,
         placeSourceRef: storedStop.placeSourceRef,
-        role: storedStop.role,
-        stopRef: storedStop.stopRef,
       });
       continue;
     }
@@ -154,61 +111,20 @@ async function validateStops(
     }
 
     // Provider identity and coordinate replace all browser-supplied location fields.
-    const stopRef =
-      storedStopByRef?.stopRef ??
-      createEditedStopRef(dayNumber, stopIndex, usedStopRefs);
-    usedStopRefs.add(stopRef);
     validated.push({
       ...stop,
       coordinate: verified.coordinate,
       label: verified.name,
-      placeConstraint: storedStopByRef?.placeConstraint ?? "replaceable",
       placeId: verified.placeId,
-      placeRef: `edited-place:${verified.sourceRef}`,
       placeSource: verified.source,
       placeSourceRef: verified.sourceRef,
-      role: storedStopByRef?.role ?? stop.role,
-      stopRef,
     });
   }
 
   return validated;
 }
 
-/** Selects one same-place visit without collapsing repeated visits into one stop reference. */
-function findUnusedStoredStopByPlace(
-  placeIdentity: string,
-  role: RouteStop["role"],
-  trustedStops: TrustedStopIndex,
-  usedStopRefs: ReadonlySet<string>,
-) {
-  const candidates = trustedStops.byPlaceIdentity.get(placeIdentity) ?? [];
-  const unused = candidates.filter(
-    (candidate) => !candidate.stopRef || !usedStopRefs.has(candidate.stopRef),
-  );
-
-  return unused.find((candidate) => candidate.role === role) ?? unused[0];
-}
-
-/** Creates a collision-free visit reference for a newly added, provider-verified row. */
-function createEditedStopRef(
-  dayNumber: number,
-  stopIndex: number,
-  usedStopRefs: ReadonlySet<string>,
-) {
-  const base = `day-${dayNumber}-edited-stop-${stopIndex + 1}`;
-  let suffix = 1;
-  let stopRef = base;
-
-  while (usedStopRefs.has(stopRef)) {
-    suffix += 1;
-    stopRef = `${base}-${suffix}`;
-  }
-
-  return stopRef;
-}
-
-/** Creates the provider-backed physical-place identity used for stored-coordinate reuse. */
-function getPlaceIdentity(stop: RouteStop) {
+/** Creates the stable identity used for stored-place reuse. */
+function getStopIdentity(stop: RouteStop) {
   return stop.placeSourceRef || stop.placeId || "";
 }

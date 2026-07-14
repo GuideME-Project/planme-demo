@@ -13,17 +13,13 @@
     "lint": "npm --workspace @planme/web run lint",
     "test:actions": "node scripts/check-planme-actions.mjs",
     "test:design": "node scripts/check-planme-design.mjs",
-    "test:mcp": "npm --workspace @planme/mcp run test:mcp && npm run test:domain",
-    "test:domain": "tsx packages/planme-core/scripts/check-itinerary-domain-contract.ts",
-    "test:finalization": "tsx apps/web/scripts/check-itinerary-finalization.ts && tsx --tsconfig apps/web/tsconfig.json apps/web/scripts/check-route-finalization-public-error.ts",
+    "test:mcp": "npm --workspace @planme/mcp run test:mcp",
+    "test:finalization": "tsx apps/web/scripts/check-itinerary-finalization.ts",
     "test:completion": "npm --workspace @planme/core run build && tsx apps/web/scripts/check-planme-completion-criteria.ts",
-    "test:e2e": "playwright test --project=chromium",
     "test:route-normalization": "npm --workspace @planme/core run build && node scripts/check-planme-route-normalization.mjs",
     "test:v3": "npm --workspace @planme/core run build && node scripts/check-planme-v3.mjs && tsx apps/web/scripts/check-planme-v3-providers.ts && tsx apps/web/scripts/check-planme-v3-store.ts && tsx apps/web/scripts/check-planme-v3-orchestrator.ts && tsx apps/web/scripts/check-planme-v3-api.ts",
     "test:local-v3": "npm --workspace @planme/core run build && node scripts/check-planme-v3-local-integration.mjs",
-    "smoke:external": "npm --workspace @planme/mcp run smoke:external",
-    "smoke:odsay-segment": "tsx apps/web/scripts/check-odsay-recovery-segment-smoke.ts",
-    "smoke:transit-recovery": "npm --workspace @planme/mcp run smoke:transit-recovery"
+    "smoke:external": "npm --workspace @planme/mcp run smoke:external"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1"

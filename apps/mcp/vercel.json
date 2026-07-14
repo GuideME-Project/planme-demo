@@ -1,8 +1,4 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "env": {
-    "PLANME_TRANSIT_ACCESS_RECOVERY_MODE": "on"
-  },
   "functions": {
     "api/gpt/itineraries/recommend.ts": {
       "maxDuration": 60
