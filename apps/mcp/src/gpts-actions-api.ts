@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import { writeCorsHeaders, writeJson } from "./http-utils.js";
@@ -29,11 +30,13 @@ const planningRequestSchema = z
   .strict();
 const recommendationRequestSchema = z
   .object({
-    invocationId: z.string().regex(/^[A-Za-z0-9._:-]{1,128}$/),
+    invocationId: z.string().regex(/^[A-Za-z0-9._:-]{1,128}$/).optional(),
+    latestUserMessage: z.string().trim().min(1).optional(),
     origin: z.string().trim().min(1),
     destination: z.string().trim().min(1),
+    destinationType: z.enum(["region", "place"]).optional(),
     durationDays: z.number().int().min(1).max(14),
-    transportMode: transportModeSchema,
+    transportMode: transportModeSchema.optional(),
     travelStartDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     preferences: z.array(z.string()).optional(),
     requestedPlaces: z.array(z.string()).optional(),
@@ -97,12 +100,25 @@ export async function handleGptsRecommendItineraryRequest(
     writeJson(response, 400, invalidRequest(parsed.error));
     return;
   }
-  const { invocationId, ...input } = parsed.data;
+  const {
+    invocationId,
+    latestUserMessage,
+    destinationType: _destinationType,
+    transportMode: parsedTransportMode,
+    ...input
+  } = parsed.data;
+  const transportMode =
+    parsedTransportMode ?? resolveLegacyTransportMode(latestUserMessage);
+  if (!transportMode) {
+    writeJson(response, 200, assessPlanningInput({ ...input, transportMode }));
+    return;
+  }
+  const sourceId = invocationId ?? `legacy:${randomUUID()}`;
 
   try {
     let result = await startPlanmeV3Itinerary(
-      input satisfies PlanmeV3StartInput,
-      createPlanmeIdempotencyKey("gpts", invocationId),
+      { ...input, transportMode } satisfies PlanmeV3StartInput,
+      createPlanmeIdempotencyKey("gpts", sourceId),
     );
     if (result.status === "processing") {
       result = await runPlanmeV3Itinerary(result.itineraryId, deadlineEpochMs);
@@ -125,6 +141,19 @@ export async function handleGptsRecommendItineraryRequest(
     }
     writeJson(response, 503, { error: "PLANME_WEB_UNAVAILABLE" });
   }
+}
+
+function resolveLegacyTransportMode(message: string | undefined) {
+  if (!message) {
+    return undefined;
+  }
+  const normalized = message.normalize("NFKC");
+  const mentionsDrive = /자동차|자차/.test(normalized);
+  const mentionsTransit = /대중\s*교통/.test(normalized);
+  if (mentionsDrive === mentionsTransit) {
+    return undefined;
+  }
+  return mentionsDrive ? "drive" as const : "transit" as const;
 }
 
 function assessPlanningInput(input: {
