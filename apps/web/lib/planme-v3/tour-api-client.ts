@@ -308,6 +308,12 @@ function matchTourRegion(
   const hasDistrictWithinParent = parentCandidates.some(
     (candidate) => candidate.districtMatch,
   );
+  if (hasParentRegion && !hasDistrictWithinParent) {
+    const parent = parentCandidates[0];
+    return parent
+      ? { regionCode: parent.regionCode, regionName: parent.regionName }
+      : null;
+  }
   const regionOnlyCandidates = parentCandidates.filter(
     (candidate) => !candidate.districtCode,
   );
@@ -409,11 +415,18 @@ function normalizeMaxPages(value: number | undefined) {
 }
 
 function normalizeRegionName(value: string) {
-  return value
+  const trimmed = value.trim();
+  const endsWithCompositeAdministrativeSuffix =
+    /(특별자치도|특별자치시|광역시|특별시)$/.test(trimmed);
+  const normalized = trimmed
     .replace(/특별자치도|특별자치시|광역시|특별시/g, "")
     .replace(/\s+/g, "")
-    .replace(/(도|시|군|구)$/g, "")
     .trim();
+
+  if (endsWithCompositeAdministrativeSuffix || normalized === "대구") {
+    return normalized;
+  }
+  return normalized.replace(/(도|시|군|구)$/g, "");
 }
 
 function normalizeScalar(value: string | number | undefined) {
