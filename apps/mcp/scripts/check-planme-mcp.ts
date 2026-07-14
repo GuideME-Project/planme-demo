@@ -2996,6 +2996,8 @@ async function assertV3ChannelContract(): Promise<void> {
       assert.equal(openApiResponse.status, 200);
       assert.match(openApiText, /invocationId/);
       assert.match(openApiText, /사용자에게 질문하지 않습니다/);
+      assert.match(openApiText, /excludedNotice/);
+      assert.match(openApiText, /내용을 바꾸지 말고 사용자에게 그대로 출력/);
       assert.doesNotMatch(openApiText, /hotelName|clarificationContext|arrivalAirport/);
       assert.deepEqual(
         openApiPayload.components?.schemas?.PlanningSlot?.enum,
@@ -3074,6 +3076,10 @@ async function assertV3ChannelContract(): Promise<void> {
       const terminal = await recommendation.json();
       assert.equal(recommendation.status, 200);
       assert.equal(terminal.status, "ready");
+      assert.equal(
+        terminal.excludedNotice,
+        '요청한 장소 "확인되지 않은 장소": TourAPI에서 확인되지 않아 일정에서 제외되었습니다.',
+      );
       assert.equal(idempotencyKeys[1], "gpts:gpts-contract-1");
       assert.ok(capturedDeadline >= beforeRequest + 41_000);
       assert.ok(capturedDeadline <= Date.now() + 55_000);

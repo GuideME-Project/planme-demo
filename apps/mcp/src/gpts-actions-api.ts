@@ -132,7 +132,12 @@ export async function handleGptsRecommendItineraryRequest(
       });
       return;
     }
-    writeJson(response, 200, result);
+    writeJson(response, 200, result.status === "ready"
+      ? {
+          ...result,
+          excludedNotice: buildExcludedNotice(result.excludedRequestedPlaces),
+        }
+      : result);
   } catch (error) {
     if (error instanceof PlanmeWebClientHttpError) {
       const status = [400, 409, 429].includes(error.status) ? error.status : 503;
@@ -154,6 +159,16 @@ function resolveLegacyTransportMode(message: string | undefined) {
     return undefined;
   }
   return mentionsDrive ? "drive" as const : "transit" as const;
+}
+
+function buildExcludedNotice(
+  excludedRequestedPlaces: Array<{ input: string; reason: string }>,
+) {
+  return excludedRequestedPlaces
+    .map(({ input, reason }) => reason === "TOURAPI_NOT_FOUND"
+      ? `요청한 장소 "${input}": TourAPI에서 확인되지 않아 일정에서 제외되었습니다.`
+      : `요청한 장소 "${input}": 경로를 확정할 수 없어 일정에서 제외되었습니다.`)
+    .join("\n");
 }
 
 function assessPlanningInput(input: {
@@ -414,6 +429,7 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             "pageUrl",
             "widget",
             "excludedRequestedPlaces",
+            "excludedNotice",
           ],
           properties: {
             status: { type: "string", enum: ["ready"] },
@@ -422,6 +438,11 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             pageUrl: { type: "string", format: "uri" },
             widget: { type: "object" },
             excludedRequestedPlaces: { type: "array", items: { type: "object" } },
+            excludedNotice: {
+              type: "string",
+              description:
+                "비어 있지 않으면 내용을 바꾸지 말고 사용자에게 그대로 출력합니다.",
+            },
           },
         },
         ItineraryFailedResponse: {
