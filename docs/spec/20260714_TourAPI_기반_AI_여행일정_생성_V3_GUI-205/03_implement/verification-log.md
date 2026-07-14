@@ -210,3 +210,10 @@ PlanME GPT의 새 채팅에서 다음 요청을 실행했다.
 | `PLANME_INTERNAL_API_TOKEN=playwright-local-token npx playwright test apps/web/e2e/itinerary-map-view-layout.spec.ts apps/web/e2e/destination-editor-recorded-flow.spec.ts apps/web/e2e/planme-v3-widget.spec.ts --project=chromium` | 통과 | 관련 Playwright 5건 통과 |
 
 로컬 두 서버 검증이 만든 일정 ID는 일회성 메모리 fixture 데이터이며 서버 종료와 함께 폐기됐다. 테스트 스크립트가 웹·MCP 프로세스를 종료해 백그라운드 서버는 남아 있지 않다.
+
+## 2026-07-14 운영 환경 설정 재개
+
+- `planme-demo` Production·Preview에 `OPENAI_API_KEY`와 `TOUR_API_SERVICE_KEY`를 추가했다.
+- 현재 worktree와 기준 `main` 체크아웃의 웹 로컬 환경에 TourAPI 키를 반영했다.
+- 민감값 원문은 Git과 검증 문서에 기록하지 않았다.
+- PR #74의 병합 배포 뒤 PlanME GPT 새 채팅 시나리오와 실제 공급자·Upstash 흐름을 다시 검증한다.
