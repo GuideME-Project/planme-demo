@@ -236,3 +236,13 @@ PlanME GPT의 새 채팅에서 다음 요청을 실행했다.
 - 숙소 전용 `searchStay2` 요청에 `contentTypeId=32`를 함께 보내면 TourAPI가 `INVALID_REQUEST_PARAMETER_ERROR(contentTypeId)`를 반환하고, 해당 매개변수를 빼면 `0000/OK`와 숙소 결과를 반환했다.
 - `searchStay2` 요청에서만 `contentTypeId`를 제외하고 공급자 계약 회귀 검사를 추가했다.
 - `npm run test:v3`, `npm run lint`, `npm run build`가 통과했다. 린트에는 기존 `ItineraryDashboard.tsx` 경고 3건이 남아 있고 오류는 없다.
+
+### PR #76 운영 재검증과 ODsay 인증 분류
+
+- PR #76 병합 커밋 `539c07a`의 웹·MCP 운영 배포가 모두 성공했다.
+- PlanME GPT 새 채팅에서 같은 시나리오를 실행한 결과 TourAPI 후보·숙소 조회는 통과하고 대중교통 경로 단계에서 `ROUTE_UNAVAILABLE`로 종료됐다.
+- Upstash 작업 체크포인트에서 첫 필수 구간 `transit:origin:143125`가 `ODSAY_500`으로 실패한 것을 확인했다.
+- 동일 좌표와 Production 키로 ODsay를 직접 호출한 결과 `500 [ApiKeyAuthFailed] ApiKey authentication failed.`가 반환됐다.
+- Vercel Production의 기존 브라우저용 키와 로컬 값이 같은지 확인했고, 별도의 서버용 키는 저장소 환경 파일에서 발견되지 않았다.
+- ODsay 인증 실패는 `ODSAY_CONFIGURATION_ERROR`로 분류하고 오케스트레이터가 `INTERNAL_CONFIGURATION_ERROR`로 전달하도록 보정했다. 장거리 구간을 추정 경로로 대체하지 않는다.
+- `npm run test:v3`, `npm run lint`, `npm run build`가 다시 통과했다. 기존 린트 경고 3건 외 오류는 없다.

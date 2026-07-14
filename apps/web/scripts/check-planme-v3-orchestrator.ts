@@ -14,6 +14,7 @@ async function main() {
   let routeCalls = 0;
   let emptyVisitCandidates = false;
   let hangRoutes = false;
+  let routeConfigurationFailure = false;
   let observedRouteAbort = false;
   const usageEvents: PlanmeUsageCounterEvent[] = [];
   const jobStore = createMemoryPlanmeV3JobStore({
@@ -71,6 +72,9 @@ async function main() {
     }),
     routeSegment: async ({ from, to, transportMode, signal }) => {
       routeCalls += 1;
+      if (routeConfigurationFailure) {
+        return { status: "failed", errorCode: "ODSAY_CONFIGURATION_ERROR" };
+      }
       if (hangRoutes) {
         return new Promise((resolve) => {
           const abort = () => {
@@ -313,6 +317,33 @@ async function main() {
     zeroLuggageRevision?.carryme.totalMinutes,
   );
   assert.deepEqual(zeroLuggageRevision?.carryme.luggageEvents, []);
+
+  routeConfigurationFailure = true;
+  const routeConfigurationStart = await orchestrator.startItinerary(
+    {
+      origin: "서울역",
+      destination: "부산",
+      durationDays: 1,
+      transportMode: "transit",
+    },
+    "gpts:route-configuration-failure",
+  );
+  assert.equal(routeConfigurationStart.status, "processing");
+  if (routeConfigurationStart.status !== "processing") {
+    throw new Error("경로 설정 실패 일정이 processing으로 시작되지 않았습니다.");
+  }
+  const routeConfigurationResult = await orchestrator.runUntilTerminal(
+    routeConfigurationStart.itineraryId,
+    now + 42_000,
+  );
+  assert.equal(routeConfigurationResult?.status, "failed");
+  if (routeConfigurationResult?.status === "failed") {
+    assert.equal(
+      routeConfigurationResult.errorCode,
+      "INTERNAL_CONFIGURATION_ERROR",
+    );
+  }
+  routeConfigurationFailure = false;
 
   const fourteenDayStart = await orchestrator.startItinerary(
     {

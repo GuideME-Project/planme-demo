@@ -399,6 +399,31 @@ const retryResult = await routePlanmeSegment(
 assert.equal(retryResult.status, "ready");
 assert.equal(transientAttempt, 2);
 
+const authenticationFailureResult = await routePlanmeSegment(
+  {
+    from: nearbyFrom,
+    to: nearbyTo,
+    transportMode: "transit",
+    requiredSegment: true,
+  },
+  {
+    odsayApiKey: "invalid-server-key",
+    fetchImpl: async () =>
+      jsonResponse({
+        error: [
+          {
+            code: "500",
+            message: "[ApiKeyAuthFailed] ApiKey authentication failed.",
+          },
+        ],
+      }),
+  },
+);
+assert.deepEqual(authenticationFailureResult, {
+  status: "failed",
+  errorCode: "ODSAY_CONFIGURATION_ERROR",
+});
+
 const driveResult = await routePlanmeSegment(
   {
     from: nearbyFrom,

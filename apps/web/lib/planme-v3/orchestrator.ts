@@ -1247,7 +1247,11 @@ async function requestRoute(
     requiredSegment,
   });
   if (result.status === "failed") {
-    throw new OrchestratorFailure("ROUTE_UNAVAILABLE");
+    throw new OrchestratorFailure(
+      result.errorCode.includes("CONFIGURATION")
+        ? "INTERNAL_CONFIGURATION_ERROR"
+        : "ROUTE_UNAVAILABLE",
+    );
   }
   return result.status === "exclude_optional"
     ? ({ status: "exclude" } as const)

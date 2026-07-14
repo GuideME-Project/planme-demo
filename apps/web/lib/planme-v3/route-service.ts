@@ -259,6 +259,9 @@ async function routeTransitSegment(
 
     const providerError = getOdsayError(transitResponse.payload);
     if (providerError) {
+      if (isOdsayAuthenticationFailure(providerError)) {
+        return { status: "failed", errorCode: "ODSAY_CONFIGURATION_ERROR" };
+      }
       const decision = decideOdsayFailure({
         code: providerError.code ?? "ODSAY_ERROR",
         kind: "transit",
@@ -363,6 +366,9 @@ async function routeWalkSegment(input: {
 
     const path = response.payload.result?.path?.[0];
     const providerError = getOdsayError(response.payload);
+    if (providerError && isOdsayAuthenticationFailure(providerError)) {
+      return { status: "failed", errorCode: "ODSAY_CONFIGURATION_ERROR" };
+    }
     const failureCode = providerError?.code ??
       (!path?.hasPathResult ? path?.errorCode ?? "ODSAY_WALK_ERROR" : null);
     if (failureCode !== null) {
@@ -508,6 +514,11 @@ function getOdsayError(payload: {
   error?: OdsayError | OdsayError[];
 }) {
   return Array.isArray(payload.error) ? payload.error[0] : payload.error;
+}
+
+function isOdsayAuthenticationFailure(error: OdsayError) {
+  const message = error.message ?? error.msg ?? "";
+  return String(error.code) === "500" && message.includes("ApiKeyAuthFailed");
 }
 
 function unavailableResult(
