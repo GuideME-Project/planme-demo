@@ -86,6 +86,27 @@ const tourClient = createTourApiClient({
       });
     }
 
+    if (url.pathname.endsWith("/searchStay2")) {
+      return jsonResponse({
+        response: {
+          header: { resultCode: "0000", resultMsg: "OK" },
+          body: {
+            totalCount: 1,
+            items: {
+              item: {
+                contentid: "lodging-1",
+                contenttypeid: "32",
+                title: "부산 호텔",
+                mapx: "129.0756",
+                mapy: "35.1796",
+                lDongRegnCd: "26",
+              },
+            },
+          },
+        },
+      });
+    }
+
     return jsonResponse({
       response: {
         header: { resultCode: "0000", resultMsg: "OK" },
@@ -133,7 +154,16 @@ const candidateRequest = requestedUrls.at(-1);
 assert.equal(candidateRequest?.searchParams.get("lDongRegnCd"), "26");
 assert.equal(candidateRequest?.searchParams.get("areaCode"), null);
 assert.equal(candidateRequest?.searchParams.get("serviceKey"), "encoded+service=key");
+const stayResult = await tourClient.listCandidates({
+  contentTypeId: 32,
+  region,
+});
+assert.equal(stayResult.status, "success");
+const stayRequest = requestedUrls.at(-1);
+assert.equal(stayRequest?.pathname.endsWith("/searchStay2"), true);
+assert.equal(stayRequest?.searchParams.get("contentTypeId"), null);
 assert.deepEqual(tourUsageEvents, [
+  "tourapi_request",
   "tourapi_request",
   "tourapi_request",
   "tourapi_request",

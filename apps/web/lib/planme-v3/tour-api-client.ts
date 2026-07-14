@@ -320,11 +320,14 @@ function createCandidateParams(
 ) {
   const params: Record<string, string> = {
     arrange: "A",
-    contentTypeId: String(query.contentTypeId),
     lDongRegnCd: query.region.regionCode,
     numOfRows: String(pageSize),
     pageNo: String(pageNo),
   };
+
+  if (query.contentTypeId !== 32) {
+    params.contentTypeId = String(query.contentTypeId);
+  }
 
   if (query.region.districtCode) {
     params.lDongSignguCd = query.region.districtCode;
