@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { parseStartItineraryRequest } from "@/lib/planme-v3/api-contracts";
 import { isAuthorizedPlanmeInternalRequest } from "@/lib/planme-v3/internal-auth";
-import { getPlanmeV3Runtime } from "@/lib/planme-v3/runtime";
+import {
+  classifyPlanmeV3RuntimeError,
+  getPlanmeV3Runtime,
+} from "@/lib/planme-v3/runtime";
 
 export async function POST(request: Request) {
   if (!isAuthorizedPlanmeInternalRequest(request)) {
@@ -37,7 +40,9 @@ export async function POST(request: Request) {
     return NextResponse.json(result, {
       status: result.status === "processing" ? 202 : 200,
     });
-  } catch {
-    return NextResponse.json({ error: "STORE_UNAVAILABLE" }, { status: 503 });
+  } catch (error) {
+    const errorCode = classifyPlanmeV3RuntimeError(error instanceof Error ? error : null);
+    console.error("PlanME V3 start failed", { errorCode });
+    return NextResponse.json({ error: errorCode }, { status: 503 });
   }
 }

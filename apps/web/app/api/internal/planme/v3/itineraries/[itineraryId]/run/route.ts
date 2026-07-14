@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { parseRunRequest } from "@/lib/planme-v3/api-contracts";
 import { isAuthorizedPlanmeInternalRequest } from "@/lib/planme-v3/internal-auth";
-import { getPlanmeV3Runtime } from "@/lib/planme-v3/runtime";
+import {
+  classifyPlanmeV3RuntimeError,
+  getPlanmeV3Runtime,
+} from "@/lib/planme-v3/runtime";
 
 type RouteContext = { params: Promise<{ itineraryId: string }> };
 
@@ -20,7 +23,9 @@ export async function POST(request: Request, context: RouteContext) {
     return result
       ? NextResponse.json(result)
       : NextResponse.json({ error: "ITINERARY_NOT_FOUND" }, { status: 404 });
-  } catch {
-    return NextResponse.json({ error: "STORE_UNAVAILABLE" }, { status: 503 });
+  } catch (error) {
+    const errorCode = classifyPlanmeV3RuntimeError(error instanceof Error ? error : null);
+    console.error("PlanME V3 run failed", { errorCode });
+    return NextResponse.json({ error: errorCode }, { status: 503 });
   }
 }

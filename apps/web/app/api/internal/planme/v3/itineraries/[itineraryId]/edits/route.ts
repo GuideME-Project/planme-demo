@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { parseEditItineraryRequest } from "@/lib/planme-v3/api-contracts";
 import { isAuthorizedPlanmeInternalRequest } from "@/lib/planme-v3/internal-auth";
-import { getPlanmeV3Runtime } from "@/lib/planme-v3/runtime";
+import {
+  classifyPlanmeV3RuntimeError,
+  getPlanmeV3Runtime,
+} from "@/lib/planme-v3/runtime";
 
 type RouteContext = { params: Promise<{ itineraryId: string }> };
 
@@ -30,7 +33,9 @@ export async function POST(request: Request, context: RouteContext) {
       return NextResponse.json({ error: "ITINERARY_VERSION_CONFLICT" }, { status: 409 });
     }
     return NextResponse.json(result, { status: 202 });
-  } catch {
-    return NextResponse.json({ error: "STORE_UNAVAILABLE" }, { status: 503 });
+  } catch (error) {
+    const errorCode = classifyPlanmeV3RuntimeError(error instanceof Error ? error : null);
+    console.error("PlanME V3 edit failed", { errorCode });
+    return NextResponse.json({ error: errorCode }, { status: 503 });
   }
 }
