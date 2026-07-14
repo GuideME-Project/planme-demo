@@ -3076,7 +3076,8 @@ async function assertV3ChannelContract(): Promise<void> {
       assert.equal(terminal.status, "ready");
       assert.equal(idempotencyKeys[1], "gpts:gpts-contract-1");
       assert.ok(capturedDeadline >= beforeRequest + 41_000);
-      assert.ok(capturedDeadline <= Date.now() + 42_000);
+      assert.ok(capturedDeadline <= Date.now() + 55_000);
+      assert.ok(capturedDeadline > Date.now() + 50_000);
     } finally {
       actions.server.close();
     }
