@@ -2939,7 +2939,7 @@ async function assertV3ChannelContract(): Promise<void> {
   };
   let startCount = 0;
   const idempotencyKeys: string[] = [];
-  const startInputs: Array<{ transportMode?: string }> = [];
+  const startInputs: Array<{ requestedPlaces?: string[]; transportMode?: string }> = [];
   let capturedDeadline = 0;
 
   try {
@@ -2959,7 +2959,10 @@ async function assertV3ChannelContract(): Promise<void> {
         idempotencyKeys.push(
           new Headers(init?.headers).get("idempotency-key") ?? "",
         );
-        startInputs.push(JSON.parse(String(init?.body)) as { transportMode?: string });
+        startInputs.push(JSON.parse(String(init?.body)) as {
+          requestedPlaces?: string[];
+          transportMode?: string;
+        });
         return jsonResponse({
           status: "processing",
           itineraryId: "planme-v3-contract",
@@ -3070,12 +3073,14 @@ async function assertV3ChannelContract(): Promise<void> {
             destination: "부산",
             transportMode: "대중교통",
             durationDays: 1,
+            requestedPlaces: "확인되지 않은 장소",
           }),
         },
       );
       const terminal = await recommendation.json();
       assert.equal(recommendation.status, 200);
       assert.equal(terminal.status, "ready");
+      assert.deepEqual(startInputs[1]?.requestedPlaces, ["확인되지 않은 장소"]);
       assert.equal(
         terminal.excludedNotice,
         '요청한 장소 "확인되지 않은 장소": TourAPI에서 확인되지 않아 일정에서 제외되었습니다.',
