@@ -9,7 +9,6 @@ const requiredFiles = [
   "app/api/gpt/itineraries/[itineraryId]/route.ts",
   "app/api/gpt/itineraries/[itineraryId]/share/route.ts",
   "app/api/gpt/itineraries/preview-store/route.ts",
-  "app/api/gpt/itineraries/transit-preflight/route.ts",
   "app/api/gpt/openapi/route.ts",
   "app/api/places/search/route.ts",
   "app/og/itinerary/[itineraryId]/route.tsx",
@@ -100,22 +99,6 @@ if (existsSync(itineraryDashboardFile)) {
   if (itineraryDashboardSource.includes("handleDestinationModeChange")) {
     failures.push("Destination rows must not expose per-segment transport mode changes.");
   }
-
-  const transportModeHandler = itineraryDashboardSource.match(
-    /const handleTransportModeChange = \(nextMode: PlanmeTransportMode\) => \{[\s\S]*?\n  \};/,
-  )?.[0];
-
-  if (!transportModeHandler) {
-    failures.push("ItineraryDashboard must keep one itinerary-wide transport mode handler.");
-  } else if (transportModeHandler.includes("setComputedRoutes")) {
-    failures.push(
-      "Changing the draft transport mode must preserve the last committed route until recalculation succeeds.",
-    );
-  }
-
-  if (!itineraryDashboardSource.includes("setTransportMode(committedTransportMode)")) {
-    failures.push("Failed route recalculation must restore the last committed transport mode.");
-  }
 }
 
 const gptActionsFile = join(root, "packages/planme-core/src/gpt-actions.ts");
@@ -133,9 +116,6 @@ if (existsSync(gptActionsFile)) {
 }
 
 const openAiGeneratorFile = join(root, "packages/planme-core/src/openai-itinerary-generator.ts");
-const gptsActionsApiFile = join(root, "apps/mcp/src/gpts-actions-api.ts");
-const planmeMcpFile = join(root, "apps/mcp/src/planme-mcp.ts");
-const routeFinalizerFile = join(root, "apps/web/lib/itinerary-route-finalizer.ts");
 
 if (existsSync(openAiGeneratorFile)) {
   const openAiGeneratorSource = readFileSync(openAiGeneratorFile, "utf8");
@@ -146,59 +126,6 @@ if (existsSync(openAiGeneratorFile)) {
 
   if (openAiGeneratorSource.includes("search_places_nearby") || openAiGeneratorSource.includes("radiusMeters")) {
     failures.push("OpenAI place tools must not expose nearby or radius contracts.");
-  }
-
-  for (const requiredInstruction of [
-    "같은 day의 Standard와 CarryME는 반드시 같은 실제 장소에서 시작하고 같은 실제 장소에서 끝내세요.",
-    "여행 마지막 day는 두 경로 모두 최초 출발지로 복귀해 끝내고",
-    "여행 마지막 날 CarryME 타임라인에는 최초 출발지 복귀 시각과 같은 시각",
-    "사용자가 출발지를 집이라고 하지 않았다면 집이라고 바꾸지 마세요.",
-  ]) {
-    if (!openAiGeneratorSource.includes(requiredInstruction)) {
-      failures.push(`OpenAI generation must retain the itinerary boundary instruction: ${requiredInstruction}`);
-    }
-  }
-}
-
-for (const contractFile of [gptsActionsApiFile, planmeMcpFile]) {
-  if (!existsSync(contractFile)) {
-    continue;
-  }
-
-  const contractSource = readFileSync(contractFile, "utf8");
-
-  if (!contractSource.includes("destinationType") || !contractSource.includes("mustVisitPlaces")) {
-    failures.push(`${contractFile} must expose destinationType and mustVisitPlaces`);
-  }
-
-  if (!contractSource.includes("savingStatus")) {
-    failures.push(`${contractFile} must expose savingStatus`);
-  }
-}
-
-if (existsSync(gptsActionsApiFile)) {
-  const gptsActionsSource = readFileSync(gptsActionsApiFile, "utf8");
-
-  if (!gptsActionsSource.includes('required: ["latestUserMessage", "destination", "durationDays"]')) {
-    failures.push("GPTs OpenAPI must require the latest user-authored message before generation");
-  }
-
-  if (gptsActionsSource.includes('properties: {\n            latestUserMessage') &&
-      gptsActionsSource.includes('This enum is advisory until')) {
-    failures.push("GPTs OpenAPI must not expose a model-fillable transport mode enum");
-  }
-
-  if (gptsActionsSource.includes('"savedMinutes",\n            "savingStatus"')) {
-    failures.push("GPTs ready responses must not require savedMinutes when duration is estimated");
-  }
-}
-
-if (existsSync(routeFinalizerFile)) {
-  const routeFinalizerSource = readFileSync(routeFinalizerFile, "utf8");
-
-  if (!routeFinalizerSource.includes("placeConstraint: stop.placeConstraint") ||
-      !routeFinalizerSource.includes("stopRef: stop.stopRef")) {
-    failures.push("Route provider stops must preserve placeConstraint and stopRef");
   }
 }
 

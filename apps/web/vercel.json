@@ -1,8 +1,0 @@
-{
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "env": {
-    "PLANME_ODSAY_MAX_REQUESTS_PER_TRACE": "60",
-    "PLANME_ODSAY_STATION_SEARCH_RADII_METERS": "500,1000",
-    "PLANME_TRANSIT_ACCESS_RECOVERY_MODE": "on"
-  }
-}

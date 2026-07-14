@@ -1,0 +1,26 @@
+import { NextResponse } from "next/server";
+import { parseRunRequest } from "@/lib/planme-v3/api-contracts";
+import { isAuthorizedPlanmeInternalRequest } from "@/lib/planme-v3/internal-auth";
+import { getPlanmeV3Runtime } from "@/lib/planme-v3/runtime";
+
+type RouteContext = { params: Promise<{ itineraryId: string }> };
+
+export async function POST(request: Request, context: RouteContext) {
+  if (!isAuthorizedPlanmeInternalRequest(request)) {
+    return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+  }
+  const parsed = parseRunRequest(await request.text());
+  if (!parsed.ok) {
+    return NextResponse.json({ error: "INVALID_RUN_REQUEST" }, { status: 400 });
+  }
+  const { itineraryId } = await context.params;
+  try {
+    const result = await getPlanmeV3Runtime(new URL(request.url).origin)
+      .runUntilTerminal(itineraryId, parsed.deadlineEpochMs, request.signal);
+    return result
+      ? NextResponse.json(result)
+      : NextResponse.json({ error: "ITINERARY_NOT_FOUND" }, { status: 404 });
+  } catch {
+    return NextResponse.json({ error: "STORE_UNAVAILABLE" }, { status: 503 });
+  }
+}

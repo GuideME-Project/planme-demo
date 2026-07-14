@@ -1,13 +1,4 @@
-import {
-  DEFAULT_RECOMMENDATION_DESTINATION_TYPE,
-  type PlanmeClarificationContext,
-  type PlanmeClarificationResponse,
-  type RecommendItineraryRequest,
-} from "./gpt-actions.js";
-import {
-  PLANME_EXTERNAL_DURATION_ERROR_MESSAGE,
-  PLANME_EXTERNAL_MAX_DURATION_DAYS,
-} from "./external-duration-contract.js";
+import type { RecommendItineraryRequest } from "./gpt-actions.js";
 import type { PlanmeTransportMode } from "./mock-data.js";
 
 export type PlanmePlanningSlot =
@@ -31,54 +22,19 @@ export type PlanmePlanningAssessment = {
   questions: PlanmePlanningQuestion[];
   normalizedInput: {
     destination: string | null;
-    destinationType: "region" | "place" | null;
     origin: string | null;
     arrivalAirport: string | null;
     durationDays: number | null;
     hotelName: string | null;
     preferences: string[];
-    mustVisitPlaces: string[];
     transportMode: PlanmeTransportMode | null;
   };
   nextAction: "ask_user" | "recommend_planme_itinerary";
 };
 
 export type PlanmePlanningRequest = Partial<RecommendItineraryRequest> & {
-  latestUserMessage?: string;
   message?: string;
 };
-
-export type PlanmeModelRecommendationInput = Omit<
-  RecommendItineraryRequest,
-  "transportMode"
-> & {
-  transportMode?: RecommendItineraryRequest["transportMode"];
-};
-
-export type PlanmeConfirmedRecommendationRun<T> =
-  | { status: "needs_transport_confirmation" }
-  | { status: "confirmed"; value: T };
-
-export const PLANME_TRANSPORT_MODE_QUESTION =
-  "자동차와 대중교통 중 어떤 이동 수단으로 안내할까요?";
-
-const DRIVE_USER_MESSAGE_PATTERNS = [
-  /^(?:자동차|자차|자가용|렌터카|렌트카)(?:(?:로|으로|를|을)?\s*(?:이용(?:할게(?:요)?|해(?:요)?|해줘|해주세요)?|선택(?:할게(?:요)?|해(?:요)?|해줘|해주세요)?|갈게(?:요)?|할게(?:요)?|안내(?:해줘|해주세요)?|검색(?:해줘|해주세요)?|해줘|해주세요))?(?:이요|요)?[.!?]?$/i,
-  /(?:^|[\s,，/])(?:자동차|자차|자가용|렌터카|렌트카)(?:로|으로|를|을)\s*(?:이용|선택|안내|검색|여행|갈|가|할|해)(?:$|[\s,.!?，/])/i,
-  /(?:^|[,，/]\s*|\s)(?:자동차|자차|자가용|렌터카|렌트카)(?:이요|요)?[.!?]?$/i,
-  /(?:^|[\s,，/])(?:자동차|자차|자가용|렌터카|렌트카)\s+여행(?:$|[\s,.!?，/])/i,
-  /\bby\s+car\b/i,
-  /^(?:car|drive|driving)[.!?]?$/i,
-];
-const TRANSIT_USER_MESSAGE_PATTERNS = [
-  /^대중교통(?:(?:으로|을)?\s*(?:이용(?:할게(?:요)?|해(?:요)?|해줘|해주세요)?|선택(?:할게(?:요)?|해(?:요)?|해줘|해주세요)?|갈게(?:요)?|할게(?:요)?|안내(?:해줘|해주세요)?|검색(?:해줘|해주세요)?|해줘|해주세요))?(?:이요|요)?[.!?]?$/i,
-  /(?:^|[\s,，/])대중교통(?:으로|을)\s*(?:이용|선택|안내|검색|여행|갈|가|할|해)(?:$|[\s,.!?，/])/i,
-  /(?:^|[,，/]\s*|\s)대중교통(?:이요|요)?[.!?]?$/i,
-  /(?:^|[\s,，/])대중교통\s+여행(?:$|[\s,.!?，/])/i,
-  /^(?:public\s+transport(?:ation)?|public\s+transit|transit)[.!?]?$/i,
-];
-const TRANSPORT_NEGATION_PATTERN =
-  /(?:자동차|자차|자가용|렌터카|렌트카|대중교통)(?:\s*(?:은|는|을|를|로|으로))?\s*(?:없이|제외|말고|아니|안\s*(?:타|탈|쓰|이용|갈|가|할)|사용하지|(?:이용|선택|안내|검색)\s*(?:안|않|하지))/i;
 
 /**
  * Assesses whether a PlanME planning request is ready for itinerary generation.
@@ -89,16 +45,21 @@ export function assessPlanmePlanningInput(
   const normalizedInput = {
     arrivalAirport: normalizeOptionalText(input.arrivalAirport),
     destination: normalizeOptionalText(input.destination),
-    destinationType: normalizeDestinationType(input.destinationType),
     durationDays: normalizeDurationDays(input.durationDays),
     hotelName: normalizeOptionalText(input.hotelName),
     origin: normalizeOptionalText(input.origin),
     preferences: normalizePreferences(input.preferences),
-    mustVisitPlaces: [...new Set(normalizePreferences(input.mustVisitPlaces))],
     transportMode: normalizeTransportMode(input.transportMode),
   };
   const missingSlots = getMissingRequiredSlots(normalizedInput);
-  const questions = missingSlots.map(createRequiredQuestion);
+  const requiredQuestions = missingSlots.map(createRequiredQuestion);
+  const optionalQuestion = createOptionalQuestion(normalizedInput);
+  const questions =
+    requiredQuestions.length > 0
+      ? requiredQuestions
+      : optionalQuestion
+        ? [optionalQuestion]
+        : [];
   const status = missingSlots.length > 0 ? "needs_input" : "ready";
 
   // The MCP server uses this action hint to decide whether ChatGPT should ask or draft.
@@ -108,89 +69,6 @@ export function assessPlanmePlanningInput(
     questions,
     normalizedInput,
     nextAction: status === "ready" ? "recommend_planme_itinerary" : "ask_user",
-  };
-}
-
-/**
- * Accepts a transport mode only when the latest user-authored message names one choice.
- */
-export function resolvePlanmeTransportModeFromUserMessage(
-  latestUserMessage: string | null | undefined,
-): PlanmeTransportMode | null {
-  const message = latestUserMessage?.trim();
-
-  if (!message) {
-    return null;
-  }
-
-  const normalizedMessage = message.replace(/\s+/g, " ").replace(/해 주세요/g, "해주세요");
-
-  if (TRANSPORT_NEGATION_PATTERN.test(normalizedMessage)) {
-    return null;
-  }
-
-  if (normalizedMessage.includes("자동차") && normalizedMessage.includes("대중교통")) {
-    return null;
-  }
-
-  const mentionsDrive = DRIVE_USER_MESSAGE_PATTERNS.some((pattern) =>
-    pattern.test(normalizedMessage),
-  );
-  const mentionsTransit = TRANSIT_USER_MESSAGE_PATTERNS.some((pattern) =>
-    pattern.test(normalizedMessage),
-  );
-
-  if (mentionsDrive === mentionsTransit) {
-    return null;
-  }
-
-  return mentionsDrive ? "drive" : "transit";
-}
-
-/**
- * Runs generation only after deriving one supported mode from the latest user message.
- */
-export async function runPlanmeUserConfirmedRecommendation<T>(
-  latestUserMessage: string | null | undefined,
-  input: PlanmeModelRecommendationInput,
-  runner: (confirmedInput: RecommendItineraryRequest) => Promise<T>,
-): Promise<PlanmeConfirmedRecommendationRun<T>> {
-  const explicitTransportMode = resolvePlanmeTransportModeFromUserMessage(latestUserMessage);
-
-  if (!explicitTransportMode) {
-    return { status: "needs_transport_confirmation" };
-  }
-
-  const { transportMode: _modelTransportMode, ...transportIndependentInput } = input;
-  const value = await runner({
-    ...transportIndependentInput,
-    transportMode: explicitTransportMode,
-  });
-
-  return { status: "confirmed", value };
-}
-
-/**
- * Returns the shared transport-mode question used when a model supplies an unconfirmed mode.
- */
-export function createPlanmeTransportModeClarification(
-  context?: PlanmeClarificationContext,
-): PlanmeClarificationResponse {
-  return {
-    clarificationContext: {
-      previousAnswers: context?.previousAnswers ?? [],
-      previousQuestions: [
-        ...new Set([...(context?.previousQuestions ?? []), PLANME_TRANSPORT_MODE_QUESTION]),
-      ],
-      round: context?.round ?? 0,
-      unresolvedPlaces: context?.unresolvedPlaces ?? [],
-    },
-    message: "일정 생성 전에 이동 수단 선택이 필요합니다.",
-    questions: [PLANME_TRANSPORT_MODE_QUESTION],
-    resolutionLogs: [],
-    status: "needs_clarification",
-    unresolvedStops: [],
-    validationIssues: [],
   };
 }
 
@@ -207,12 +85,7 @@ function normalizeOptionalText(value: string | undefined) {
  * Normalizes trip length into full days because PlanME labels 당일 as 1 day.
  */
 function normalizeDurationDays(value: number | undefined) {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value < 1 ||
-    value > PLANME_EXTERNAL_MAX_DURATION_DAYS
-  ) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 1) {
     return null;
   }
 
@@ -231,15 +104,6 @@ function normalizePreferences(preferences: string[] | undefined) {
  */
 function normalizeTransportMode(value: PlanmeTransportMode | undefined) {
   return value === "drive" || value === "transit" ? value : null;
-}
-
-/**
- * Preserves the explicit destination meaning without turning legacy omission into a question.
- */
-function normalizeDestinationType(value: RecommendItineraryRequest["destinationType"]) {
-  return value === "region" || value === "place"
-    ? value
-    : DEFAULT_RECOMMENDATION_DESTINATION_TYPE;
 }
 
 /**
@@ -285,7 +149,7 @@ function createRequiredQuestion(slot: PlanmePlanningSlot): PlanmePlanningQuestio
   if (slot === "durationDays") {
     return {
       slot,
-      text: PLANME_EXTERNAL_DURATION_ERROR_MESSAGE,
+      text: "일정은 당일인가요, 1박 2일인가요?",
       required: true,
       examples: ["당일", "1박 2일", "2박 3일"],
     };
@@ -294,7 +158,7 @@ function createRequiredQuestion(slot: PlanmePlanningSlot): PlanmePlanningQuestio
   if (slot === "transportMode") {
     return {
       slot,
-      text: PLANME_TRANSPORT_MODE_QUESTION,
+      text: "일정 안내는 자동차와 대중교통만 지원합니다. 어떤 이동 수단으로 안내할까요?",
       required: true,
       examples: ["자동차", "대중교통"],
     };
@@ -306,4 +170,31 @@ function createRequiredQuestion(slot: PlanmePlanningSlot): PlanmePlanningQuestio
     required: true,
     examples: ["서울", "부산", "인천공항"],
   };
+}
+
+/**
+ * Offers at most one optional question so the GPT conversation stays lightweight.
+ */
+function createOptionalQuestion(
+  normalizedInput: PlanmePlanningAssessment["normalizedInput"],
+): PlanmePlanningQuestion | null {
+  if (!normalizedInput.hotelName) {
+    return {
+      slot: "hotelName",
+      text: "짐을 받을 숙소나 보관 지점이 정해져 있나요?",
+      required: false,
+      examples: ["여수 베네치아 호텔", "아직 미정"],
+    };
+  }
+
+  if (normalizedInput.preferences.length === 0) {
+    return {
+      slot: "preferences",
+      text: "꼭 포함하고 싶은 장소나 여행 테마가 있나요?",
+      required: false,
+      examples: ["밤바다", "공연", "맛집"],
+    };
+  }
+
+  return null;
 }

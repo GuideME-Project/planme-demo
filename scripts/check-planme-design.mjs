@@ -8,15 +8,15 @@ const timelinePanelPath = new URL("../apps/web/components/itinerary/TimelinePane
 
 const requiredTexts = [
   "테마 버전",
-  "총 이동 시간(예상)",
+  "총 이동 시간",
   "약 6시간 30분 → 5시간 20분",
-  "절약 시간(예상)",
+  "절약 시간",
   "동선 비교",
   "상세 지도",
   "Standard 일정",
   "CarryME 일정",
-  "Standard 총 이동 시간(예상)",
-  "CarryME 총 이동 시간(예상)",
+  "Standard 총 이동 시간",
+  "CarryME 총 이동 시간",
   "캐리미 짐 탁송 완료",
   "CarryME로 짐 맡기기 (데모)",
   "안전한 짐 배송",
@@ -34,7 +34,6 @@ const requiredSourceFragments = [
   "const routeLineStyles",
   'strokeStyle: "shortdash"',
   "zIndex: routeStyle.zIndex",
-  'strokeDasharray="5 4"',
 ];
 
 const requiredDashboardSourceFragments = [
@@ -43,7 +42,7 @@ const requiredDashboardSourceFragments = [
   "PlanmeStopRole",
   "ProviderSegmentMode",
   "function getDestinationRoleLabel(row: DestinationRow)",
-  "savingLabel={savingLabel}",
+  "savingLabel={displaySavingLabel}",
   "standardTimeline",
   "carrymeTimeline",
   "selectedDayPlan.carrymeTimeline ??",
@@ -75,6 +74,7 @@ const forbiddenSourceFragments = [
 const forbiddenRouteMapSourceFragments = [
   "캐리미로 짐을 이동하니, 관광할 시간이 1시간 더 많아졌어요",
   'label="CarryME 경로"',
+  'strokeDasharray="',
 ];
 
 async function fetchHtml(path) {

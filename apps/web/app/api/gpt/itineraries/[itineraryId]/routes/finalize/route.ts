@@ -16,10 +16,6 @@ import {
   releasePreviewItineraryLock,
   saveFinalizedPreviewItinerary,
 } from "@/lib/preview-itinerary-store";
-import {
-  createPlanmeRouteFailureLog,
-  type PlanmeWebFailureStage,
-} from "@/lib/route-failure-observability";
 
 type FinalizeRouteContext = {
   params: Promise<{
@@ -38,85 +34,34 @@ export const maxDuration = 45;
 /** Finalizes a saved legacy or edited itinerary under a revision-bound browser token. */
 export async function POST(request: Request, context: FinalizeRouteContext) {
   const startedAt = Date.now();
-  const traceId = getRouteFinalizationTraceId(request);
   const { itineraryId } = await context.params;
-  let body: FinalizeRouteRequest;
-
-  try {
-    body = (await request.json()) as FinalizeRouteRequest;
-  } catch {
-    logRouteFinalizationFailure(traceId, 400, "INVALID_JSON", "request_validation");
-    return NextResponse.json({ error: "INVALID_JSON" }, { status: 400 });
-  }
+  const body = (await request.json()) as FinalizeRouteRequest;
 
   if (
     !Number.isInteger(body.baseRevision) ||
     typeof body.token !== "string" ||
     !verifyRouteFinalizationToken(body.token, itineraryId, Number(body.baseRevision))
   ) {
-    logRouteFinalizationFailure(
-      traceId,
-      401,
-      "INVALID_FINALIZATION_TOKEN",
-      "authorization",
-    );
     return NextResponse.json({ error: "INVALID_FINALIZATION_TOKEN" }, { status: 401 });
   }
 
   const rateKey = `${itineraryId}:${createRequestSourceHash(request)}`;
-  let rateAllowed: boolean;
-
-  try {
-    rateAllowed = await consumePreviewFinalizationRateLimit(rateKey, 4, 5 * 60);
-  } catch {
-    logRouteFinalizationFailure(
-      traceId,
-      500,
-      "FINALIZATION_RATE_LIMIT_LOOKUP_FAILED",
-      "rate_limit",
-    );
-    return NextResponse.json({ error: "PREVIEW_STORE_UNAVAILABLE" }, { status: 500 });
-  }
+  const rateAllowed = await consumePreviewFinalizationRateLimit(rateKey, 4, 5 * 60);
 
   if (!rateAllowed) {
-    logRouteFinalizationFailure(
-      traceId,
-      429,
-      "ROUTE_FINALIZATION_RATE_LIMITED",
-      "rate_limit",
-    );
     return NextResponse.json(
       { error: "ROUTE_FINALIZATION_RATE_LIMITED" },
       { status: 429 },
     );
   }
 
-  let record: Awaited<ReturnType<typeof getPreviewItineraryRecordById>>;
-
-  try {
-    record = await getPreviewItineraryRecordById(itineraryId);
-  } catch {
-    logRouteFinalizationFailure(
-      traceId,
-      500,
-      "PREVIEW_STORE_LOOKUP_FAILED",
-      "record_lookup",
-    );
-    return NextResponse.json({ error: "PREVIEW_STORE_UNAVAILABLE" }, { status: 500 });
-  }
+  const record = await getPreviewItineraryRecordById(itineraryId);
 
   if (!record) {
-    logRouteFinalizationFailure(traceId, 404, "ITINERARY_NOT_FOUND", "record_lookup");
     return NextResponse.json({ error: "ITINERARY_NOT_FOUND" }, { status: 404 });
   }
 
   if (record.revision !== body.baseRevision) {
-    logRouteFinalizationFailure(
-      traceId,
-      409,
-      "ITINERARY_VERSION_CONFLICT",
-      "record_lookup",
-    );
     return NextResponse.json(
       { error: "ITINERARY_VERSION_CONFLICT" },
       { status: 409 },
@@ -126,32 +71,13 @@ export async function POST(request: Request, context: FinalizeRouteContext) {
   const candidate = body.itinerary ?? record.itinerary;
 
   if (!isMatchingPlanmeItinerary(candidate, itineraryId)) {
-    logRouteFinalizationFailure(traceId, 400, "INVALID_ITINERARY", "request_validation");
     return NextResponse.json({ error: "INVALID_ITINERARY" }, { status: 400 });
   }
 
   const lockOwner = randomUUID();
-  let lockAcquired: boolean;
-
-  try {
-    lockAcquired = await acquirePreviewItineraryLock(itineraryId, lockOwner);
-  } catch {
-    logRouteFinalizationFailure(
-      traceId,
-      500,
-      "PREVIEW_STORE_LOCK_FAILED",
-      "lock_acquisition",
-    );
-    return NextResponse.json({ error: "PREVIEW_STORE_UNAVAILABLE" }, { status: 500 });
-  }
+  const lockAcquired = await acquirePreviewItineraryLock(itineraryId, lockOwner);
 
   if (!lockAcquired) {
-    logRouteFinalizationFailure(
-      traceId,
-      409,
-      "ITINERARY_VERSION_CONFLICT",
-      "lock_acquisition",
-    );
     return NextResponse.json(
       { error: "ITINERARY_VERSION_CONFLICT" },
       { status: 409 },
@@ -192,17 +118,10 @@ export async function POST(request: Request, context: FinalizeRouteContext) {
 
     const itinerary = await finalizeItineraryRoutes(verifiedCandidate, {
       timeoutMs: remainingTimeMs,
-      traceId,
     });
     const saved = await saveFinalizedPreviewItinerary(itinerary, record.revision);
 
     if (!saved) {
-      logRouteFinalizationFailure(
-        traceId,
-        409,
-        "ITINERARY_VERSION_CONFLICT",
-        "preview_persistence",
-      );
       return NextResponse.json(
         { error: "ITINERARY_VERSION_CONFLICT" },
         { status: 409 },
@@ -220,12 +139,6 @@ export async function POST(request: Request, context: FinalizeRouteContext) {
     const message = error instanceof Error ? error.message : "일정 경로 계산 실패";
 
     if (error instanceof RouteFinalizationTimeoutError) {
-      logRouteFinalizationFailure(
-        traceId,
-        504,
-        "ROUTE_FINALIZATION_TIMEOUT",
-        "route_finalization",
-      );
       return NextResponse.json(
         { error: "ROUTE_FINALIZATION_TIMEOUT", message },
         { status: 504 },
@@ -233,73 +146,20 @@ export async function POST(request: Request, context: FinalizeRouteContext) {
     }
 
     if (error instanceof RouteFinalizationError) {
-      logRouteFinalizationFailure(
-        traceId,
-        422,
-        error.internalCode,
-        error.stage,
-        error,
-        candidate,
-      );
       return NextResponse.json(
         { error: "ROUTE_FINALIZATION_FAILED", message },
         { status: 422 },
       );
     }
 
-    logRouteFinalizationFailure(
-      traceId,
-      500,
-      "PREVIEW_STORE_UNAVAILABLE",
-      "route_finalization",
-    );
+    console.error("PlanME route finalization failed", message);
     return NextResponse.json(
       { error: "PREVIEW_STORE_UNAVAILABLE" },
       { status: 500 },
     );
   } finally {
-    try {
-      await releasePreviewItineraryLock(itineraryId, lockOwner);
-    } catch {
-      logRouteFinalizationFailure(
-        traceId,
-        500,
-        "PREVIEW_STORE_LOCK_RELEASE_FAILED",
-        "lock_acquisition",
-      );
-    }
+    await releasePreviewItineraryLock(itineraryId, lockOwner);
   }
-}
-
-/** Reads a valid cross-service trace id or creates a safe browser correlation id. */
-function getRouteFinalizationTraceId(request: Request) {
-  const providedTraceId = request.headers.get("x-planme-trace-id")?.trim() ?? "";
-
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    providedTraceId,
-  )
-    ? providedTraceId
-    : randomUUID();
-}
-
-/** Emits stable route failure fields without logging the request payload or provider response. */
-function logRouteFinalizationFailure(
-  traceId: string,
-  status: number,
-  internalCode: string,
-  stage: PlanmeWebFailureStage,
-  error?: RouteFinalizationError,
-  itinerary?: PlanmeItinerary,
-) {
-  console.error("PlanME route finalization failed", createPlanmeRouteFailureLog({
-    error,
-    event: "planme_route_finalization_failure",
-    internalCode,
-    itinerary,
-    stage,
-    status,
-    traceId,
-  }));
 }
 
 /** Validates that an edited payload cannot replace a different stored itinerary id. */
