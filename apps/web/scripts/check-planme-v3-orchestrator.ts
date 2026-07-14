@@ -16,6 +16,7 @@ async function main() {
   let hangRoutes = false;
   let routeConfigurationFailure = false;
   let observedRouteAbort = false;
+  const geocodeQueries: string[] = [];
   const usageEvents: PlanmeUsageCounterEvent[] = [];
   const jobStore = createMemoryPlanmeV3JobStore({
     now: () => now,
@@ -36,13 +37,19 @@ async function main() {
       districtCode: "260",
       districtName: "중구",
     }),
-    geocodeAnchor: async (query) => ({
-      status: "ready",
-      coordinate:
-        query === "서울역"
-          ? { lat: 37.5547, lng: 126.9707 }
-          : { lat: 35.1796, lng: 129.0756 },
-    }),
+    geocodeAnchor: async (query) => {
+      geocodeQueries.push(query);
+      if (query === "부산역") {
+        return { status: "not_found" };
+      }
+      return {
+        status: "ready",
+        coordinate:
+          query === "서울역"
+            ? { lat: 37.5547, lng: 126.9707 }
+            : { lat: 35.1796, lng: 129.0756 },
+      };
+    },
     listCandidates: async ({ contentTypeId }) =>
       emptyVisitCandidates && contentTypeId === 12
         ? { status: "empty", records: [], totalCount: 0 }
@@ -179,6 +186,26 @@ async function main() {
     ),
     true,
   );
+
+  const stationDestination = await orchestrator.startItinerary(
+    {
+      origin: "서울역",
+      destination: "부산역",
+      durationDays: 1,
+      transportMode: "drive",
+    },
+    "gpts:station-destination",
+  );
+  assert.equal(stationDestination.status, "processing");
+  if (stationDestination.status !== "processing") {
+    throw new Error("역 목적지 일정이 processing으로 시작되지 않았습니다.");
+  }
+  await orchestrator.advanceItinerary(stationDestination.itineraryId);
+  assert.equal(
+    (await jobStore.getJob(stationDestination.itineraryId))?.meta.phase,
+    "collecting_candidates",
+  );
+  assert.deepEqual(geocodeQueries.slice(-3), ["서울역", "부산역", "부산광역시 중구"]);
 
   const replay = await orchestrator.startItinerary(
     {
