@@ -76,7 +76,7 @@ export type TourApiClientOptions = {
 
 export class TourApiConfigurationError extends Error {
   constructor() {
-    super("TOUR_API_SERVICE_KEY is required.");
+    super("PLANME_V3_TOUR_API_CONFIGURATION_MISSING");
     this.name = "TourApiConfigurationError";
   }
 }
