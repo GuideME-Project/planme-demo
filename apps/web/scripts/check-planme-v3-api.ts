@@ -8,6 +8,18 @@ import {
   parseStartItineraryRequest,
 } from "../lib/planme-v3/api-contracts";
 import { isAuthorizedPlanmeInternalRequest } from "../lib/planme-v3/internal-auth";
+import { classifyPlanmeV3RuntimeError } from "../lib/planme-v3/runtime";
+
+assert.equal(
+  classifyPlanmeV3RuntimeError(
+    new Error("PLANME_V3_STORAGE_CONFIGURATION_MISSING"),
+  ),
+  "STORE_CONFIGURATION_MISSING",
+);
+assert.equal(
+  classifyPlanmeV3RuntimeError(new Error("UPSTASH_REQUEST_FAILED")),
+  "STORE_UNAVAILABLE",
+);
 
 const validStart = JSON.stringify({
   origin: "서울역",

@@ -125,6 +125,12 @@ export function getPlanmeV3Storage() {
   return cachedStorage;
 }
 
+export function classifyPlanmeV3RuntimeError(error: Error | null) {
+  return error?.message === "PLANME_V3_STORAGE_CONFIGURATION_MISSING"
+    ? "STORE_CONFIGURATION_MISSING" as const
+    : "STORE_UNAVAILABLE" as const;
+}
+
 function resolvePageOrigin(requestOrigin: string | undefined) {
   const configured = process.env.PLANME_WEB_ORIGIN?.trim();
   const candidate = configured || requestOrigin || "http://localhost:3000";
