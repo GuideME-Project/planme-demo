@@ -262,3 +262,12 @@ PlanME GPT의 새 채팅에서 다음 요청을 실행했다.
 - 로컬 브라우저에서 성공한 이유도 브라우저가 등록된 로컬 주소를 `Referer`로 자동 전달했기 때문이다.
 - V3 서버의 ODsay 요청은 이 헤더를 누락하고 있었다. 런타임이 확정한 PlanME 웹 주소를 URL 출처로 정규화해 대중교통·도보·노선선형 요청 모두에 전달하도록 수정했다.
 - `npm run test:v3`, `npm run test:completion`, `npm run test:actions`, `npm run test:mcp`, `npm run test:route-normalization`, `npm run test:local-v3`, `npm run lint`, `npm run build`가 통과했다. 로컬 통합 검사는 웹·MCP 두 서버의 V3 생성과 상세 화면 렌더링까지 확인했다. 기존 `ItineraryDashboard.tsx` 린트 경고 3건 외 오류는 없다.
+
+### PR #79 운영 완료 검증
+
+- PR #79 병합 커밋 `c9db886`의 웹·MCP 운영 배포가 모두 성공했다.
+- PlanME GPT 기본 주소에서 새 채팅을 만든 뒤 같은 양양 → 거제 1박 2일 대중교통 요청의 Action을 허용했다. 출발지·목적지·이동 수단·기간 이외의 추가 질문은 없었다.
+- 생성 작업 `planme-v3-fc53b4c0-d9ff-404c-ade5-72961d2fde65`는 `ready`, revision 1, 대중교통으로 완료됐고 공개 상태 API와 상세 페이지에서 다시 조회됐다.
+- 상세 페이지는 TourAPI 장소인 거제도 포로수용소 유적공원, 거제도 해금강, 거제 우제봉전망대와 소노캄 거제 숙소를 표시했다. Standard 988분, CarryME 945분, 절약 43분을 표시하고 제목·H1도 거제 일정으로 일치했다.
+- 필수 대중교통 경로 단계를 통과해 일정이 활성화된 것으로 ODsay 등록 URI `Referer` 보정이 운영 환경에서도 동작함을 확인했다. 서버 키나 Vercel 고정 IP 설정은 추가하지 않았다.
+- `npm run test:design`은 서버 없이 실행해 3009 연결 거부가 발생했지만, 로컬 서버를 실행한 뒤 재실행해 통과했다. `npm run test:finalization`과 관련 Playwright 5건도 통과했다.

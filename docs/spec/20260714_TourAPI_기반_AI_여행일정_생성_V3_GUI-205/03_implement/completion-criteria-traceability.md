@@ -4,7 +4,7 @@
 
 [GUI-157 완료 검증 기준](../../PlanME%20좌표%20보장%20및%20대중교통%20표시%20개선%20GUI-157/01_interview/completion-criteria.md)을 V3에 다시 적용한 결과, 현재 결정과 양립하는 자동 검증은 통과했다. Google 장소 검색, AI의 장소 사실 생성, 장소 추가 질문은 V3 정책으로 대체됐으며 재도입하지 않는다.
 
-실제 양양 → 거제 생성은 운영 PlanME GPT 새 채팅과 GPT Action으로 실행했다. 구형 GPT Action 요청 호환 문제는 수정됐지만, 웹 운영 환경의 `TOUR_API_SERVICE_KEY` 누락으로 실제 TourAPI·OpenAI·Naver·ODsay 호출과 Upstash 작업 생성 전 단계에서 중단됐다. 따라서 실제 공급자 조합과 원격 저장 성공은 통과로 표시하지 않는다.
+실제 양양 → 거제 생성은 운영 PlanME GPT 기본 주소의 새 채팅과 GPT Action으로 실행했다. TourAPI 후보·숙소·방문 장소, Luna 선택, Naver 지오코딩, ODsay 대중교통 경로, Upstash revision 1 저장을 거쳐 `ready` 일정과 상세 페이지가 생성됐다. 따라서 실제 공급자 조합과 원격 저장 성공을 운영 적용·통과로 판정한다.
 
 ## 판정 기준
 
@@ -13,13 +13,13 @@
 | 적용·통과 | V3에도 그대로 적용되며 자동 검증 근거가 있다. |
 | V3 대체·통과 | GUI-157의 구형 구현 방식 대신 현재 승인된 V3 계약으로 같은 위험을 차단한다. |
 | 적용·통과 (V2 유지) | V3가 대체하지 않는 기존 상세 화면·경로 표시 계약을 자동 테스트로 보존한다. |
-| 별도 승인 필요 | 실제 외부 서비스·원격 저장소를 사용해야 하며 이번 Goal에서는 실행하지 않았다. |
+| 운영 적용·통과 | 실제 외부 서비스와 원격 저장소를 사용한 운영 시나리오 증거가 있다. |
 
 ## 완료 기준별 추적
 
 | GUI-157 완료 기준 | 판정 | V3 또는 유지 계약 | 자동 검증 근거 |
 | --- | --- | --- | --- |
-| 양양 → 거제 1박 2일 실제 MCP 생성 | 운영 시도·설정 차단 | 운영 PlanME GPT 새 채팅에서 구형 Action 요청이 V3 웹 작업까지 전달되는 것을 확인했다. `TOUR_API_SERVICE_KEY` 누락으로 공급자 호출과 작업 생성은 시작되지 않았다. 로컬 fixture 성공을 실제 공급자 성공으로 대체하지 않는다. | GPT 새 채팅·운영 Action은 `TOUR_API_CONFIGURATION_MISSING` 반환 |
+| 양양 → 거제 1박 2일 실제 MCP 생성 | 운영 적용·통과 | 운영 PlanME GPT 기본 주소의 새 채팅에서 Action을 허용해 대중교통 revision 1 일정을 생성했다. 상세 페이지는 거제 방문 장소 3곳과 소노캄 거제 숙소를 표시한다. | 운영 일정 `planme-v3-fc53b4c0-d9ff-404c-ade5-72961d2fde65`, 공개 상태 API `ready` |
 | 초안의 모든 장소를 Function Calling 검색으로 확인 | V3 대체·통과 | 일정 장소는 TourAPI snapshot만 사용하고 Luna는 snapshot의 `contentId` 선택·순서만 제안한다. | `npm run test:v3`의 V3-01~03, 공급자 계약 |
 | AI가 후보를 `accepted`/`ambiguous`/`rejected`로 판단 | V3 대체·통과 | 구형 AI 판정 대신 후보 밖 ID·유형·중복·추가 필드를 strict 거부하고 실패 폐쇄한다. | `npm run test:v3`의 V3-01·03 |
 | Google Places 1순위 자동 대체 미사용 | V3 대체·통과 | Google 장소 소스를 사용하지 않으며 TourAPI 정규화 후보만 일정에 저장한다. | `npm run test:v3`의 V3-01~03, 정적 금지 검색 |
@@ -30,7 +30,7 @@
 | 되묻기 최대 2라운드 | V3 대체·통과 | 네 입력값 밖 질문 자체를 금지하므로 장소 질문 라운드가 없다. | V3-04, 로컬 MCP 질문 allowlist |
 | 2라운드 뒤 내부 AI 최후 확정 | V3 대체·통과 | AI가 장소 사실을 확정하지 않는다. TourAPI 후보만 선택하며 strict 실패 뒤 결정적 후보 배열을 사용한다. | V3-01·03, Luna 재시도·fallback 공급자 계약 |
 | 최후 후보도 좌표와 검색 출처 hard gate 통과 | V3 대체·통과 | 선택된 모든 `contentId`가 좌표를 가진 TourAPI snapshot에 존재해야 revision 활성화가 가능하다. | V3-01·02 |
-| Redis/Upstash 일별 호출량 카운터 | 적용·통과 / 실제 저장 별도 승인 | TourAPI, OpenAI, Naver geocode·Directions, ODsay, ready 이벤트를 안전 기록한다. 실제 Upstash `EVAL` 동작은 실행하지 않았다. | `npm run test:v3` 공급자·오케스트레이터 usage assertion |
+| Redis/Upstash 일별 호출량 카운터 | 운영 적용·통과 | TourAPI, OpenAI, Naver geocode·Directions, ODsay, ready 이벤트를 안전 기록한다. 운영 작업 생성·단계 전이·revision 1 활성화 뒤 별도 상세 페이지와 공개 상태 API에서 재조회했다. | 운영 일정 `ready` 재조회, `npm run test:v3` 공급자·오케스트레이터 usage assertion |
 | 장거리 본선 polyline이 없으면 선 없음 | 적용·통과 (V2 유지) | ODsay `mapObj` 경로가 없으면 `paths=[]`, `geometryStatus=partial`이며 직선 대체선을 만들지 않는다. | `npm run test:completion` |
 | 지도에 첫 탑승역·최종 하차역 마커 | 적용·통과 (V2 유지) | ODsay 제공 좌표로 boarding·alighting marker만 만들고 지도에 역할별 marker를 표시한다. | `npm run test:completion` |
 | 타임라인에 탑승·하차 이벤트 | 적용·통과 (V2 유지) | marker를 장거리 탑승·하차 timeline event로 변환한다. | `npm run test:completion` |
@@ -63,11 +63,10 @@ fixture는 `NODE_ENV !== production`과 `PLANME_V3_LOCAL_FIXTURE=1`을 동시에
 
 ## 리스크와 미확인
 
-- 실제 양양 → 거제 공급자 조합은 웹 운영 환경에 `TOUR_API_SERVICE_KEY`와 `OPENAI_API_KEY`를 반영한 뒤 다시 확인해야 한다.
-- 실제 Upstash의 Lua `EVAL`·`EXAT`·`cjson` 동작은 memory 계약과 정적 키 검사만으로 완전히 증명되지 않는다.
+- 단일 운영 양양 → 거제 성공은 모든 외부 공급자 오류 응답을 증명하지 않는다. 인증 실패, 일시 오류, 700m 이내 예상 도보, 장거리 선형 없음은 mock 계약 테스트로 보완한다.
 - 전체 Playwright의 기존 4개 실패는 V2 preview 저장소의 프로세스 간 memory 비공유와 외부 경로 확정 환경에 의존한다. V3 관련 회귀로 오인하지 않되 별도 개선 전에는 전체 E2E 녹색 상태가 아니다.
 - GUI-157의 지도·타임라인 기준은 기존 V2 화면을 보존하는 기준이다. 현재 V3 상세 화면에 새 지도를 추가하는 것은 승인된 GUI-205 범위를 넓히므로 이번 Goal에서 확장하지 않았다.
 
 ## 완료 판단
 
-적용 기준과 V3 대체 기준에는 자동 증거가 있다. 운영 GPT Action 호환과 설정 오류 분류도 확인했지만, 환경 변수 누락으로 외부 API·실제 Upstash 성공 증거는 아직 없으므로 완료로 주장하지 않는다.
+적용 기준과 V3 대체 기준에는 자동 증거가 있고, 운영 GPT 새 채팅에서 실제 외부 공급자 조합과 Upstash revision 활성화 및 상세 페이지 재조회까지 확인했다. 남은 항목은 승인 범위 밖 V3 지도 추가와 기존 V2 전체 E2E 4건으로 분리되므로 GUI-157을 이어받은 GUI-205 완료 기준을 충족한다.
