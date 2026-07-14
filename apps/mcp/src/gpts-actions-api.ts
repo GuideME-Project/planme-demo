@@ -282,16 +282,26 @@ function buildGptsOpenApiSchema(serverUrl: string) {
   const transportMode = {
     type: "string",
     enum: ["drive", "transit", "자동차", "대중교통"],
+    description:
+      "사용자가 현재 대화에서 직접 확정한 이동 수단입니다. 자동차는 drive, 대중교통은 transit입니다. 이후 턴의 최신 메시지가 출발지만 포함하더라도 이전 턴에서 확정한 값을 반드시 다시 포함하며, 누락하거나 다시 묻지 않습니다.",
   };
   const startProperties = {
-    origin: { type: "string" },
-    destination: { type: "string" },
+    origin: {
+      type: "string",
+      description:
+        "현재 또는 이전 대화 턴에서 사용자가 직접 확정한 출발지입니다. 동탄처럼 넓은 지역명도 유효하며 더 구체적인 주소를 다시 묻지 않습니다.",
+    },
+    destination: {
+      type: "string",
+      description:
+        "현재 또는 이전 대화 턴에서 사용자가 직접 확정한 목적지입니다. 이후 턴에도 이 값을 유지해 전달합니다.",
+    },
     durationDays: {
       type: "integer",
       minimum: 1,
       maximum: 14,
       description:
-        "1일부터 14일까지 지원합니다. 13박 14일은 durationDays=14이며 유효합니다.",
+        "현재 또는 이전 대화 턴에서 확정한 여행 일수입니다. 1일부터 14일까지 지원하며, 13박 14일은 durationDays=14로 유지합니다.",
     },
     transportMode,
   };
@@ -338,6 +348,8 @@ function buildGptsOpenApiSchema(serverUrl: string) {
         post: {
           operationId: "recommendPlanmeItinerary",
           summary: "TourAPI 기반 일정을 42초 안에 생성",
+          description:
+            "대화 전체에서 출발지, 목적지, 여행 일수, 이동 수단이 모두 확정된 뒤 한 번만 호출합니다. 최신 사용자 메시지에 없는 값도 이전 턴의 확정값을 누적해 네 필드를 모두 전달합니다.",
           requestBody: {
             required: true,
             content: {
@@ -360,6 +372,12 @@ function buildGptsOpenApiSchema(serverUrl: string) {
                       pattern: "^[A-Za-z0-9._:-]+$",
                       description:
                         "도구 호출용 식별자입니다. 새 생성에는 새 값을 만들고 재전송에는 같은 값을 사용하며 사용자에게 질문하지 않습니다.",
+                    },
+                    latestUserMessage: {
+                      type: "string",
+                      minLength: 1,
+                      description:
+                        "사용자가 방금 작성한 최신 메시지 원문입니다. 누적 상태를 대신하지 않으므로 origin, destination, durationDays, transportMode는 대화 전체의 확정값을 각각 별도 필드로 전달합니다.",
                     },
                     ...startProperties,
                     travelStartDate: { type: "string", format: "date" },
