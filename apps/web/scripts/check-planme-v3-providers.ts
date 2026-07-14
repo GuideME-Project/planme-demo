@@ -12,6 +12,7 @@ import {
 import {
   PLANME_V3_LUNA_MODEL,
   PLANME_V3_LUNA_REASONING_EFFORT,
+  createLunaRequestBody,
   planTourCandidatesWithLuna,
 } from "../lib/planme-v3/luna-planner";
 import { routePlanmeSegment } from "../lib/planme-v3/route-service";
@@ -249,6 +250,20 @@ const validSelection = JSON.stringify({
     },
   ],
 });
+const longTripBody = createLunaRequestBody(
+  { ...intentResult.value, durationDays: 14 },
+  candidates,
+);
+const longTripDaySchema =
+  longTripBody.text.format.schema.properties?.days?.items;
+assert.equal(
+  longTripDaySchema?.properties?.orderedVisitContentIds?.maxItems,
+  1,
+);
+assert.equal(
+  longTripDaySchema?.properties?.restaurantContentIds?.maxItems,
+  0,
+);
 const capturedBodies: CapturedLunaBody[] = [];
 const lunaUsageEvents: PlanmeUsageCounterEvent[] = [];
 let lunaAttempt = 0;
@@ -305,6 +320,28 @@ const fallbackResult = await planTourCandidatesWithLuna(
 assert.equal(fallbackResult.ok, true);
 assert.equal(fallbackResult.ok && fallbackResult.source, "deterministic");
 assert.equal(fallbackResult.attempts, 2);
+const longTripFallback = await planTourCandidatesWithLuna(
+  {
+    candidates,
+    intent: { ...intentResult.value, durationDays: 14 },
+  },
+  {
+    apiKey: "test-openai-key",
+    fetchImpl: async () => jsonResponse({ output: [] }),
+  },
+);
+assert.equal(longTripFallback.ok, true);
+if (longTripFallback.ok) {
+  assert.equal(longTripFallback.selection.days.length, 14);
+  assert.equal(
+    longTripFallback.selection.days.every(
+      (day) =>
+        day.orderedVisitContentIds.length <= 1 &&
+        day.restaurantContentIds.length === 0,
+    ),
+    true,
+  );
+}
 assert.deepEqual(lunaUsageEvents, [
   "openai_request",
   "openai_request",

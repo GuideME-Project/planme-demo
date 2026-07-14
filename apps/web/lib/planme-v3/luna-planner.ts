@@ -3,6 +3,7 @@ import {
   parseAndValidateAiPlanSelection,
   recordPlanmeUsageSafely,
   type AiPlanSelection,
+  type DeterministicArrangementOptions,
   type PlanmeUsageRecorder,
   type ResolvedTripIntent,
   type TourPlaceSnapshot,
@@ -10,6 +11,7 @@ import {
 
 export const PLANME_V3_LUNA_MODEL = "gpt-5.6-luna";
 export const PLANME_V3_LUNA_REASONING_EFFORT = "low";
+const LONG_TRIP_THRESHOLD_DAYS = 4;
 
 type OpenAiResponsePayload = {
   output?: Array<{
@@ -84,7 +86,12 @@ export async function planTourCandidatesWithLuna(
   }
 
   const fetchImpl = options.fetchImpl ?? fetch;
-  const requestBody = createLunaRequestBody(input.intent, input.candidates);
+  const selectionLimits = getSelectionLimits(input.intent.durationDays);
+  const requestBody = createLunaRequestBody(
+    input.intent,
+    input.candidates,
+    selectionLimits,
+  );
 
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     await recordPlanmeUsageSafely(options.usageRecorder, "openai_request");
@@ -115,6 +122,7 @@ export async function planTourCandidatesWithLuna(
   const deterministic = arrangeTourCandidatesDeterministically(
     input.candidates,
     input.intent.durationDays,
+    selectionLimits,
   );
   return deterministic.ok
     ? {
@@ -129,6 +137,7 @@ export async function planTourCandidatesWithLuna(
 export function createLunaRequestBody(
   intent: ResolvedTripIntent,
   candidates: TourPlaceSnapshot[],
+  selectionLimits = getSelectionLimits(intent.durationDays),
 ): LunaRequestBody {
   return {
     model: PLANME_V3_LUNA_MODEL,
@@ -138,6 +147,7 @@ export function createLunaRequestBody(
       "후보에 없는 장소나 ID를 만들지 마세요.",
       "장소명, 주소, 좌표, 방문 시각, 체류시간, 이동시간, 설명을 출력하지 마세요.",
       "숙소는 하나만 선택하고 방문 장소와 음식점은 중복하지 마세요.",
+      `일차별 방문 장소는 최대 ${selectionLimits.maxVisitsPerDay}개, 음식점은 최대 ${selectionLimits.maxRestaurantsPerDay}개만 선택하세요.`,
       "JSON schema 이외의 필드를 출력하지 마세요.",
     ].join(" "),
     input: JSON.stringify({
@@ -162,7 +172,7 @@ export function createLunaRequestBody(
         type: "json_schema",
         name: "planme_v3_selection",
         strict: true,
-        schema: createAiSelectionSchema(intent.durationDays),
+        schema: createAiSelectionSchema(intent.durationDays, selectionLimits),
       },
     },
   };
@@ -214,7 +224,15 @@ async function requestLunaSelection(input: {
   return null;
 }
 
-function createAiSelectionSchema(durationDays: number): JsonSchema {
+function createAiSelectionSchema(
+  durationDays: number,
+  selectionLimits: Required<
+    Pick<
+      DeterministicArrangementOptions,
+      "maxVisitsPerDay" | "maxRestaurantsPerDay"
+    >
+  >,
+): JsonSchema {
   return {
     type: "object",
     additionalProperties: false,
@@ -231,10 +249,12 @@ function createAiSelectionSchema(durationDays: number): JsonSchema {
             day: { type: "integer", minimum: 1, maximum: durationDays },
             orderedVisitContentIds: {
               type: "array",
+              maxItems: selectionLimits.maxVisitsPerDay,
               items: { type: "string" },
             },
             restaurantContentIds: {
               type: "array",
+              maxItems: selectionLimits.maxRestaurantsPerDay,
               items: { type: "string" },
             },
           },
@@ -248,4 +268,10 @@ function createAiSelectionSchema(durationDays: number): JsonSchema {
     },
     required: ["lodgingContentId", "days"],
   };
+}
+
+function getSelectionLimits(durationDays: number) {
+  return durationDays >= LONG_TRIP_THRESHOLD_DAYS
+    ? { maxVisitsPerDay: 1, maxRestaurantsPerDay: 0 }
+    : { maxVisitsPerDay: 3, maxRestaurantsPerDay: 2 };
 }

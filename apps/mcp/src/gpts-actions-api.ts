@@ -94,7 +94,7 @@ export async function handleGptsRecommendItineraryRequest(
     writeJson(response, 405, { error: "METHOD_NOT_ALLOWED" });
     return;
   }
-  const deadlineEpochMs = Date.now() + 42_000;
+  const deadlineEpochMs = Date.now() + 55_000;
   const parsed = recommendationRequestSchema.safeParse(await readJsonBody(request));
   if (!parsed.success) {
     writeJson(response, 400, invalidRequest(parsed.error));
@@ -259,7 +259,13 @@ function buildGptsOpenApiSchema(serverUrl: string) {
   const startProperties = {
     origin: { type: "string" },
     destination: { type: "string" },
-    durationDays: { type: "integer", minimum: 1, maximum: 14 },
+    durationDays: {
+      type: "integer",
+      minimum: 1,
+      maximum: 14,
+      description:
+        "1일부터 14일까지 지원합니다. 13박 14일은 durationDays=14이며 유효합니다.",
+    },
     transportMode,
   };
   return {
