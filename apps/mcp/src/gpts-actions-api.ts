@@ -122,16 +122,38 @@ export async function handleGptsRecommendItineraryRequest(
     return;
   }
   const sourceId = invocationId ?? `legacy:${randomUUID()}`;
+  const startInput = {
+    ...input,
+    requestedPlaces: input.requestedPlaces ?? mustVisitPlaces,
+    transportMode,
+  } satisfies PlanmeV3StartInput;
 
   try {
-    let result = await startPlanmeV3Itinerary(
-      {
-        ...input,
-        requestedPlaces: input.requestedPlaces ?? mustVisitPlaces,
-        transportMode,
-      } satisfies PlanmeV3StartInput,
-      createPlanmeIdempotencyKey("gpts", sourceId),
-    );
+    let result;
+    try {
+      result = await startPlanmeV3Itinerary(
+        startInput,
+        createPlanmeIdempotencyKey("gpts", sourceId),
+      );
+    } catch (error) {
+      if (
+        !invocationId ||
+        !(error instanceof PlanmeWebClientHttpError) ||
+        error.status !== 409
+      ) {
+        throw error;
+      }
+      result = await startPlanmeV3Itinerary(
+        startInput,
+        createPlanmeIdempotencyKey("gpts", `recovered:${randomUUID()}`),
+      );
+    }
+    if (invocationId && result.status === "failed") {
+      result = await startPlanmeV3Itinerary(
+        startInput,
+        createPlanmeIdempotencyKey("gpts", `recovered:${randomUUID()}`),
+      );
+    }
     if (result.status === "processing") {
       result = await runPlanmeV3Itinerary(result.itineraryId, deadlineEpochMs);
     }
