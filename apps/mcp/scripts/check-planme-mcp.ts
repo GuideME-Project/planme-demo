@@ -3073,7 +3073,7 @@ async function assertV3ChannelContract(): Promise<void> {
             destination: "부산",
             transportMode: "대중교통",
             durationDays: 1,
-            requestedPlaces: "확인되지 않은 장소",
+            mustVisitPlaces: "확인되지 않은 장소",
           }),
         },
       );

@@ -48,6 +48,7 @@ const recommendationRequestSchema = z
     requestedPlaces: requestedPlacesSchema.optional(),
     travelerCount: z.number().int().min(1).max(20).optional(),
     luggageCount: z.number().int().min(0).max(20).optional(),
+    mustVisitPlaces: requestedPlacesSchema.optional(),
   })
   .strict();
 
@@ -109,6 +110,7 @@ export async function handleGptsRecommendItineraryRequest(
   const {
     invocationId,
     latestUserMessage,
+    mustVisitPlaces,
     destinationType: _destinationType,
     transportMode: parsedTransportMode,
     ...input
@@ -123,7 +125,11 @@ export async function handleGptsRecommendItineraryRequest(
 
   try {
     let result = await startPlanmeV3Itinerary(
-      { ...input, transportMode } satisfies PlanmeV3StartInput,
+      {
+        ...input,
+        requestedPlaces: input.requestedPlaces ?? mustVisitPlaces,
+        transportMode,
+      } satisfies PlanmeV3StartInput,
       createPlanmeIdempotencyKey("gpts", sourceId),
     );
     if (result.status === "processing") {
