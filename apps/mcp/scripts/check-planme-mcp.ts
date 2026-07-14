@@ -2955,10 +2955,21 @@ async function assertV3ChannelContract(): Promise<void> {
         "Bearer v3-contract-token",
       );
       if (url.pathname === "/api/internal/planme/v3/itineraries") {
+        const idempotencyKey =
+          new Headers(init?.headers).get("idempotency-key") ?? "";
+        idempotencyKeys.push(idempotencyKey);
+        if (idempotencyKey === "gpts:gpts-conflict-recovery") {
+          return jsonResponse({ error: "IDEMPOTENCY_CONFLICT" }, 409);
+        }
+        if (idempotencyKey === "gpts:gpts-failed-recovery") {
+          return jsonResponse({
+            status: "failed",
+            itineraryId: "planme-v3-stale-failure",
+            errorCode: "DESTINATION_NOT_RESOLVED",
+            message: "목적지를 확인할 수 없습니다.",
+          });
+        }
         startCount += 1;
-        idempotencyKeys.push(
-          new Headers(init?.headers).get("idempotency-key") ?? "",
-        );
         startInputs.push(JSON.parse(String(init?.body)) as {
           requestedPlaces?: string[];
           transportMode?: string;
@@ -3092,6 +3103,30 @@ async function assertV3ChannelContract(): Promise<void> {
       assert.ok(capturedDeadline >= beforeRequest + 41_000);
       assert.ok(capturedDeadline <= Date.now() + 55_000);
       assert.ok(capturedDeadline > Date.now() + 50_000);
+
+      for (const invocationId of [
+        "gpts-conflict-recovery",
+        "gpts-failed-recovery",
+      ]) {
+        const recovered = await originalFetch(
+          `${actions.origin}/api/gpt/itineraries/recommend`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              invocationId,
+              origin: "동탄",
+              destination: "부산역",
+              transportMode: "자동차",
+              durationDays: 2,
+            }),
+          },
+        );
+        assert.equal(recovered.status, 200);
+        assert.equal((await recovered.json()).status, "ready");
+      }
+      assert.match(idempotencyKeys.at(-1) ?? "", /^gpts:recovered:/);
+      assert.match(idempotencyKeys.at(-3) ?? "", /^gpts:recovered:/);
     } finally {
       actions.server.close();
     }
@@ -3140,8 +3175,9 @@ async function assertV3ChannelContract(): Promise<void> {
       });
       const startedContent = started.structuredContent as { status?: string };
       assert.equal(startedContent.status, "processing");
-      assert.match(idempotencyKeys[2] ?? "", /^mcp:/);
-      assert.notEqual(idempotencyKeys[1], idempotencyKeys[2]);
+      const mcpIdempotencyKey = idempotencyKeys.at(-1) ?? "";
+      assert.match(mcpIdempotencyKey, /^mcp:/);
+      assert.notEqual(idempotencyKeys[1], mcpIdempotencyKey);
 
       const advanced = await client.callTool({
         name: "get_planme_itinerary",
@@ -3170,7 +3206,7 @@ async function assertV3ChannelContract(): Promise<void> {
       await client.close();
       mcp.server.close();
     }
-    assert.equal(startCount, 3);
+    assert.equal(startCount, 5);
   } finally {
     if (originalWebOrigin === undefined) delete process.env.PLANME_WEB_ORIGIN;
     else process.env.PLANME_WEB_ORIGIN = originalWebOrigin;
