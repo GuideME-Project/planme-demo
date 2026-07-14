@@ -47,6 +47,45 @@ assert.deepEqual(geocodeResult, {
 });
 assert.deepEqual(geocodeUsageEvents, ["naver_geocode_request"]);
 
+const localFallbackUsageEvents: PlanmeUsageCounterEvent[] = [];
+const localFallbackResult = await geocodePlanmeAnchor("마포구청", {
+  naverMapsClientId: "maps-id",
+  naverMapsClientSecret: "maps-secret",
+  naverSearchClientId: "search-id",
+  naverSearchClientSecret: "search-secret",
+  usageRecorder: (event) => {
+    localFallbackUsageEvents.push(event);
+  },
+  fetchImpl: async (input, init) => {
+    const url = new URL(String(input));
+    if (url.hostname === "maps.apigw.ntruss.com") {
+      return jsonResponse({ addresses: [] });
+    }
+    assert.equal(
+      new Headers(init?.headers).get("X-Naver-Client-Id"),
+      "search-id",
+    );
+    return jsonResponse({
+      items: [
+        {
+          title: "마포구청",
+          mapx: "1269018234",
+          mapy: "375665921",
+          roadAddress: "서울특별시 마포구 월드컵로 212",
+        },
+      ],
+    });
+  },
+});
+assert.deepEqual(localFallbackResult, {
+  status: "ready",
+  coordinate: { lat: 37.5665921, lng: 126.9018234 },
+});
+assert.deepEqual(localFallbackUsageEvents, [
+  "naver_geocode_request",
+  "naver_local_search_request",
+]);
+
 const tourUsageEvents: PlanmeUsageCounterEvent[] = [];
 const tourClient = createTourApiClient({
   serviceKey: "encoded%2Bservice%3Dkey",
@@ -253,6 +292,17 @@ const validSelection = JSON.stringify({
 const longTripBody = createLunaRequestBody(
   { ...intentResult.value, durationDays: 14 },
   candidates,
+);
+const shortTripBody = createLunaRequestBody(intentResult.value, candidates);
+const shortTripDaySchema =
+  shortTripBody.text.format.schema.properties?.days?.items;
+assert.equal(
+  shortTripDaySchema?.properties?.orderedVisitContentIds?.maxItems,
+  1,
+);
+assert.equal(
+  shortTripDaySchema?.properties?.restaurantContentIds?.maxItems,
+  1,
 );
 const longTripDaySchema =
   longTripBody.text.format.schema.properties?.days?.items;

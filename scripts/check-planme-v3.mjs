@@ -136,6 +136,14 @@ assert.equal(
   "부산 호텔",
 );
 assert.equal(candidates.every((candidate) => candidate.source === "tourapi"), true);
+assert.deepEqual(
+  normalizeTourCandidates(records, {
+    expectedContentTypeId: 32,
+    expectedRegionCode: "26",
+    fetchedAt: "2026-07-14T00:00:00.000Z",
+  }).map((candidate) => candidate.contentId),
+  ["lodging-1"],
+);
 assert.equal(
   normalizeTourCandidates(records, {
     expectedRegionCode: "26",

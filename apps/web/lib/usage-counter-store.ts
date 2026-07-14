@@ -36,9 +36,10 @@ class UpstashUsageCounterStore implements UsageCounterStore {
    */
   async increment(event: PlanmeUsageCounterEvent, amount = 1): Promise<void> {
     const key = createUsageCounterKey(event);
-
-    await this.redis.incrby(key, amount);
-    await this.redis.expire(key, USAGE_COUNTER_TTL_SECONDS);
+    const pipeline = this.redis.pipeline();
+    pipeline.incrby(key, amount);
+    pipeline.expire(key, USAGE_COUNTER_TTL_SECONDS);
+    await pipeline.exec();
   }
 }
 

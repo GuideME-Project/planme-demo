@@ -165,7 +165,7 @@ export function createLunaRequestBody(
         title: candidate.title,
       })),
     }),
-    max_output_tokens: 4_000,
+    max_output_tokens: 1_000,
     store: false,
     text: {
       format: {
@@ -273,5 +273,5 @@ function createAiSelectionSchema(
 function getSelectionLimits(durationDays: number) {
   return durationDays >= LONG_TRIP_THRESHOLD_DAYS
     ? { maxVisitsPerDay: 1, maxRestaurantsPerDay: 0 }
-    : { maxVisitsPerDay: 3, maxRestaurantsPerDay: 2 };
+    : { maxVisitsPerDay: 1, maxRestaurantsPerDay: 1 };
 }

@@ -1,5 +1,8 @@
 import {
+  PlanmePlaceSearchConfigurationError,
+  PlanmePlaceSearchProviderError,
   recordPlanmeUsageSafely,
+  searchPlanmePlaceCandidates,
   type Coordinate,
   type PlanmeUsageRecorder,
 } from "@planme/core";
@@ -27,6 +30,8 @@ export async function geocodePlanmeAnchor(
     fetchImpl?: typeof fetch;
     naverMapsClientId?: string;
     naverMapsClientSecret?: string;
+    naverSearchClientId?: string;
+    naverSearchClientSecret?: string;
     usageRecorder?: PlanmeUsageRecorder;
     signal?: AbortSignal;
   } = {},
@@ -81,8 +86,36 @@ export async function geocodePlanmeAnchor(
   const first = payload.addresses?.[0];
   const lat = Number(first?.y);
   const lng = Number(first?.x);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-    return { status: "not_found" };
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    return { status: "ready", coordinate: { lat, lng } };
   }
-  return { status: "ready", coordinate: { lat, lng } };
+
+  try {
+    const local = await searchPlanmePlaceCandidates(
+      {
+        maxCandidates: 1,
+        query,
+        stop: { name: query, addressQuery: query },
+      },
+      {
+        clientId: options.naverSearchClientId,
+        clientSecret: options.naverSearchClientSecret,
+        fetchImpl: options.fetchImpl,
+        signal: options.signal,
+        usageRecorder: options.usageRecorder,
+      },
+    );
+    const candidate = local.candidates[0];
+    return candidate
+      ? { status: "ready", coordinate: candidate.coordinate }
+      : { status: "not_found" };
+  } catch (error) {
+    if (error instanceof PlanmePlaceSearchConfigurationError) {
+      return { status: "not_found" };
+    }
+    if (error instanceof PlanmePlaceSearchProviderError) {
+      return { status: "failed", errorCode: `NAVER_LOCAL_HTTP_${error.status}` };
+    }
+    return { status: "failed", errorCode: "NAVER_LOCAL_SEARCH_ERROR" };
+  }
 }

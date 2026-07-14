@@ -77,6 +77,7 @@ type SearchPlanmePlaceCandidateOptions = {
   clientId?: string;
   clientSecret?: string;
   fetchImpl?: typeof fetch;
+  signal?: AbortSignal;
   usageRecorder?: PlanmeUsageRecorder;
 };
 
@@ -144,6 +145,7 @@ export async function searchPlanmePlaceCandidates(
       fetchImpl,
       maxCandidates,
       query,
+      signal: options.signal,
       usageRecorder: options.usageRecorder,
     });
 
@@ -197,6 +199,7 @@ async function requestNaverLocalCandidates({
   fetchImpl,
   maxCandidates,
   query,
+  signal,
   usageRecorder,
 }: {
   clientId: string;
@@ -204,6 +207,7 @@ async function requestNaverLocalCandidates({
   fetchImpl: typeof fetch;
   maxCandidates: number;
   query: string;
+  signal?: AbortSignal;
   usageRecorder?: PlanmeUsageRecorder;
 }) {
   const url = new URL(NAVER_LOCAL_SEARCH_URL);
@@ -220,6 +224,7 @@ async function requestNaverLocalCandidates({
       "X-Naver-Client-Secret": clientSecret,
     },
     method: "GET",
+    signal,
   });
 
   if (!response.ok) {

@@ -172,7 +172,7 @@ type RoutingProgressPayload = PlanPayload & {
 };
 
 const FIRST_DAY_DEPARTURE_MINUTE = 9 * 60 + 30;
-const ROUTE_BATCH_PROVIDER_CALLS = 4;
+const ROUTE_BATCH_PROVIDER_CALLS = 6;
 const VISIT_CONTENT_TYPE_IDS = new Set<AllowedTourContentTypeId>([
   12,
   14,
@@ -522,7 +522,15 @@ export function createPlanmeV3Orchestrator(
       return;
     }
     if (meta.phase === "routing") {
-      await routePlan(meta.itineraryId, revision, lockOwner, signal);
+      const completed = await routePlan(
+        meta.itineraryId,
+        revision,
+        lockOwner,
+        signal,
+      );
+      if (completed) {
+        await activateRevision(meta.itineraryId, revision, lockOwner);
+      }
       return;
     }
     if (meta.phase === "activating") {
@@ -616,6 +624,7 @@ export function createPlanmeV3Orchestrator(
           return {
             status: "success",
             places: normalizeTourCandidates(records, {
+              expectedContentTypeId: contentTypeId,
               expectedRegionCode: anchors.region.regionCode,
               expectedDistrictCode: anchors.region.districtCode,
               fetchedAt: new Date(now()).toISOString(),
@@ -765,24 +774,24 @@ export function createPlanmeV3Orchestrator(
         });
         providerCalls += 1;
         routeCache[key] = result;
-        const saved = await dependencies.jobStore.savePhase({
-          itineraryId,
-          revision,
-          expectedPhase: "routing",
-          nextPhase: "routing",
-          routeCursor: Object.keys(routeCache).length,
-          lockOwner,
-          checkpoint: {
-            schemaVersion: 3,
-            phaseVersion: 1,
-            inputDigest: checkpoint.inputDigest,
-            payload: toJsonValue({ ...payload, routeCache }),
-          },
-        });
-        if (!saved) {
-          throw new OrchestratorFailure("JOB_CONFLICT");
-        }
         if (providerCalls >= ROUTE_BATCH_PROVIDER_CALLS) {
+          const saved = await dependencies.jobStore.savePhase({
+            itineraryId,
+            revision,
+            expectedPhase: "routing",
+            nextPhase: "routing",
+            routeCursor: Object.keys(routeCache).length,
+            lockOwner,
+            checkpoint: {
+              schemaVersion: 3,
+              phaseVersion: 1,
+              inputDigest: checkpoint.inputDigest,
+              payload: toJsonValue({ ...payload, routeCache }),
+            },
+          });
+          if (!saved) {
+            throw new OrchestratorFailure("JOB_CONFLICT");
+          }
           throw new RouteBatchYield();
         }
         return result;
@@ -799,7 +808,7 @@ export function createPlanmeV3Orchestrator(
       });
     } catch (error) {
       if (error instanceof RouteBatchYield) {
-        return;
+        return false;
       }
       throw error;
     }
@@ -813,6 +822,7 @@ export function createPlanmeV3Orchestrator(
       payload: { ...payload, plan: routedRevision.plan, revision: routedRevision },
       routeCursor: routedRevision.standard.segments.length + routedRevision.carryme.segments.length,
     });
+    return true;
   }
 
   async function activateRevision(

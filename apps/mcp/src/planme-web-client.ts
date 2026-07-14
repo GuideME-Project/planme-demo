@@ -85,7 +85,7 @@ export async function runPlanmeV3Itinerary(
   return requestPlanmeWebJob(
     `/api/internal/planme/v3/itineraries/${encodeURIComponent(itineraryId)}/run`,
     { method: "POST", body: JSON.stringify({ deadlineEpochMs }) },
-    43_000,
+    48_000,
   );
 }
 
