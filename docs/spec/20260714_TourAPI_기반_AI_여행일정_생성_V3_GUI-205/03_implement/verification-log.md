@@ -216,6 +216,7 @@ PlanME GPT의 새 채팅에서 다음 요청을 실행했다.
 - `planme-demo` Production·Preview에 `OPENAI_API_KEY`와 `TOUR_API_SERVICE_KEY`를 추가했다.
 - 현재 worktree와 기준 `main` 체크아웃의 웹 로컬 환경에 TourAPI 키를 반영했다.
 - 민감값 원문은 Git과 검증 문서에 기록하지 않았다.
+
 - PR #74의 병합 배포 뒤 PlanME GPT 새 채팅 시나리오와 실제 공급자·Upstash 흐름을 다시 검증한다.
 
 ### PR #74 운영 재검증
@@ -226,3 +227,12 @@ PlanME GPT의 새 채팅에서 다음 요청을 실행했다.
 - 코드와 Vercel 변수 이름을 대조한 결과 서버 지오코딩이 요구하는 `NAVER_MAPS_CLIENT_ID`와 대중교통 경로가 요구하는 `ODSAY_API_KEY`가 없고, 각각 브라우저용 변수만 존재했다.
 - 기존 로컬 값을 새로 생성하지 않고 서버용 변수 이름으로 복제해 현재 worktree, 기준 `main` 체크아웃, Vercel Production·Preview에 반영했다.
 - 민감값 원문은 Git과 검증 문서에 기록하지 않았다.
+
+### PR #75 운영 재검증과 TourAPI 보정
+
+- PR #75 병합 커밋 `a8c6f0f`의 웹·MCP 운영 배포가 모두 성공했다.
+- PlanME GPT 새 채팅에서 같은 양양 → 거제 시나리오를 실행한 결과 서버 설정 오류는 해소됐고, 실제 생성 처리 뒤 `TOURAPI_UNAVAILABLE`로 종료됐다.
+- 동일 키로 `ldongCode2`와 거제시 관광지·문화시설·레포츠·음식점 요청이 `0000/OK`를 반환해 키와 지역 조회가 정상임을 확인했다.
+- 숙소 전용 `searchStay2` 요청에 `contentTypeId=32`를 함께 보내면 TourAPI가 `INVALID_REQUEST_PARAMETER_ERROR(contentTypeId)`를 반환하고, 해당 매개변수를 빼면 `0000/OK`와 숙소 결과를 반환했다.
+- `searchStay2` 요청에서만 `contentTypeId`를 제외하고 공급자 계약 회귀 검사를 추가했다.
+- `npm run test:v3`, `npm run lint`, `npm run build`가 통과했다. 린트에는 기존 `ItineraryDashboard.tsx` 경고 3건이 남아 있고 오류는 없다.
