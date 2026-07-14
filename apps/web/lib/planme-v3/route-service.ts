@@ -82,6 +82,7 @@ export type PlanmeRouteResult =
 export type PlanmeRouteServiceOptions = {
   fetchImpl?: typeof fetch;
   odsayApiKey?: string;
+  odsayReferer?: string;
   naverMapsClientId?: string;
   naverMapsClientSecret?: string;
   usageRecorder?: PlanmeUsageRecorder;
@@ -237,6 +238,7 @@ async function routeTransitSegment(
         SearchType: "0",
       },
       signal: input.signal,
+      referer: options.odsayReferer,
       usageRecorder: options.usageRecorder,
     });
 
@@ -277,6 +279,7 @@ async function routeTransitSegment(
           ...input,
           apiKey,
           fetchImpl,
+          referer: options.odsayReferer,
           straightDistanceMeters,
           usageRecorder: options.usageRecorder,
         });
@@ -301,6 +304,7 @@ async function routeTransitSegment(
           apiKey,
           fetchImpl,
           mapObject: path.info.mapObj,
+          referer: options.odsayReferer,
           signal: input.signal,
           usageRecorder: options.usageRecorder,
         })
@@ -331,6 +335,7 @@ async function routeWalkSegment(input: {
   signal?: AbortSignal;
   apiKey: string;
   fetchImpl: typeof fetch;
+  referer?: string;
   straightDistanceMeters: number;
   usageRecorder?: PlanmeUsageRecorder;
 }): Promise<PlanmeRouteResult> {
@@ -349,6 +354,7 @@ async function routeWalkSegment(input: {
         opt: "reco",
       },
       signal: input.signal,
+      referer: input.referer,
       usageRecorder: input.usageRecorder,
     });
 
@@ -441,6 +447,7 @@ async function requestOdsayLanePaths(input: {
   apiKey: string;
   fetchImpl: typeof fetch;
   mapObject: string;
+  referer?: string;
   signal?: AbortSignal;
   usageRecorder?: PlanmeUsageRecorder;
 }) {
@@ -449,6 +456,7 @@ async function requestOdsayLanePaths(input: {
     fetchImpl: input.fetchImpl,
     operation: "loadLane",
     params: { mapObject: `0:0@${input.mapObject}` },
+    referer: input.referer,
     signal: input.signal,
     usageRecorder: input.usageRecorder,
   });
@@ -476,6 +484,7 @@ async function requestOdsay<Payload>(input: {
   fetchImpl: typeof fetch;
   operation: string;
   params: Record<string, string>;
+  referer?: string;
   signal?: AbortSignal;
   usageRecorder?: PlanmeUsageRecorder;
 }): Promise<
@@ -491,7 +500,11 @@ async function requestOdsay<Payload>(input: {
   let response: Response;
   try {
     await recordPlanmeUsageSafely(input.usageRecorder, "odsay_request");
-    response = await input.fetchImpl(url, { signal: input.signal });
+    const referer = normalizeOdsayReferer(input.referer);
+    response = await input.fetchImpl(url, {
+      ...(referer ? { headers: { Referer: referer } } : {}),
+      signal: input.signal,
+    });
   } catch {
     return { status: "network_failure" };
   }
@@ -507,6 +520,21 @@ async function requestOdsay<Payload>(input: {
     };
   } catch {
     return { status: "http_failure", httpStatus: 422 };
+  }
+}
+
+function normalizeOdsayReferer(value: string | undefined) {
+  if (!value) {
+    return undefined;
+  }
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return undefined;
+    }
+    return `${url.origin}/`;
+  } catch {
+    return undefined;
   }
 }
 

@@ -38,11 +38,12 @@ export function getPlanmeV3Runtime(requestOrigin?: string) {
   }
 
   const storage = getPlanmeV3Storage();
+  const pageOrigin = resolvePageOrigin(requestOrigin);
   if (isPlanmeV3LocalFixtureEnabled()) {
     cachedRuntime = createPlanmeV3LocalFixtureRuntime({
       jobStore: storage.jobStore,
       tourCache: storage.tourCache,
-      pageOrigin: resolvePageOrigin(requestOrigin),
+      pageOrigin,
       usageRecorder: recordWebPlanmeUsage,
     });
     return cachedRuntime;
@@ -54,7 +55,7 @@ export function getPlanmeV3Runtime(requestOrigin?: string) {
   cachedRuntime = createPlanmeV3Orchestrator({
     jobStore: storage.jobStore,
     tourCache: storage.tourCache,
-    pageOrigin: resolvePageOrigin(requestOrigin),
+    pageOrigin,
     usageRecorder: recordWebPlanmeUsage,
     resolveRegion: tourApi.resolveRegion,
     listCandidates: tourApi.listCandidates,
@@ -68,6 +69,7 @@ export function getPlanmeV3Runtime(requestOrigin?: string) {
       usageRecorder: recordWebPlanmeUsage,
     }),
     routeSegment: (input) => routePlanmeSegment(input, {
+      odsayReferer: pageOrigin,
       usageRecorder: recordWebPlanmeUsage,
     }),
   });
