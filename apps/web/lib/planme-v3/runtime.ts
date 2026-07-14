@@ -126,9 +126,19 @@ export function getPlanmeV3Storage() {
 }
 
 export function classifyPlanmeV3RuntimeError(error: Error | null) {
-  return error?.message === "PLANME_V3_STORAGE_CONFIGURATION_MISSING"
-    ? "STORE_CONFIGURATION_MISSING" as const
-    : "STORE_UNAVAILABLE" as const;
+  if (error?.message === "PLANME_V3_STORAGE_CONFIGURATION_MISSING") {
+    return "STORE_CONFIGURATION_MISSING" as const;
+  }
+  if (error?.message === "PLANME_V3_REDIS_CONNECTION_FAILED") {
+    return "STORE_CONNECTION_FAILED" as const;
+  }
+  if (error?.message === "PLANME_V3_REDIS_SCRIPTING_FAILED") {
+    return "STORE_SCRIPTING_FAILED" as const;
+  }
+  if (error?.message === "PLANME_V3_REDIS_CREATE_GENERATION_FAILED") {
+    return "STORE_CREATE_GENERATION_FAILED" as const;
+  }
+  return "STORE_UNAVAILABLE" as const;
 }
 
 function resolvePageOrigin(requestOrigin: string | undefined) {

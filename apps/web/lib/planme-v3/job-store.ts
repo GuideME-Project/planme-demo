@@ -406,28 +406,38 @@ class UpstashPlanmeV3JobStore implements PlanmeV3JobStore {
       inputDigest: input.inputDigest,
     } satisfies IdempotencyRecord);
     const idempotencyExpiresAt = Math.floor(this.now() / 1_000) + IDEMPOTENCY_TTL_SECONDS;
-    const result = (await this.redis.eval(
-      `
-        local current = redis.call("GET", KEYS[1])
-        if current then
-          local decoded = cjson.decode(current)
-          if decoded.inputDigest ~= ARGV[1] then return "conflict" end
-          return "replayed:" .. decoded.itineraryId
-        end
-        redis.call("SET", KEYS[1], ARGV[2], "EXAT", ARGV[3])
-        redis.call("SET", KEYS[2], ARGV[4], "EXAT", ARGV[5])
-        return "created:" .. ARGV[6]
-      `,
-      [idempotencyKey(keyDigest), metaKey(itineraryId)],
-      [
-        input.inputDigest,
-        idempotency,
-        idempotencyExpiresAt,
-        JSON.stringify(meta),
-        toExpiryEpochSeconds(meta.expiresAt),
-        itineraryId,
-      ],
-    )) as string;
+    let result: string | null = null;
+
+    try {
+      result = (await this.redis.eval(
+        `
+          local current = redis.call("GET", KEYS[1])
+          if current then
+            local decoded = cjson.decode(current)
+            if decoded.inputDigest ~= ARGV[1] then return "conflict" end
+            return "replayed:" .. decoded.itineraryId
+          end
+          redis.call("SET", KEYS[1], ARGV[2], "EXAT", ARGV[3])
+          redis.call("SET", KEYS[2], ARGV[4], "EXAT", ARGV[5])
+          return "created:" .. ARGV[6]
+        `,
+        [idempotencyKey(keyDigest), metaKey(itineraryId)],
+        [
+          input.inputDigest,
+          idempotency,
+          idempotencyExpiresAt,
+          JSON.stringify(meta),
+          toExpiryEpochSeconds(meta.expiresAt),
+          itineraryId,
+        ],
+      )) as string;
+    } catch {
+      await throwClassifiedUpstashFailure(this.redis);
+    }
+
+    if (result === null) {
+      throw new Error("PLANME_V3_REDIS_CREATE_GENERATION_FAILED");
+    }
 
     if (result === "conflict") {
       return { status: "conflict" };
@@ -661,6 +671,22 @@ class UpstashPlanmeV3JobStore implements PlanmeV3JobStore {
     );
     return parseStored<ItineraryJobMeta>(value);
   }
+}
+
+async function throwClassifiedUpstashFailure(redis: Redis): Promise<never> {
+  try {
+    await redis.ping();
+  } catch {
+    throw new Error("PLANME_V3_REDIS_CONNECTION_FAILED");
+  }
+
+  try {
+    await redis.eval("return 1", [], []);
+  } catch {
+    throw new Error("PLANME_V3_REDIS_SCRIPTING_FAILED");
+  }
+
+  throw new Error("PLANME_V3_REDIS_CREATE_GENERATION_FAILED");
 }
 
 function createGenerationMeta(itineraryId: string, nowMs: number): ItineraryJobMeta {

@@ -20,6 +20,20 @@ assert.equal(
   classifyPlanmeV3RuntimeError(new Error("UPSTASH_REQUEST_FAILED")),
   "STORE_UNAVAILABLE",
 );
+assert.equal(
+  classifyPlanmeV3RuntimeError(new Error("PLANME_V3_REDIS_CONNECTION_FAILED")),
+  "STORE_CONNECTION_FAILED",
+);
+assert.equal(
+  classifyPlanmeV3RuntimeError(new Error("PLANME_V3_REDIS_SCRIPTING_FAILED")),
+  "STORE_SCRIPTING_FAILED",
+);
+assert.equal(
+  classifyPlanmeV3RuntimeError(
+    new Error("PLANME_V3_REDIS_CREATE_GENERATION_FAILED"),
+  ),
+  "STORE_CREATE_GENERATION_FAILED",
+);
 
 const validStart = JSON.stringify({
   origin: "서울역",
