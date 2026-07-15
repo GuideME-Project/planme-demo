@@ -3021,7 +3021,7 @@ async function assertV3ChannelContract(): Promise<void> {
       assert.match(openApiText, /이전 턴에서 확정한 값을 반드시 다시 포함/);
       assert.match(openApiText, /대화 전체의 확정값을 각각 별도 필드로 전달/);
       assert.match(openApiText, /동탄처럼 넓은 지역명도 유효/);
-      assert.match(openApiText, /\[상세 일정 열기\]\(pageUrl\)/);
+      assert.match(openApiText, /마지막 줄의 원문 URL/);
       assert.match(openApiText, /detailLinkMarkdown/);
       assert.match(openApiText, /finalAnswerMarkdown을 한 글자도 바꾸거나 덧붙이지 말고/);
       assert.doesNotMatch(openApiText, /hotelName|clarificationContext|arrivalAirport/);
@@ -3040,10 +3040,9 @@ async function assertV3ChannelContract(): Promise<void> {
       );
       const planning = (await planningResponse.json()) as PlanningContent;
       assert.equal(planning.status, "needs_input");
-      assert.deepEqual(
-        new Set(planning.questions?.map((question) => question.slot)),
-        new Set(["origin", "transportMode", "durationDays"]),
-      );
+      assert.deepEqual(planning.questions?.map((question) => question.slot), [
+        "transportMode",
+      ]);
 
       const missingTransport = await originalFetch(
         `${actions.origin}/api/gpt/itineraries/recommend`,
@@ -3110,7 +3109,7 @@ async function assertV3ChannelContract(): Promise<void> {
       assert.match(terminal.finalAnswerMarkdown, /\*\*부산 여행 일정\*\*/);
       assert.match(terminal.finalAnswerMarkdown, /서울역 출발 · 대중교통 · 1일/);
       assert.match(terminal.finalAnswerMarkdown, /확인되지 않은 장소/);
-      assert.ok(terminal.finalAnswerMarkdown.endsWith(terminal.detailLinkMarkdown));
+      assert.ok(terminal.finalAnswerMarkdown.endsWith(`상세 일정: ${terminal.pageUrl}`));
       assert.equal("widget" in terminal, false);
       assert.equal(new URL(terminal.pageUrl).origin, actions.origin);
       const detailRedirect = await originalFetch(terminal.pageUrl, {
@@ -3223,14 +3222,9 @@ async function assertV3ChannelContract(): Promise<void> {
         arguments: { destination: "부산" },
       });
       const planningContent = planning.structuredContent as PlanningContent;
-      assert.equal(
-        planningContent.questions?.every((question) =>
-          ["origin", "destination", "transportMode", "durationDays"].includes(
-            question.slot ?? "",
-          ),
-        ),
-        true,
-      );
+      assert.deepEqual(planningContent.questions?.map((question) => question.slot), [
+        "transportMode",
+      ]);
 
       const started = await client.callTool({
         name: "recommend_planme_itinerary",

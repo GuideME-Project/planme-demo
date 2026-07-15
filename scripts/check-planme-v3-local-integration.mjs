@@ -67,17 +67,13 @@ try {
   });
   assert.equal(assessment.structuredContent?.status, "needs_input");
   assert.deepEqual(assessment.structuredContent?.missingSlots, [
-    "destination",
     "transportMode",
+    "destination",
     "durationDays",
   ]);
-  assert.equal(
-    assessment.structuredContent?.questions.every((question) =>
-      ["origin", "destination", "transportMode", "durationDays"].includes(
-        question.slot,
-      )
-    ),
-    true,
+  assert.deepEqual(
+    assessment.structuredContent?.questions.map(({ slot }) => slot),
+    ["transportMode"],
   );
 
   const toolArguments = {
@@ -103,15 +99,12 @@ try {
   });
   assert.equal(replay.structuredContent?.itineraryId, itineraryId);
 
-  const conflict = await callMcp(requestId, "tools/call", {
+  const distinctInput = await callMcp(requestId, "tools/call", {
     name: "recommend_planme_itinerary",
     arguments: { ...toolArguments, destination: "경주" },
   });
-  assert.equal(conflict.structuredContent?.status, "failed");
-  assert.equal(
-    conflict.structuredContent?.errorCode,
-    "IDEMPOTENCY_KEY_REUSED",
-  );
+  assert.equal(distinctInput.structuredContent?.status, "processing");
+  assert.notEqual(distinctInput.structuredContent?.itineraryId, itineraryId);
 
   let terminal = null;
   for (let attempt = 0; attempt < 32; attempt += 1) {
@@ -201,14 +194,9 @@ try {
       new Set(initialPlanning.body.missingSlots),
       new Set(["origin", "transportMode"]),
     );
-    assert.equal(
-      initialPlanning.body.questions.every((question) =>
-        ["origin", "destination", "transportMode", "durationDays"].includes(
-          question.slot,
-        )
-      ),
-      true,
-    );
+    assert.deepEqual(initialPlanning.body.questions.map(({ slot }) => slot), [
+      "transportMode",
+    ]);
 
     conversation = applyUserTurn(conversation, scenario.transportInput);
     const transportPlanning = await callAction("/api/gpt/planning/start", {
@@ -218,6 +206,9 @@ try {
     assert.equal(transportPlanning.status, 200);
     assert.equal(transportPlanning.body.status, "needs_input");
     assert.deepEqual(transportPlanning.body.missingSlots, ["origin"]);
+    assert.deepEqual(transportPlanning.body.questions.map(({ slot }) => slot), [
+      "origin",
+    ]);
 
     conversation = applyUserTurn(conversation, scenario.origin);
     const recommendation = await callAction(
@@ -239,10 +230,9 @@ try {
       recommendation.body.finalAnswerMarkdown,
       new RegExp(scenario.transportInput),
     );
-    assert.equal(
-      recommendation.body.detailLinkMarkdown,
-      `[상세 일정 열기](${recommendation.body.pageUrl})`,
-    );
+    assert.equal(recommendation.body.finalAnswerMarkdown.endsWith(
+      `상세 일정: ${recommendation.body.pageUrl}`,
+    ), true);
 
     const detailRedirect = await fetch(recommendation.body.pageUrl, {
       redirect: "manual",
@@ -269,6 +259,10 @@ try {
       new Set(initialPlanning.structuredContent?.missingSlots),
       new Set(["origin", "transportMode"]),
     );
+    assert.deepEqual(
+      initialPlanning.structuredContent?.questions?.map(({ slot }) => slot),
+      ["transportMode"],
+    );
 
     conversation = applyUserTurn(conversation, scenario.transportInput);
     const transportPlanning = await callMcp(appRequestId++, "tools/call", {
@@ -277,6 +271,10 @@ try {
     });
     assert.equal(transportPlanning.structuredContent?.status, "needs_input");
     assert.deepEqual(transportPlanning.structuredContent?.missingSlots, ["origin"]);
+    assert.deepEqual(
+      transportPlanning.structuredContent?.questions?.map(({ slot }) => slot),
+      ["origin"],
+    );
 
     conversation = applyUserTurn(conversation, scenario.origin);
     const startedScenario = await callMcp(appRequestId++, "tools/call", {

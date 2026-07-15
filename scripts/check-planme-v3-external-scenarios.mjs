@@ -8,10 +8,12 @@ const loadEnvConfig = nextEnv.loadEnvConfig ?? nextEnv.default?.loadEnvConfig;
 assert.equal(typeof loadEnvConfig, "function", "@next/env loadEnvConfig를 찾을 수 없습니다.");
 loadEnvConfig("apps/web");
 
-const webPort = Number(process.env.PLANME_EXTERNAL_E2E_WEB_PORT ?? "3000");
+const webPort = Number(process.env.PLANME_EXTERNAL_E2E_WEB_PORT ?? "3012");
 const mcpPort = Number(process.env.PLANME_EXTERNAL_E2E_MCP_PORT ?? "8793");
-const webOrigin = `http://localhost:${webPort}`;
-const mcpOrigin = `http://localhost:${mcpPort}`;
+const webOrigin = `http://127.0.0.1:${webPort}`;
+const mcpOrigin = `http://127.0.0.1:${mcpPort}`;
+const registeredProviderOrigin =
+  process.env.PLANME_EXTERNAL_E2E_PROVIDER_ORIGIN?.trim() || "http://localhost:3000";
 const internalToken = "planme-external-e2e-token";
 const children = [];
 const outputByName = new Map();
@@ -92,7 +94,7 @@ try {
       PLANME_INTERNAL_API_TOKEN: internalToken,
       PLANME_V3_LOCAL_FIXTURE: "0",
       PLANME_V3_ROUTE_DEBUG: "1",
-      PLANME_WEB_ORIGIN: webOrigin,
+      PLANME_WEB_ORIGIN: registeredProviderOrigin,
       UPSTASH_REDIS_REST_TOKEN: "",
       UPSTASH_REDIS_REST_URL: "",
     },
