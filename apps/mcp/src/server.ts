@@ -1,4 +1,10 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {
+  handleGptsItineraryOpenRequest,
+  handleGptsOpenApiRequest,
+  handleGptsPlanningStartRequest,
+  handleGptsRecommendItineraryRequest,
+} from "./gpts-actions-api.js";
 import { handlePlanmeMcpRequest } from "./http-handler.js";
 import { writeCorsHeaders, writeJson } from "./http-utils.js";
 
@@ -19,6 +25,26 @@ export async function createPlanmeHttpServer() {
 
     if (request.url === "/health") {
       writeJson(response, 200, { ok: true, service: "planme-mcp" });
+      return;
+    }
+
+    if (request.url === "/api/gpt/openapi") {
+      handleGptsOpenApiRequest(request, response);
+      return;
+    }
+
+    if (request.url === "/api/gpt/planning/start") {
+      await handleGptsPlanningStartRequest(request, response);
+      return;
+    }
+
+    if (request.url === "/api/gpt/itineraries/recommend") {
+      await handleGptsRecommendItineraryRequest(request, response);
+      return;
+    }
+
+    if (request.url?.startsWith("/api/gpt/itineraries/open")) {
+      handleGptsItineraryOpenRequest(request, response);
       return;
     }
 

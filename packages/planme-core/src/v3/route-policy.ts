@@ -29,7 +29,9 @@ export function decideOdsayFailure(
     input.httpStatus === 408 ||
     input.httpStatus === 429 ||
     (input.httpStatus !== undefined && input.httpStatus >= 500) ||
-    code === "-1"
+    code === "-1" ||
+    code === "429" ||
+    code === "500"
   ) {
     return { action: "retry", maxAttempts: 1 };
   }

@@ -10,8 +10,13 @@ import {
 } from "@planme/core";
 
 const ODSAY_ORIGIN = "https://api.odsay.com";
+// ODsay Basic keys reject burst requests even when calls are sequential.
+const ODSAY_MINIMUM_REQUEST_INTERVAL_MS = 260;
+const ODSAY_RETRY_BACKOFF_MS = 400;
 const NAVER_DIRECTIONS_URL =
   "https://maps.apigw.ntruss.com/map-direction/v1/driving";
+let lastOdsayRequestStartedAt = 0;
+let odsayRequestQueue: Promise<void> = Promise.resolve();
 
 type OdsayError = {
   code?: string | number;
@@ -98,9 +103,31 @@ export async function routePlanmeSegment(
   },
   options: PlanmeRouteServiceOptions = {},
 ): Promise<PlanmeRouteResult> {
-  return input.transportMode === "drive"
+  const result = input.transportMode === "drive"
     ? routeDriveSegment(input, options)
     : routeTransitSegment(input, options);
+  const resolved = await result;
+  if (
+    resolved.status !== "ready" &&
+    process.env.PLANME_V3_ROUTE_DEBUG?.trim() === "1"
+  ) {
+    console.warn(
+      "[planme-v3-route]",
+      JSON.stringify({
+        transportMode: input.transportMode,
+        requiredSegment: input.requiredSegment,
+        fromRef: input.from.ref,
+        toRef: input.to.ref,
+        straightDistanceMeters: calculateStraightDistanceMeters(
+          input.from.coordinate,
+          input.to.coordinate,
+        ),
+        status: resolved.status,
+        errorCode: resolved.errorCode,
+      }),
+    );
+  }
+  return resolved;
 }
 
 async function routeDriveSegment(
@@ -272,6 +299,7 @@ async function routeTransitSegment(
       });
 
       if (decision.action === "retry" && attempt === 1) {
+        await waitWithinSignal(ODSAY_RETRY_BACKOFF_MS, input.signal);
         continue;
       }
       if (decision.action === "try_walk") {
@@ -384,7 +412,10 @@ async function routeWalkSegment(input: {
         requiredSegment: input.requiredSegment,
         straightDistanceMeters: input.straightDistanceMeters,
       });
-      if (decision.action === "retry" && attempt === 1) continue;
+      if (decision.action === "retry" && attempt === 1) {
+        await waitWithinSignal(ODSAY_RETRY_BACKOFF_MS, input.signal);
+        continue;
+      }
       if (decision.action === "estimated_walk") {
         const estimated = createEstimatedWalkSegment({
           fromRef: input.from.ref,
@@ -499,6 +530,7 @@ async function requestOdsay<Payload>(input: {
 
   let response: Response;
   try {
+    await waitForOdsayRequestSlot(input.signal);
     await recordPlanmeUsageSafely(input.usageRecorder, "odsay_request");
     const referer = normalizeOdsayReferer(input.referer);
     response = await input.fetchImpl(url, {
@@ -521,6 +553,48 @@ async function requestOdsay<Payload>(input: {
   } catch {
     return { status: "http_failure", httpStatus: 422 };
   }
+}
+
+async function waitForOdsayRequestSlot(signal?: AbortSignal) {
+  const previousRequest = odsayRequestQueue;
+  let releaseCurrentRequest = () => {};
+
+  odsayRequestQueue = new Promise<void>((resolve) => {
+    releaseCurrentRequest = resolve;
+  });
+
+  await previousRequest;
+  try {
+    const remainingDelay =
+      ODSAY_MINIMUM_REQUEST_INTERVAL_MS -
+      (Date.now() - lastOdsayRequestStartedAt);
+    if (remainingDelay > 0) {
+      await waitWithinSignal(remainingDelay, signal);
+    }
+    lastOdsayRequestStartedAt = Date.now();
+  } finally {
+    releaseCurrentRequest();
+  }
+}
+
+function waitWithinSignal(milliseconds: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason instanceof Error ? signal.reason : new Error("Route calculation aborted"));
+      return;
+    }
+
+    const handleAbort = () => {
+      clearTimeout(timeout);
+      reject(signal?.reason instanceof Error ? signal.reason : new Error("Route calculation aborted"));
+    };
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", handleAbort);
+      resolve();
+    }, milliseconds);
+
+    signal?.addEventListener("abort", handleAbort, { once: true });
+  });
 }
 
 function normalizeOdsayReferer(value: string | undefined) {
