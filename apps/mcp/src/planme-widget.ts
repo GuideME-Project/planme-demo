@@ -62,6 +62,15 @@ export function createPlanmeWidgetHtml(): string {
         if (element) element.textContent = String(value ?? "");
       }
 
+      function formatDuration(totalMinutes) {
+        const normalizedMinutes = Math.max(0, Math.round(Number(totalMinutes) || 0));
+        const hours = Math.floor(normalizedMinutes / 60);
+        const minutes = normalizedMinutes % 60;
+        if (hours === 0) return "약 " + minutes + "분";
+        if (minutes === 0) return "약 " + hours + "시간";
+        return "약 " + hours + "시간 " + minutes + "분";
+      }
+
       function pickJob(value) {
         if (!value || typeof value !== "object") return null;
         if (["processing", "ready", "failed"].includes(value.status)) return value;
@@ -99,9 +108,9 @@ export function createPlanmeWidgetHtml(): string {
         const widget = job.widget;
         text("[data-title]", widget.title);
         text("[data-status]", "추천 장소와 이동 경로가 포함된 일정입니다.");
-        text("[data-standard]", widget.standardTotalMinutes + "분");
-        text("[data-carryme]", widget.carrymeTotalMinutes + "분");
-        text("[data-saving]", widget.savedMinutes + "분");
+        text("[data-standard]", formatDuration(widget.standardTotalMinutes));
+        text("[data-carryme]", formatDuration(widget.carrymeTotalMinutes));
+        text("[data-saving]", formatDuration(widget.savedMinutes));
         document.querySelector("[data-summary]")?.removeAttribute("hidden");
         const days = document.querySelector("[data-days]");
         if (days) {
