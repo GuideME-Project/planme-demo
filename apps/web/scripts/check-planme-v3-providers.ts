@@ -550,6 +550,34 @@ const retryResult = await routePlanmeSegment(
 assert.equal(retryResult.status, "ready");
 assert.equal(transientAttempt, 2);
 
+let providerRateLimitAttempt = 0;
+const providerRateLimitResult = await routePlanmeSegment(
+  {
+    from: nearbyFrom,
+    to: { ref: "rate-limited-destination", coordinate: { lat: 37.52, lng: 127 } },
+    transportMode: "transit",
+    requiredSegment: true,
+  },
+  {
+    odsayApiKey: "server-only-odsay-key",
+    usageRecorder: (event) => {
+      routeUsageEvents.push(event);
+    },
+    fetchImpl: async () => {
+      providerRateLimitAttempt += 1;
+      return providerRateLimitAttempt === 1
+        ? jsonResponse({ error: { code: "429", msg: "rate limited" } })
+        : jsonResponse({
+            result: {
+              path: [{ info: { totalDistance: 2000, totalTime: 15 } }],
+            },
+          });
+    },
+  },
+);
+assert.equal(providerRateLimitResult.status, "ready");
+assert.equal(providerRateLimitAttempt, 2);
+
 const laneReferers: Array<string | null> = [];
 const laneResult = await routePlanmeSegment(
   {
@@ -645,7 +673,7 @@ if (driveResult.status === "ready") {
 }
 assert.equal(
   routeUsageEvents.filter((event) => event === "odsay_request").length,
-  8,
+  10,
 );
 assert.equal(
   routeUsageEvents.filter((event) => event === "naver_directions_request").length,

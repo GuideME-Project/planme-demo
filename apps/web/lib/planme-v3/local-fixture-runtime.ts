@@ -28,20 +28,13 @@ export function createPlanmeV3LocalFixtureRuntime(input: {
     tourCache: input.tourCache,
     pageOrigin: input.pageOrigin,
     usageRecorder: input.usageRecorder,
-    resolveRegion: async () => ({
-      regionCode: "26",
-      regionName: "부산광역시",
-      districtCode: "260",
-      districtName: "중구",
-    }),
+    resolveRegion: async (destination) => resolveLocalTourRegion(destination),
     geocodeAnchor: async (query) => ({
       status: "ready",
-      coordinate: query === "서울역"
-        ? { lat: 37.5547, lng: 126.9707 }
-        : { lat: 35.1796, lng: 129.0756 },
+      coordinate: resolveLocalCoordinate(query),
     }),
-    listCandidates: async ({ contentTypeId }) =>
-      createLocalTourCandidateResponse(contentTypeId),
+    listCandidates: async ({ contentTypeId, region }) =>
+      createLocalTourCandidateResponse(contentTypeId, region.regionCode),
     planCandidates: async ({ candidates, intent }) => ({
       ok: true,
       attempts: 0,
@@ -67,21 +60,23 @@ export function createPlanmeV3LocalFixtureRuntime(input: {
 
 function createLocalTourCandidateResponse(
   contentTypeId: AllowedTourContentTypeId,
+  regionCode: string,
 ) {
+  const isYangyang = regionCode === "51";
   if (contentTypeId === 12) {
     return {
       status: "success" as const,
       totalCount: 1,
       records: [
         {
-          contentid: "local-visit-1",
+          contentid: isYangyang ? "local-yangyang-visit-1" : "local-busan-visit-1",
           contenttypeid: 12,
-          title: "해운대",
-          mapx: 129.1587,
-          mapy: 35.1587,
-          addr1: "부산광역시 해운대구",
-          lDongRegnCd: "26",
-          lDongSignguCd: "260",
+          title: isYangyang ? "낙산사" : "해운대",
+          mapx: isYangyang ? 128.6279 : 129.1587,
+          mapy: isYangyang ? 38.125 : 35.1587,
+          addr1: isYangyang ? "강원특별자치도 양양군 강현면" : "부산광역시 해운대구",
+          lDongRegnCd: regionCode,
+          lDongSignguCd: isYangyang ? "830" : "260",
         },
       ],
     };
@@ -92,14 +87,14 @@ function createLocalTourCandidateResponse(
       totalCount: 1,
       records: [
         {
-          contentid: "local-lodging-1",
+          contentid: isYangyang ? "local-yangyang-lodging-1" : "local-busan-lodging-1",
           contenttypeid: 32,
-          title: "부산 호텔",
-          mapx: 129.0756,
-          mapy: 35.1796,
-          addr1: "부산광역시 중구",
-          lDongRegnCd: "26",
-          lDongSignguCd: "260",
+          title: isYangyang ? "양양 호텔" : "부산 호텔",
+          mapx: isYangyang ? 128.619 : 129.0756,
+          mapy: isYangyang ? 38.0754 : 35.1796,
+          addr1: isYangyang ? "강원특별자치도 양양군 양양읍" : "부산광역시 중구",
+          lDongRegnCd: regionCode,
+          lDongSignguCd: isYangyang ? "830" : "260",
         },
       ],
     };
@@ -109,6 +104,34 @@ function createLocalTourCandidateResponse(
     records: [] as [],
     totalCount: 0 as const,
   };
+}
+
+function resolveLocalTourRegion(destination: string) {
+  if (destination.includes("부산")) {
+    return {
+      regionCode: "26",
+      regionName: "부산광역시",
+      districtCode: "260",
+      districtName: "중구",
+    };
+  }
+  if (destination.includes("양양")) {
+    return {
+      regionCode: "51",
+      regionName: "강원특별자치도",
+      districtCode: "830",
+      districtName: "양양군",
+    };
+  }
+  return null;
+}
+
+function resolveLocalCoordinate(query: string) {
+  if (query === "서울역") return { lat: 37.5547, lng: 126.9707 };
+  if (query.includes("동탄")) return { lat: 37.2017, lng: 127.071 };
+  if (query.includes("마포구청")) return { lat: 37.5663, lng: 126.9014 };
+  if (query.includes("양양")) return { lat: 38.0754, lng: 128.619 };
+  return { lat: 35.1151, lng: 129.0414 };
 }
 
 const createLocalRouteSegment: PlanmeV3OrchestratorDependencies["routeSegment"] =

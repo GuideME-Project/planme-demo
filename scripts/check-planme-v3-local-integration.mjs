@@ -140,6 +140,172 @@ try {
   assert.equal(terminalReplay.structuredContent?.status, "ready");
   assert.equal(terminalReplay.structuredContent?.revision, 1);
 
+  const scenarioResults = [];
+  const scenarios = [
+    {
+      id: "1-a",
+      prompt: "부산역 1박 2일 여행 추천",
+      destination: "부산역",
+      durationDays: 2,
+      origin: "동탄",
+      transportInput: "자동차",
+      transportMode: "drive",
+      expectedVisit: "해운대",
+      expectedLodging: "부산 호텔",
+    },
+    {
+      id: "1-b",
+      prompt: "부산역 1박 2일 여행 추천",
+      destination: "부산역",
+      durationDays: 2,
+      origin: "동탄",
+      transportInput: "대중교통",
+      transportMode: "transit",
+      expectedVisit: "해운대",
+      expectedLodging: "부산 호텔",
+    },
+    {
+      id: "2-a",
+      prompt: "양양 2박 3일 여행 추천",
+      destination: "양양",
+      durationDays: 3,
+      origin: "마포구청",
+      transportInput: "자동차",
+      transportMode: "drive",
+      expectedVisit: "낙산사",
+      expectedLodging: "양양 호텔",
+    },
+    {
+      id: "2-b",
+      prompt: "양양 2박 3일 여행 추천",
+      destination: "양양",
+      durationDays: 3,
+      origin: "마포구청",
+      transportInput: "대중교통",
+      transportMode: "transit",
+      expectedVisit: "낙산사",
+      expectedLodging: "양양 호텔",
+    },
+  ];
+
+  // Exercise GPTs Action multi-turn state through HTTP only; no browser automation runs here.
+  for (const scenario of scenarios) {
+    let conversation = applyUserTurn({}, scenario.prompt);
+    const initialPlanning = await callAction("/api/gpt/planning/start", {
+      message: scenario.prompt,
+      ...conversation,
+    });
+    assert.equal(initialPlanning.status, 200);
+    assert.equal(initialPlanning.body.status, "needs_input");
+    assert.deepEqual(
+      new Set(initialPlanning.body.missingSlots),
+      new Set(["origin", "transportMode"]),
+    );
+    assert.equal(
+      initialPlanning.body.questions.every((question) =>
+        ["origin", "destination", "transportMode", "durationDays"].includes(
+          question.slot,
+        )
+      ),
+      true,
+    );
+
+    conversation = applyUserTurn(conversation, scenario.transportInput);
+    const transportPlanning = await callAction("/api/gpt/planning/start", {
+      message: scenario.transportInput,
+      ...conversation,
+    });
+    assert.equal(transportPlanning.status, 200);
+    assert.equal(transportPlanning.body.status, "needs_input");
+    assert.deepEqual(transportPlanning.body.missingSlots, ["origin"]);
+
+    conversation = applyUserTurn(conversation, scenario.origin);
+    const recommendation = await callAction(
+      "/api/gpt/itineraries/recommend",
+      {
+        invocationId: `local-scenario-${scenario.id}-${Date.now()}`,
+        latestUserMessage: scenario.origin,
+        ...conversation,
+      },
+    );
+    assert.equal(recommendation.status, 200);
+    assert.equal(recommendation.body.status, "ready");
+    assert.equal(recommendation.body.origin, scenario.origin);
+    assert.equal(recommendation.body.destination, scenario.destination);
+    assert.equal(recommendation.body.durationDays, scenario.durationDays);
+    assert.equal(recommendation.body.transportMode, scenario.transportMode);
+    assert.match(recommendation.body.finalAnswerMarkdown, new RegExp(scenario.origin));
+    assert.match(
+      recommendation.body.finalAnswerMarkdown,
+      new RegExp(scenario.transportInput),
+    );
+    assert.equal(
+      recommendation.body.detailLinkMarkdown,
+      `[상세 일정 열기](${recommendation.body.pageUrl})`,
+    );
+
+    const detailRedirect = await fetch(recommendation.body.pageUrl, {
+      redirect: "manual",
+    });
+    assert.equal(detailRedirect.status, 302);
+    assert.equal(
+      detailRedirect.headers.get("location"),
+      `${webOrigin}/itinerary/${recommendation.body.itineraryId}`,
+    );
+    scenarioResults.push({ scenario, terminal: recommendation.body });
+  }
+
+  const appScenarioResults = [];
+  let appRequestId = 1_000;
+  // Exercise the same multi-turn scenarios through MCP JSON-RPC tool calls.
+  for (const scenario of scenarios) {
+    let conversation = applyUserTurn({}, scenario.prompt);
+    const initialPlanning = await callMcp(appRequestId++, "tools/call", {
+      name: "start_planme_planning",
+      arguments: { message: scenario.prompt, ...conversation },
+    });
+    assert.equal(initialPlanning.structuredContent?.status, "needs_input");
+    assert.deepEqual(
+      new Set(initialPlanning.structuredContent?.missingSlots),
+      new Set(["origin", "transportMode"]),
+    );
+
+    conversation = applyUserTurn(conversation, scenario.transportInput);
+    const transportPlanning = await callMcp(appRequestId++, "tools/call", {
+      name: "start_planme_planning",
+      arguments: { message: scenario.transportInput, ...conversation },
+    });
+    assert.equal(transportPlanning.structuredContent?.status, "needs_input");
+    assert.deepEqual(transportPlanning.structuredContent?.missingSlots, ["origin"]);
+
+    conversation = applyUserTurn(conversation, scenario.origin);
+    const startedScenario = await callMcp(appRequestId++, "tools/call", {
+      name: "recommend_planme_itinerary",
+      arguments: conversation,
+    });
+    assert.equal(startedScenario.structuredContent?.status, "processing");
+    const scenarioItineraryId = startedScenario.structuredContent?.itineraryId;
+    assert.ok(scenarioItineraryId);
+
+    let scenarioTerminal = null;
+    for (let attempt = 0; attempt < 64; attempt += 1) {
+      const status = await callMcp(appRequestId++, "tools/call", {
+        name: "get_planme_itinerary",
+        arguments: { itineraryId: scenarioItineraryId },
+      });
+      if (status.structuredContent?.status !== "processing") {
+        scenarioTerminal = status.structuredContent;
+        break;
+      }
+    }
+    assert.equal(scenarioTerminal?.status, "ready");
+    assert.equal(scenarioTerminal?.widget?.title, `${scenario.destination} 여행 일정`);
+    assert.equal(scenarioTerminal?.widget?.durationDays, scenario.durationDays);
+    assert.equal(scenarioTerminal?.widget?.transportMode, scenario.transportMode);
+    appScenarioResults.push({ scenario, terminal: scenarioTerminal });
+  }
+
+  // Start Playwright only after API/tool completion to verify the generated detail pages.
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage();
@@ -191,12 +357,48 @@ try {
     assert.ok(carrymeBox);
     assert.ok(Math.abs(standardBox.y - carrymeBox.y) < 1);
     assert.deepEqual(forbiddenBrowserRequests, []);
+
+    for (const { scenario, terminal: scenarioTerminal } of scenarioResults) {
+      const scenarioResponse = await page.goto(scenarioTerminal.pageUrl, {
+        waitUntil: "networkidle",
+      });
+      assert.equal(scenarioResponse?.status(), 200);
+      assert.equal(
+        await page.getByRole("heading", { level: 1 }).innerText(),
+        `${scenario.destination} 여행 일정`,
+      );
+      const scenarioBody = await page.locator("body").innerText();
+      assert.match(scenarioBody, new RegExp(scenario.expectedVisit));
+      assert.match(scenarioBody, new RegExp(scenario.expectedLodging));
+      assert.equal(await page.getByTestId("destination-editor").count(), 0);
+    }
+    for (const { scenario, terminal: scenarioTerminal } of appScenarioResults) {
+      const scenarioResponse = await page.goto(scenarioTerminal.pageUrl, {
+        waitUntil: "networkidle",
+      });
+      assert.equal(scenarioResponse?.status(), 200);
+      assert.equal(
+        await page.getByRole("heading", { level: 1 }).innerText(),
+        `${scenario.destination} 여행 일정`,
+      );
+      const scenarioBody = await page.locator("body").innerText();
+      assert.match(scenarioBody, new RegExp(scenario.expectedVisit));
+      assert.match(scenarioBody, new RegExp(scenario.expectedLodging));
+      assert.equal(await page.getByTestId("destination-editor").count(), 0);
+    }
+    assert.deepEqual(forbiddenBrowserRequests, []);
   } finally {
     await browser.close();
   }
 
   console.log(
-    `PlanME local two-server integration passed: ${itineraryId} revision 1 ready, detail page rendered, browser provider requests 0.`,
+    [
+      `PlanME local two-server integration passed: ${itineraryId} revision 1 ready, detail page rendered, browser provider requests 0.`,
+      `Scenarios passed: ${scenarioResults.map(({ scenario }) =>
+        `${scenario.id} ${scenario.destination}/${scenario.origin}/${scenario.transportInput}/${scenario.durationDays}일`
+      ).join(", ")}.`,
+      `MCP App conversations passed: ${appScenarioResults.map(({ scenario }) => scenario.id).join(", ")}.`,
+    ].join("\n"),
   );
 } catch (error) {
   for (const [name, output] of outputByName) {
@@ -256,6 +458,37 @@ async function callMcp(id, method, params = {}) {
   assert.equal(payload.id, id);
   assert.equal(payload.error, undefined);
   return payload.result;
+}
+
+async function callAction(path, body) {
+  const response = await fetch(`${mcpOrigin}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return { status: response.status, body: await response.json() };
+}
+
+function applyUserTurn(previous, message) {
+  // Deterministically carries slots between turns; this does not execute the ChatGPT model.
+  const next = { ...previous };
+  const normalized = message.trim();
+  if (!next.destination || !next.durationDays) {
+    const match = normalized.match(/^(.+?)\s+(\d+)박\s*(\d+)일(?:\s+여행(?:\s+추천)?)?$/);
+    assert.ok(match, `첫 여행 프롬프트를 해석할 수 없습니다: ${message}`);
+    next.destination = match[1].trim();
+    next.durationDays = Number(match[3]);
+    return next;
+  }
+  if (!next.transportMode && ["자동차", "대중교통"].includes(normalized)) {
+    next.transportMode = normalized;
+    return next;
+  }
+  if (!next.origin) {
+    next.origin = normalized;
+    return next;
+  }
+  throw new Error(`예상하지 않은 추가 사용자 턴입니다: ${message}`);
 }
 
 function stopServers() {
