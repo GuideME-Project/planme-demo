@@ -44,9 +44,9 @@ test("continues a V3 job without a click and stops after terminal ready", async 
             durationDays: 1,
             transportMode: "transit",
             days: [{ day: 1, visits: [] }],
-            standardTotalMinutes: 60,
-            carrymeTotalMinutes: 40,
-            savedMinutes: 20,
+            standardTotalMinutes: 508,
+            carrymeTotalMinutes: 497,
+            savedMinutes: 11,
             pageUrl: "https://planme.example/itinerary/planme-v3-widget-e2e",
           },
         };
@@ -57,7 +57,17 @@ test("continues a V3 job without a click and stops after terminal ready", async 
   await page.goto("about:blank");
   await page.setContent(createPlanmeWidgetHtml());
   await expect(page.getByRole("heading", { name: "부산 여행 일정" })).toBeVisible();
-  await expect(page.getByText("20분", { exact: true })).toBeVisible();
+  await expect(page.getByText("약 8시간 28분", { exact: true })).toBeVisible();
+  await expect(page.getByText("약 8시간 17분", { exact: true })).toBeVisible();
+  await expect(page.getByText("약 11분", { exact: true })).toBeVisible();
+  await expect(
+    page.evaluate(() => {
+      const formatter = (
+        window as Window & { formatDuration: (minutes: number) => string }
+      ).formatDuration;
+      return [formatter(60), formatter(0)];
+    }),
+  ).resolves.toEqual(["약 1시간", "약 0분"]);
   await expect
     .poll(() =>
       page.evaluate(() => {
