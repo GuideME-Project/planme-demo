@@ -124,7 +124,8 @@ export function createPlanmeMcpServer(): McpServer {
       if (!input.origin?.trim()) missingSlots.push("origin");
       if (!input.destination?.trim()) missingSlots.push("destination");
       if (!input.durationDays) missingSlots.push("durationDays");
-      const questions = missingSlots.slice(0, 1).map((slot) => ({
+      const visibleMissingSlots = missingSlots.slice(0, 1);
+      const questions = visibleMissingSlots.map((slot) => ({
         slot,
         required: true,
         text: questionForSlot(slot),
@@ -132,7 +133,7 @@ export function createPlanmeMcpServer(): McpServer {
       }));
       const assessment = {
         status: missingSlots.length > 0 ? "needs_input" as const : "ready" as const,
-        missingSlots,
+        missingSlots: visibleMissingSlots,
         questions,
         normalizedInput: {
           origin: input.origin?.trim() || null,
