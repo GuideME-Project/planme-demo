@@ -66,11 +66,7 @@ try {
     arguments: { origin: "서울역" },
   });
   assert.equal(assessment.structuredContent?.status, "needs_input");
-  assert.deepEqual(assessment.structuredContent?.missingSlots, [
-    "transportMode",
-    "destination",
-    "durationDays",
-  ]);
+  assert.deepEqual(assessment.structuredContent?.missingSlots, ["transportMode"]);
   assert.deepEqual(
     assessment.structuredContent?.questions.map(({ slot }) => slot),
     ["transportMode"],
@@ -190,10 +186,7 @@ try {
     });
     assert.equal(initialPlanning.status, 200);
     assert.equal(initialPlanning.body.status, "needs_input");
-    assert.deepEqual(
-      new Set(initialPlanning.body.missingSlots),
-      new Set(["origin", "transportMode"]),
-    );
+    assert.deepEqual(initialPlanning.body.missingSlots, ["transportMode"]);
     assert.deepEqual(initialPlanning.body.questions.map(({ slot }) => slot), [
       "transportMode",
     ]);
@@ -256,8 +249,8 @@ try {
     });
     assert.equal(initialPlanning.structuredContent?.status, "needs_input");
     assert.deepEqual(
-      new Set(initialPlanning.structuredContent?.missingSlots),
-      new Set(["origin", "transportMode"]),
+      initialPlanning.structuredContent?.missingSlots,
+      ["transportMode"],
     );
     assert.deepEqual(
       initialPlanning.structuredContent?.questions?.map(({ slot }) => slot),

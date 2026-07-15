@@ -124,10 +124,7 @@ try {
     });
     assertActionStatus(scenario.id, "initial planning", initialPlanning, 200);
     assert.equal(initialPlanning.body.status, "needs_input");
-    assert.deepEqual(
-      new Set(initialPlanning.body.missingSlots),
-      new Set(["origin", "transportMode"]),
-    );
+    assert.deepEqual(initialPlanning.body.missingSlots, ["transportMode"]);
 
     conversation = applyUserTurn(conversation, scenario.transportInput);
     const transportPlanning = await callAction("/api/gpt/planning/start", {

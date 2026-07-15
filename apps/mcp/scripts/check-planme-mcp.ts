@@ -2818,7 +2818,7 @@ async function assertGptsActionsRestFacade(): Promise<void> {
     assert.equal(planningResponse.status, 200);
     assert.equal(planningPayload.status, "needs_input");
     assert.equal(planningPayload.nextAction, "ask_user");
-    assert.ok(planningPayload.missingSlots?.includes("origin"));
+    assert.deepEqual(planningPayload.missingSlots, ["transportMode"]);
 
     const koreanPlanningResponse = await fetch(`${origin}/api/gpt/planning/start`, {
       method: "POST",
@@ -3381,12 +3381,10 @@ async function main(): Promise<void> {
     assert.equal(planningDraft.isError, undefined);
     assert.equal(planningDraftContent?.status, "needs_input");
     assert.equal(planningDraftContent?.nextAction, "ask_user");
-    assert.ok(planningDraftContent?.missingSlots?.includes("origin"));
-    assert.ok(planningDraftContent?.missingSlots?.includes("durationDays"));
-    assert.ok(planningDraftContent?.questions?.some((question) => question.slot === "origin"));
-    assert.ok(
-      planningDraftContent?.questions?.some((question) => question.slot === "durationDays"),
-    );
+    assert.deepEqual(planningDraftContent?.missingSlots, ["transportMode"]);
+    assert.deepEqual(planningDraftContent?.questions?.map(({ slot }) => slot), [
+      "transportMode",
+    ]);
 
     const readyPlanning = await client.callTool({
       name: "start_planme_planning",
