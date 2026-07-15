@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { createHash } from "node:crypto";
 import {
   RESOURCE_MIME_TYPE,
   registerAppResource,
@@ -119,11 +120,11 @@ export function createPlanmeMcpServer(): McpServer {
       const missingSlots: Array<
         "origin" | "destination" | "transportMode" | "durationDays"
       > = [];
+      if (!transportMode) missingSlots.push("transportMode");
       if (!input.origin?.trim()) missingSlots.push("origin");
       if (!input.destination?.trim()) missingSlots.push("destination");
-      if (!transportMode) missingSlots.push("transportMode");
       if (!input.durationDays) missingSlots.push("durationDays");
-      const questions = missingSlots.map((slot) => ({
+      const questions = missingSlots.slice(0, 1).map((slot) => ({
         slot,
         required: true,
         text: questionForSlot(slot),
@@ -191,7 +192,10 @@ export function createPlanmeMcpServer(): McpServer {
       try {
         const result = await startPlanmeV3Itinerary(
           startInput,
-          createPlanmeIdempotencyKey("mcp", requestId),
+          createPlanmeIdempotencyKey(
+            "mcp",
+            `${requestId}:${createMcpInputFingerprint(startInput)}`,
+          ),
         );
         return toToolResult(result);
       } catch (error) {
@@ -279,6 +283,10 @@ function failedToolResult(itineraryId: string, errorCode: string) {
 
 function normalizeTransportMode(value: AppTransportMode) {
   return value === "자동차" ? "drive" as const : value === "대중교통" ? "transit" as const : value;
+}
+
+function createMcpInputFingerprint(input: PlanmeV3StartInput) {
+  return createHash("sha256").update(JSON.stringify(input)).digest("hex");
 }
 
 function questionForSlot(

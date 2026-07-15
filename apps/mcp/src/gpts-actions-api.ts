@@ -188,7 +188,7 @@ export async function handleGptsRecommendItineraryRequest(
       ? {
           status: result.status,
           finalAnswerMarkdown: buildFinalAnswerMarkdown({
-            detailLinkMarkdown: detailLinkMarkdown!,
+            detailLink: `상세 일정: ${actionPageUrl}`,
             durationDays: result.widget.durationDays,
             excludedNotice,
             highlights,
@@ -223,7 +223,7 @@ export async function handleGptsRecommendItineraryRequest(
 }
 
 function buildFinalAnswerMarkdown(input: {
-  detailLinkMarkdown: string;
+  detailLink: string;
   durationDays: number;
   excludedNotice: string;
   highlights: string[];
@@ -239,7 +239,7 @@ function buildFinalAnswerMarkdown(input: {
     input.highlights.length > 0 ? `주요 일정: ${input.highlights.join(", ")}` : "",
     `CarryME 예상 절약 시간: ${input.savedMinutes}분`,
     input.excludedNotice,
-    input.detailLinkMarkdown,
+    input.detailLink,
   ].filter(Boolean).join("\n\n");
 }
 
@@ -317,11 +317,11 @@ function assessPlanningInput(input: {
   transportMode?: "drive" | "transit";
 }) {
   const missingSlots: PlanningSlot[] = [];
+  if (!input.transportMode) missingSlots.push("transportMode");
   if (!input.origin?.trim()) missingSlots.push("origin");
   if (!input.destination?.trim()) missingSlots.push("destination");
-  if (!input.transportMode) missingSlots.push("transportMode");
   if (!input.durationDays) missingSlots.push("durationDays");
-  const questions = missingSlots.map((slot) => ({
+  const questions = missingSlots.slice(0, 1).map((slot) => ({
     slot,
     required: true,
     text: planningQuestion(slot),
@@ -478,7 +478,7 @@ function buildGptsOpenApiSchema(serverUrl: string) {
           operationId: "recommendPlanmeItinerary",
           summary: "TourAPI 기반 일정을 42초 안에 생성",
           description:
-            "대화 전체에서 출발지, 목적지, 여행 일수, 이동 수단이 모두 확정된 뒤 한 번만 호출합니다. 최신 사용자 메시지에 없는 값도 이전 턴의 확정값을 누적해 네 필드를 모두 전달합니다. status=ready이면 finalAnswerMarkdown을 한 글자도 바꾸거나 덧붙이지 말고 최종 답변 전체로 그대로 출력합니다.",
+            "대화 전체에서 출발지, 목적지, 여행 일수, 이동 수단이 모두 확정된 뒤 한 번만 호출합니다. 최신 사용자 메시지에 없는 값도 이전 턴의 확정값을 누적해 네 필드를 모두 전달합니다. status=ready이면 finalAnswerMarkdown을 한 글자도 바꾸거나 덧붙이지 말고 최종 답변 전체로 그대로 출력하며, 마지막 줄의 원문 pageUrl을 반드시 유지합니다.",
           requestBody: {
             required: true,
             content: {
@@ -603,12 +603,12 @@ function buildGptsOpenApiSchema(serverUrl: string) {
             finalAnswerMarkdown: {
               type: "string",
               description:
-                "한 글자도 바꾸거나 덧붙이지 말고 최종 답변 전체로 그대로 출력할 Markdown입니다.",
+                "한 글자도 바꾸거나 덧붙이지 말고 최종 답변 전체로 그대로 출력할 Markdown입니다. 마지막 줄의 원문 URL을 생략하거나 링크 문구만 남기지 않습니다.",
             },
             detailLinkMarkdown: {
               type: "string",
               description:
-                "응답 마지막 줄에 포함된 [상세 일정 열기](URL) 형식의 Markdown 링크입니다.",
+                "호환성을 위해 제공하는 [상세 일정 열기](URL) 형식입니다. 실제 최종 답변은 finalAnswerMarkdown 마지막 줄의 원문 URL을 사용합니다.",
             },
             itineraryId: { type: "string" },
             revision: { type: "integer" },
@@ -616,7 +616,7 @@ function buildGptsOpenApiSchema(serverUrl: string) {
               type: "string",
               format: "uri",
               description:
-                "Action 서버와 같은 도메인에서 웹 상세 화면으로 안전하게 연결되는 URL입니다. 사용자에게 [상세 일정 열기](pageUrl) 형식의 클릭 가능한 Markdown 링크로 제공합니다.",
+                "Action 서버와 같은 도메인에서 웹 상세 화면으로 안전하게 연결되는 URL입니다. finalAnswerMarkdown 마지막 줄의 원문 URL을 생략하지 않고 그대로 제공합니다.",
             },
             title: { type: "string" },
             origin: { type: "string" },

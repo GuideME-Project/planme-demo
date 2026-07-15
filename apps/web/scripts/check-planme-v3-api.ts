@@ -192,6 +192,9 @@ assert.match(mcpSources, /const sourceId = invocationId \?\?/);
 assert.match(mcpSources, /createRequestSourceId\(sourceId, startInput\)/);
 assert.match(mcpSources, /createPlanmeIdempotencyKey\("gpts", requestSourceId\)/);
 assert.match(mcpSources, /createRecoveredSourceId\(sourceId, startInput\)/);
-assert.match(mcpSources, /createPlanmeIdempotencyKey\("mcp", requestId\)/);
+assert.match(
+  mcpSources,
+  /`\$\{requestId\}:\$\{createMcpInputFingerprint\(startInput\)\}`/,
+);
 
 console.log("PlanME V3 API/browser boundary checks passed (V3-09). ");
