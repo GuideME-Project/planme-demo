@@ -35,7 +35,7 @@ export function createPlanmeWidgetHtml(): string {
   </head>
   <body>
     <main>
-      <div class="brand">PlanME · TourAPI</div>
+      <div class="brand">PlanME</div>
       <h1 data-title>여행 일정을 만들고 있습니다</h1>
       <p class="status" data-status>확인된 장소로 안전한 동선을 계산하는 중입니다.</p>
       <div class="progress" data-progress></div>
@@ -98,7 +98,7 @@ export function createPlanmeWidgetHtml(): string {
         terminal = true;
         const widget = job.widget;
         text("[data-title]", widget.title);
-        text("[data-status]", "TourAPI에서 확인된 장소와 서버 경로 계산으로 완성된 일정입니다.");
+        text("[data-status]", "추천 장소와 이동 경로가 포함된 일정입니다.");
         text("[data-standard]", widget.standardTotalMinutes + "분");
         text("[data-carryme]", widget.carrymeTotalMinutes + "분");
         text("[data-saving]", widget.savedMinutes + "분");
@@ -126,7 +126,7 @@ export function createPlanmeWidgetHtml(): string {
           if (element) {
             element.textContent = excluded.map((item) => item.reason === "UNROUTABLE"
               ? "요청한 장소 " + item.input + "은 안전한 이동 경로를 확인하지 못해 일정에서 제외되었습니다."
-              : "요청한 장소 " + item.input + "은 TourAPI에서 확인되지 않아 일정에서 제외되었습니다.").join(" ");
+              : "요청한 장소 " + item.input + "은 일정에 포함할 수 없어 제외되었습니다.").join(" ");
             element.removeAttribute("hidden");
           }
         }

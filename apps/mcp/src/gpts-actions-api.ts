@@ -305,7 +305,7 @@ function buildExcludedNotice(
 ) {
   return excludedRequestedPlaces
     .map(({ input, reason }) => reason === "TOURAPI_NOT_FOUND"
-      ? `요청한 장소 "${input}": TourAPI에서 확인되지 않아 일정에서 제외되었습니다.`
+      ? `요청한 장소 "${input}": 일정에 포함할 수 없어 제외되었습니다.`
       : `요청한 장소 "${input}": 경로를 확정할 수 없어 일정에서 제외되었습니다.`)
     .join("\n");
 }

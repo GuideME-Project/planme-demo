@@ -1436,7 +1436,7 @@ function safeFailureMessage(errorCode: string) {
     return "목적지를 확인할 수 없습니다.";
   }
   if (errorCode === "TOURAPI_CANDIDATES_INSUFFICIENT") {
-    return "TourAPI에서 일정을 만들 수 있는 장소를 충분히 확인하지 못했습니다.";
+    return "일정을 만들 수 있는 장소를 충분히 확인하지 못했습니다.";
   }
   if (errorCode === "TIME_BUDGET_EXCEEDED") {
     return "제한 시간 안에 안전한 일정을 완성하지 못했습니다.";
