@@ -81,7 +81,7 @@ export function createV3DashboardItinerary(
     title: `${revision.intent.destination} 여행 일정`,
     region: revision.intent.destination,
     duration: formatTripDuration(revision.intent.durationDays),
-    summary: "TourAPI에서 확인된 장소와 서버에서 확정한 경로를 표시합니다.",
+    summary: "추천 장소와 확정된 이동 경로를 표시합니다.",
     detailUrl: pageUrl,
     carrymeSaving: formatSaving(savedMinutes),
     totalDurationLabel: formatDuration(revision.standard.totalMinutes),
@@ -249,7 +249,7 @@ function createTimeline(
       event: {
         time: formatClock(visit.startMinute),
         title: place.title,
-        description: `${formatClock(visit.startMinute)}~${formatClock(visit.endMinute)} · TourAPI 확인 장소`,
+        description: `${formatClock(visit.startMinute)}~${formatClock(visit.endMinute)}`,
         category: place.contentTypeId === 32 ? "hotel" : "event",
       },
     });
@@ -264,9 +264,7 @@ function createTimeline(
       event: {
         time: formatClock(meal.startMinute),
         title: place?.title ?? (meal.kind === "lunch" ? "점심 식사" : "저녁 식사"),
-        description: place
-          ? `${formatClock(meal.startMinute)}~${formatClock(meal.endMinute)} · TourAPI 확인 음식점`
-          : `${formatClock(meal.startMinute)}~${formatClock(meal.endMinute)} · 음식점 미지정`,
+        description: `${formatClock(meal.startMinute)}~${formatClock(meal.endMinute)}`,
         category: "meal",
       },
     });

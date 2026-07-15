@@ -31,7 +31,7 @@ export async function generateMetadata({
     const title = snapshot.activeRevision?.intent.destination
       ? `${snapshot.activeRevision.intent.destination} 여행 일정`
       : "PlanME 일정 생성 중";
-    const description = "TourAPI에서 확인된 장소로 만든 PlanME 여행 일정입니다.";
+    const description = "추천 장소와 이동 경로가 포함된 PlanME 여행 일정입니다.";
     return {
       title,
       description,

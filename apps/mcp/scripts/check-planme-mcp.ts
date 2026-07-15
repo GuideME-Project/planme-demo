@@ -3123,7 +3123,7 @@ async function assertV3ChannelContract(): Promise<void> {
       assert.deepEqual(startInputs[1]?.requestedPlaces, ["확인되지 않은 장소"]);
       assert.equal(
         terminal.excludedNotice,
-        '요청한 장소 "확인되지 않은 장소": TourAPI에서 확인되지 않아 일정에서 제외되었습니다.',
+        '요청한 장소 "확인되지 않은 장소": 일정에 포함할 수 없어 제외되었습니다.',
       );
       assert.match(idempotencyKeys[1] ?? "", /^gpts:request:gpts-contract-1:/);
       assert.ok(capturedDeadline >= beforeRequest + 41_000);
@@ -3262,7 +3262,7 @@ async function assertV3ChannelContract(): Promise<void> {
       assert.ok(first && "text" in first);
       assert.match(first.text, /window\.openai\.callTool/);
       assert.match(first.text, /maxAttempts = 64/);
-      assert.match(first.text, /TourAPI에서 확인되지 않아 일정에서 제외/);
+      assert.match(first.text, /일정에 포함할 수 없어 제외/);
       assert.doesNotMatch(first.text, /api\.odsay\.com|maps\.apigw\.ntruss\.com/);
     } finally {
       await client.close();

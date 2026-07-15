@@ -9,9 +9,9 @@ import {
 } from "@planme/core";
 
 const origin = { lat: 37.5547, lng: 126.9707 };
-const lodging = place("lodging", 32, "인천 TourAPI 호텔", 37.49, 126.62);
-const visit = place("visit", 12, "인천 TourAPI 관광지", 37.48, 126.61);
-const restaurant = place("restaurant", 39, "인천 TourAPI 음식점", 37.47, 126.6);
+const lodging = place("lodging", 32, "인천 호텔", 37.49, 126.62);
+const visit = place("visit", 12, "인천 관광지", 37.48, 126.61);
+const restaurant = place("restaurant", 39, "인천 음식점", 37.47, 126.6);
 const standardSegments = [
   segment("origin", "lodging", origin, lodging.coordinate),
   segment("lodging", "visit", lodging.coordinate, visit.coordinate),
@@ -127,8 +127,8 @@ const dashboard = createV3DashboardItinerary(
 assert.ok(dashboard);
 
 assert.equal(dashboard.title, "인천광역시 중구 여행 일정");
-assert.equal(dashboard.days[0].standard.routeText, "서울역 → 인천 TourAPI 호텔 → 인천 TourAPI 관광지 → 인천 TourAPI 음식점 → 서울역");
-assert.equal(dashboard.days[0].carryme.routeText, "서울역 → 인천 TourAPI 관광지 → 인천 TourAPI 음식점 → 서울역");
+assert.equal(dashboard.days[0].standard.routeText, "서울역 → 인천 호텔 → 인천 관광지 → 인천 음식점 → 서울역");
+assert.equal(dashboard.days[0].carryme.routeText, "서울역 → 인천 관광지 → 인천 음식점 → 서울역");
 assert.equal(dashboard.days[0].standard.geoSegments?.length, 3);
 assert.equal(dashboard.days[0].standard.geoSegments?.some((path) => path.length === 0), false);
 assert.match(dashboard.days[0].standard.description, /예상 도보 1개 구간은 지도선 없음/);
@@ -148,6 +148,23 @@ assert.equal(
   true,
 );
 assert.equal(JSON.stringify(dashboard).includes("확인되지 않은 장소"), false);
+assert.equal(JSON.stringify(dashboard).includes("TourAPI 확인"), false);
+assert.equal(JSON.stringify(dashboard).includes("음식점 미지정"), false);
+
+const mealWithoutPlaceRevision = structuredClone(revision);
+mealWithoutPlaceRevision.standard.days[0].meals[0].contentId = undefined;
+mealWithoutPlaceRevision.carryme.days[0].meals[0].contentId = undefined;
+const mealWithoutPlaceDashboard = createV3DashboardItinerary(
+  mealWithoutPlaceRevision,
+  "https://planme.example/itinerary/meal-without-place",
+);
+assert.ok(mealWithoutPlaceDashboard);
+assert.equal(
+  mealWithoutPlaceDashboard.days[0].standardTimeline?.find(
+    (event) => event.title === "점심 식사",
+  )?.description,
+  "13:00~14:00",
+);
 
 const mismatchedRevision = structuredClone(revision);
 mismatchedRevision.standard.segments[0].toRef = "visit";

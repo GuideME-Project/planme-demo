@@ -135,7 +135,7 @@ async function searchV3TourPlaces(
     !isAllowedContentTypeId(body.contentTypeId)
   ) {
     return NextResponse.json(
-      { candidates: [], message: "TourAPI 장소 유형을 확인해 주세요." },
+      { candidates: [], message: "장소 유형을 확인해 주세요." },
       { status: 400 },
     );
   }
@@ -155,7 +155,7 @@ async function searchV3TourPlaces(
     const regionCode = revision.plan.lodging.regionCode;
     if (!regionCode) {
       return NextResponse.json(
-        { candidates: [], message: "일정의 TourAPI 지역을 확인할 수 없습니다." },
+        { candidates: [], message: "일정의 지역을 확인할 수 없습니다." },
         { status: 409 },
       );
     }
@@ -211,7 +211,7 @@ async function searchV3TourPlaces(
     }
     if (unavailableCount === contentTypes.length) {
       return NextResponse.json(
-        { candidates: [], message: "TourAPI 장소 검색을 완료하지 못했습니다." },
+        { candidates: [], message: "장소 검색을 완료하지 못했습니다." },
         { status: 502 },
       );
     }
@@ -238,7 +238,7 @@ async function searchV3TourPlaces(
     });
   } catch {
     return NextResponse.json(
-      { candidates: [], message: "TourAPI 장소 검색을 완료하지 못했습니다." },
+      { candidates: [], message: "장소 검색을 완료하지 못했습니다." },
       { status: 502 },
     );
   }

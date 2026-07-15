@@ -255,7 +255,7 @@ function readyResultText(result: Extract<PlanmeWebJobResponse, { status: "ready"
     ? ` ${result.excludedRequestedPlaces.map((item) =>
         item.reason === "UNROUTABLE"
           ? `요청한 장소 ${item.input}은 안전한 이동 경로를 확인하지 못해 일정에서 제외되었습니다.`
-          : `요청한 장소 ${item.input}은 TourAPI에서 확인되지 않아 일정에서 제외되었습니다.`,
+          : `요청한 장소 ${item.input}은 일정에 포함할 수 없어 제외되었습니다.`,
       ).join(" ")}`
     : "";
   return `${result.widget.title}: ${result.pageUrl}.${excluded}`;
