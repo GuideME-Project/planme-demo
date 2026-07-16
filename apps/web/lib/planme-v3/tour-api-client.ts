@@ -1,4 +1,5 @@
 import {
+  normalizeTourTitle,
   recordPlanmeUsageSafely,
   type AllowedTourContentTypeId,
   type PlanmeUsageRecorder,
@@ -44,6 +45,11 @@ export type TourRegion = {
   regionName: string;
   districtCode?: string;
   districtName?: string;
+};
+
+export type TourDestinationResolution = {
+  region: TourRegion;
+  place?: TourApiCandidateRecord;
 };
 
 export type TourCandidateQuery = {
@@ -100,6 +106,15 @@ export function createTourApiClient(options: TourApiClientOptions = {}) {
         usageRecorder: options.usageRecorder,
       });
     },
+    resolveDestination(destination: string, signal?: AbortSignal) {
+      return resolveTourDestination({
+        destination,
+        fetchImpl,
+        serviceKey,
+        signal,
+        usageRecorder: options.usageRecorder,
+      });
+    },
     listCandidates(query: TourCandidateQuery, signal?: AbortSignal) {
       return listTourCandidates({
         fetchImpl,
@@ -110,6 +125,72 @@ export function createTourApiClient(options: TourApiClientOptions = {}) {
       });
     },
   };
+}
+
+async function resolveTourDestination(input: {
+  destination: string;
+  fetchImpl: typeof fetch;
+  serviceKey: string;
+  signal?: AbortSignal;
+  usageRecorder?: PlanmeUsageRecorder;
+}): Promise<TourDestinationResolution | null> {
+  const regions = await requestTourApi<TourApiLegalDongRecord>({
+    fetchImpl: input.fetchImpl,
+    operation: "ldongCode2",
+    params: {
+      lDongListYn: "Y",
+      numOfRows: "1000",
+      pageNo: "1",
+    },
+    serviceKey: input.serviceKey,
+    signal: input.signal,
+    usageRecorder: input.usageRecorder,
+  });
+  if (regions.status !== "success") {
+    return null;
+  }
+
+  const directRegion = matchTourRegion(input.destination, regions.items);
+  if (directRegion) {
+    return { region: directRegion };
+  }
+
+  const places = await requestTourApi<TourApiCandidateRecord>({
+    fetchImpl: input.fetchImpl,
+    operation: "searchKeyword2",
+    params: {
+      arrange: "A",
+      keyword: input.destination,
+      numOfRows: "20",
+      pageNo: "1",
+    },
+    serviceKey: input.serviceKey,
+    signal: input.signal,
+    usageRecorder: input.usageRecorder,
+  });
+  if (places.status !== "success") {
+    return null;
+  }
+
+  const expectedTitle = comparableTourTitle(input.destination);
+  const exactMatches = places.items.filter(
+    (place) => comparableTourTitle(place.title ?? "") === expectedTitle,
+  );
+  const aliasMatches = exactMatches.length === 0
+    ? places.items.filter(
+        (place) => comparableTourAliasTitle(place.title ?? "") === expectedTitle,
+      )
+    : [];
+  const matches = exactMatches.length > 0 ? exactMatches : aliasMatches;
+  if (matches.length !== 1) {
+    return null;
+  }
+  const place = matches[0];
+  const region = place ? matchTourRegionCodes(place, regions.items) : null;
+  if (!place || !region) {
+    return null;
+  }
+  return { region, place };
 }
 
 async function resolveTourRegion(input: {
@@ -391,6 +472,26 @@ function matchTourRegion(
   };
 }
 
+function matchTourRegionCodes(
+  place: TourApiCandidateRecord,
+  records: TourApiLegalDongRecord[],
+): TourRegion | null {
+  const regionCode = normalizeScalar(place.lDongRegnCd);
+  const districtCode = normalizeScalar(place.lDongSignguCd);
+  if (!regionCode || !districtCode) {
+    return null;
+  }
+  const district = records.find(
+    (record) => normalizeScalar(record.lDongRegnCd) === regionCode &&
+      normalizeScalar(record.lDongSignguCd) === districtCode,
+  );
+  const regionName = district?.lDongRegnNm?.trim();
+  const districtName = district?.lDongSignguNm?.trim();
+  return regionName && districtName
+    ? { regionCode, regionName, districtCode, districtName }
+    : null;
+}
+
 function createCandidateParams(
   query: TourCandidateQuery,
   pageNo: number,
@@ -466,6 +567,14 @@ function normalizeRegionName(value: string) {
 
 function compactRegionName(value: string) {
   return value.replace(/\s+/g, "").trim();
+}
+
+function comparableTourTitle(value: string) {
+  return normalizeTourTitle(value).replace(/\s+/g, "").toLocaleLowerCase("ko");
+}
+
+function comparableTourAliasTitle(value: string) {
+  return comparableTourTitle(value).replace(/어뮤즈먼트$/u, "");
 }
 
 function normalizeScalar(value: string | number | undefined) {
