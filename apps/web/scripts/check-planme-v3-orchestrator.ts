@@ -17,6 +17,11 @@ async function main() {
   let hangRoutes = false;
   let routeConfigurationFailure = false;
   let observedRouteAbort = false;
+  let visitCandidateCount = 1;
+  let activeDriveRouteCalls = 0;
+  let activeTransitRouteCalls = 0;
+  let maxActiveDriveRouteCalls = 0;
+  let maxActiveTransitRouteCalls = 0;
   let activeCandidateCalls = 0;
   let maxActiveCandidateCalls = 0;
   let firstPlannerCandidateTypes: AllowedTourContentTypeId[] | null = null;
@@ -65,7 +70,7 @@ async function main() {
         await new Promise((resolve) => setTimeout(resolve, 8 - typeIndex));
         return emptyVisitCandidates && contentTypeId === 12
           ? { status: "empty", records: [], totalCount: 0 }
-          : candidateResponse(contentTypeId);
+          : candidateResponse(contentTypeId, visitCandidateCount);
       } finally {
         activeCandidateCalls -= 1;
       }
@@ -100,36 +105,55 @@ async function main() {
     },
     routeSegment: async ({ from, to, transportMode, signal }) => {
       routeCalls += 1;
-      if (routeConfigurationFailure) {
-        return { status: "failed", errorCode: "ODSAY_CONFIGURATION_ERROR" };
+      if (transportMode === "drive") {
+        activeDriveRouteCalls += 1;
+        maxActiveDriveRouteCalls = Math.max(
+          maxActiveDriveRouteCalls,
+          activeDriveRouteCalls,
+        );
+      } else {
+        activeTransitRouteCalls += 1;
+        maxActiveTransitRouteCalls = Math.max(
+          maxActiveTransitRouteCalls,
+          activeTransitRouteCalls,
+        );
       }
-      if (hangRoutes) {
-        return new Promise((resolve) => {
-          const abort = () => {
-            observedRouteAbort = true;
-            resolve({ status: "failed", errorCode: "ABORTED" });
-          };
-          if (signal?.aborted) abort();
-          else signal?.addEventListener("abort", abort, { once: true });
-        });
+      try {
+        if (routeConfigurationFailure) {
+          return { status: "failed", errorCode: "ODSAY_CONFIGURATION_ERROR" };
+        }
+        if (hangRoutes) {
+          return await new Promise((resolve) => {
+            const abort = () => {
+              observedRouteAbort = true;
+              resolve({ status: "failed", errorCode: "ABORTED" });
+            };
+            if (signal?.aborted) abort();
+            else signal?.addEventListener("abort", abort, { once: true });
+          });
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        const durationSeconds =
+          from.ref === "origin" && to.ref === "lodging-1"
+            ? 1_800
+            : from.ref === "origin" || to.ref === "origin"
+              ? 1_200
+              : 600;
+        const segment: RouteSegment = {
+          fromRef: from.ref,
+          toRef: to.ref,
+          mode: transportMode,
+          source: transportMode === "drive" ? "naver" : "odsay",
+          distanceMeters: durationSeconds * 10,
+          durationSeconds,
+          geometryStatus: "complete",
+          paths: [[from.coordinate, to.coordinate]],
+        };
+        return { status: "ready", segment };
+      } finally {
+        if (transportMode === "drive") activeDriveRouteCalls -= 1;
+        else activeTransitRouteCalls -= 1;
       }
-      const durationSeconds =
-        from.ref === "origin" && to.ref === "lodging-1"
-          ? 1_800
-          : from.ref === "origin" || to.ref === "origin"
-            ? 1_200
-            : 600;
-      const segment: RouteSegment = {
-        fromRef: from.ref,
-        toRef: to.ref,
-        mode: transportMode,
-        source: transportMode === "drive" ? "naver" : "odsay",
-        distanceMeters: durationSeconds * 10,
-        durationSeconds,
-        geometryStatus: "complete",
-        paths: [[from.coordinate, to.coordinate]],
-      };
-      return { status: "ready", segment };
     },
   });
 
@@ -173,6 +197,7 @@ async function main() {
   const afterRouting = await jobStore.getJob(started.itineraryId);
   assert.equal(afterRouting?.meta.phase, "ready");
   assert.ok(routeCalls > 0);
+  assert.equal(maxActiveTransitRouteCalls, 1);
   const terminal = await orchestrator.runUntilTerminal(started.itineraryId, now + 42_000);
   assert.equal(terminal?.status, "ready");
   if (terminal?.status !== "ready") {
@@ -263,6 +288,7 @@ async function main() {
     ],
   });
   assert.equal(editStarted.status, "processing");
+  maxActiveDriveRouteCalls = 0;
   const edited = await orchestrator.runUntilTerminal(
     started.itineraryId,
     now + 42_000,
@@ -272,9 +298,34 @@ async function main() {
     assert.equal(edited.revision, 2);
     assert.equal(edited.widget.transportMode, "drive");
   }
+  assert.equal(maxActiveDriveRouteCalls, 3);
   const editedJob = await jobStore.getJob(started.itineraryId);
   assert.equal(editedJob?.meta.previousRevision, 1);
   assert.equal(editedJob?.meta.activeRevision, 2);
+
+  now += 25 * 60 * 60 * 1_000;
+  visitCandidateCount = 7;
+  maxActiveDriveRouteCalls = 0;
+  const batchedDriveStart = await orchestrator.startItinerary(
+    {
+      origin: "서울역",
+      destination: "부산",
+      durationDays: 1,
+      transportMode: "drive",
+    },
+    "gpts:batched-drive-routes",
+  );
+  assert.equal(batchedDriveStart.status, "processing");
+  if (batchedDriveStart.status !== "processing") {
+    throw new Error("자동차 배치 경로 일정이 processing으로 시작되지 않았습니다.");
+  }
+  const batchedDriveReady = await orchestrator.runUntilTerminal(
+    batchedDriveStart.itineraryId,
+    now + 42_000,
+  );
+  assert.equal(batchedDriveReady?.status, "ready");
+  assert.equal(maxActiveDriveRouteCalls, 3);
+  visitCandidateCount = 1;
 
   const invalidEditStarted = await orchestrator.startItineraryEdit(
     started.itineraryId,
@@ -480,22 +531,23 @@ async function main() {
   );
 }
 
-function candidateResponse(contentTypeId: AllowedTourContentTypeId) {
+function candidateResponse(
+  contentTypeId: AllowedTourContentTypeId,
+  visitCandidateCount: number,
+) {
   if (contentTypeId === 12) {
     return {
       status: "success" as const,
-      totalCount: 1,
-      records: [
-        {
-          contentid: "visit-1",
+      totalCount: visitCandidateCount,
+      records: Array.from({ length: visitCandidateCount }, (_, index) => ({
+          contentid: `visit-${index + 1}`,
           contenttypeid: 12,
-          title: "해운대",
-          mapx: 129.1587,
-          mapy: 35.1587,
+          title: index === 0 ? "해운대" : `부산 명소 ${index + 1}`,
+          mapx: 129.1587 + index * 0.001,
+          mapy: 35.1587 + index * 0.001,
           lDongRegnCd: "26",
           lDongSignguCd: "260",
-        },
-      ],
+        })),
     };
   }
   if (contentTypeId === 32) {
