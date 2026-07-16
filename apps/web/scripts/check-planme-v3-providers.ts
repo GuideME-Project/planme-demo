@@ -139,12 +139,41 @@ const tourClient = createTourApiClient({
                   lDongSignguNm: "구미시",
                 },
                 {
+                  lDongRegnCd: "47",
+                  lDongRegnNm: "경상북도",
+                  lDongSignguCd: "130",
+                  lDongSignguNm: "경주시",
+                },
+                {
                   lDongRegnCd: "48",
                   lDongRegnNm: "경상남도",
                   lDongSignguCd: "48840",
                   lDongSignguNm: "남해군",
                 },
               ],
+            },
+          },
+        },
+      });
+    }
+
+    if (url.pathname.endsWith("/searchKeyword2")) {
+      return jsonResponse({
+        response: {
+          header: { resultCode: "0000", resultMsg: "OK" },
+          body: {
+            totalCount: 1,
+            items: {
+              item: {
+                contentid: "gyeongju-world",
+                contenttypeid: "12",
+                title: "경주월드 어뮤즈먼트",
+                mapx: "129.2822",
+                mapy: "35.8366",
+                addr1: "경상북도 경주시 보문로 544",
+                lDongRegnCd: "47",
+                lDongSignguCd: "130",
+              },
             },
           },
         },
@@ -233,6 +262,24 @@ assert.deepEqual(await tourClient.resolveRegion("대구광역시 중구"), {
   districtCode: "27110",
   districtName: "중구",
 });
+assert.deepEqual(await tourClient.resolveDestination("경주월드"), {
+  region: {
+    regionCode: "47",
+    regionName: "경상북도",
+    districtCode: "130",
+    districtName: "경주시",
+  },
+  place: {
+    contentid: "gyeongju-world",
+    contenttypeid: "12",
+    title: "경주월드 어뮤즈먼트",
+    mapx: "129.2822",
+    mapy: "35.8366",
+    addr1: "경상북도 경주시 보문로 544",
+    lDongRegnCd: "47",
+    lDongSignguCd: "130",
+  },
+});
 const tourResult: TourCandidateQueryResult = await tourClient.listCandidates({
   contentTypeId: 12,
   region,
@@ -254,6 +301,8 @@ const stayRequest = requestedUrls.at(-1);
 assert.equal(stayRequest?.pathname.endsWith("/searchStay2"), true);
 assert.equal(stayRequest?.searchParams.get("contentTypeId"), null);
 assert.deepEqual(tourUsageEvents, [
+  "tourapi_request",
+  "tourapi_request",
   "tourapi_request",
   "tourapi_request",
   "tourapi_request",

@@ -2,6 +2,7 @@ import {
   PLANME_V3_ALLOWED_CONTENT_TYPE_IDS,
   createItineraryDisplayDto,
   createTripPlan,
+  normalizeTourCandidate,
   normalizeTourCandidates,
   normalizeTourTitle,
   recordPlanmeUsageSafely,
@@ -42,6 +43,7 @@ import {
 import type {
   TourCandidateQuery,
   TourCandidateQueryResult,
+  TourDestinationResolution,
   TourRegion,
 } from "./tour-api-client";
 
@@ -106,10 +108,10 @@ export type StartItineraryEditResult =
 export type PlanmeV3OrchestratorDependencies = {
   jobStore: PlanmeV3JobStore;
   tourCache: PlanmeV3TourCache;
-  resolveRegion: (
+  resolveDestination: (
     destination: string,
     signal?: AbortSignal,
-  ) => Promise<TourRegion | null>;
+  ) => Promise<TourDestinationResolution | null>;
   listCandidates: (
     query: TourCandidateQuery,
     signal?: AbortSignal,
@@ -153,6 +155,7 @@ type AnchorPayload = QueuedPayload & {
   originCoordinate: Coordinate;
   destinationCoordinate: Coordinate;
   region: TourRegion;
+  requiredDestinationPlace?: TourPlaceSnapshot;
 };
 
 type CandidatePayload = AnchorPayload & {
@@ -568,22 +571,42 @@ export function createPlanmeV3Orchestrator(
       "queued",
     );
     const queued = checkpoint.payload as QueuedPayload;
-    const [origin, destination, region] = await Promise.all([
+    const [origin, destination, resolvedDestination] = await Promise.all([
       dependencies.geocodeAnchor(queued.intent.origin, signal),
       dependencies.geocodeAnchor(queued.intent.destination, signal),
-      dependencies.resolveRegion(queued.intent.destination, signal),
+      dependencies.resolveDestination(queued.intent.destination, signal),
     ]);
     const originCoordinate = requireAnchor(origin, "ORIGIN_NOT_RESOLVED");
-    if (!region) {
+    if (!resolvedDestination) {
       throw new OrchestratorFailure("DESTINATION_NOT_RESOLVED");
     }
-    const resolvedDestination = destination.status === "not_found"
-      ? await dependencies.geocodeAnchor(regionAnchorQuery(region), signal)
-      : destination;
-    const destinationCoordinate = requireAnchor(
-      resolvedDestination,
+    const { region, place } = resolvedDestination;
+    const destinationPlace = place
+      ? normalizeTourCandidate(place, {
+          expectedRegionCode: region.regionCode,
+          expectedDistrictCode: region.districtCode,
+          fetchedAt: new Date(now()).toISOString(),
+        })
+      : null;
+    if (place && !destinationPlace) {
+      throw new OrchestratorFailure("DESTINATION_NOT_RESOLVED");
+    }
+    const destinationCoordinate = destinationPlace?.coordinate ?? requireAnchor(
+      destination.status === "not_found"
+        ? await dependencies.geocodeAnchor(regionAnchorQuery(region), signal)
+        : destination,
       "DESTINATION_NOT_RESOLVED",
     );
+    const intent = destinationPlace
+      ? {
+          ...queued.intent,
+          destination: region.districtName ?? region.regionName,
+          requestedPlaces: uniqueTexts([
+            ...queued.intent.requestedPlaces,
+            destinationPlace.title,
+          ]),
+        }
+      : queued.intent;
 
     await saveNextPhase({
       itineraryId,
@@ -592,7 +615,14 @@ export function createPlanmeV3Orchestrator(
       nextPhase: "collecting_candidates",
       lockOwner,
       inputDigest: checkpoint.inputDigest,
-      payload: { ...queued, originCoordinate, destinationCoordinate, region },
+      payload: {
+        ...queued,
+        intent,
+        originCoordinate,
+        destinationCoordinate,
+        region,
+        ...(destinationPlace ? { requiredDestinationPlace: destinationPlace } : {}),
+      },
     });
   }
 
@@ -646,6 +676,12 @@ export function createPlanmeV3Orchestrator(
       if (loaded.source === "last-good") sourceCounts.lastGood += 1;
       removeCandidatesByType(candidateById, contentTypeId);
       loaded.places.forEach((candidate) => candidateById.set(candidate.contentId, candidate));
+    }
+    if (anchors.requiredDestinationPlace) {
+      candidateById.set(
+        anchors.requiredDestinationPlace.contentId,
+        anchors.requiredDestinationPlace,
+      );
     }
 
     console.info("PlanME V3 candidate collection performance", {
@@ -1573,6 +1609,10 @@ function requireAnchor(
 
 function regionAnchorQuery(region: TourRegion) {
   return [region.regionName, region.districtName].filter(Boolean).join(" ");
+}
+
+function uniqueTexts(values: string[]) {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
 function calculateTravelEndDate(startDate: string | undefined, durationDays: number) {

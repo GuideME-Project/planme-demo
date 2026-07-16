@@ -40,12 +40,33 @@ async function main() {
     usageRecorder: (event) => {
       usageEvents.push(event);
     },
-    resolveRegion: async () => ({
-      regionCode: "26",
-      regionName: "부산광역시",
-      districtCode: "260",
-      districtName: "중구",
-    }),
+    resolveDestination: async (destination) => destination === "경주월드"
+      ? {
+          region: {
+            regionCode: "47",
+            regionName: "경상북도",
+            districtCode: "130",
+            districtName: "경주시",
+          },
+          place: {
+            contentid: "gyeongju-world",
+            contenttypeid: "12",
+            title: "경주월드 어뮤즈먼트",
+            mapx: "129.2822",
+            mapy: "35.8366",
+            addr1: "경상북도 경주시 보문로 544",
+            lDongRegnCd: "47",
+            lDongSignguCd: "130",
+          },
+        }
+      : {
+          region: {
+            regionCode: "26",
+            regionName: "부산광역시",
+            districtCode: "260",
+            districtName: "중구",
+          },
+        },
     geocodeAnchor: async (query) => {
       geocodeQueries.push(query);
       if (query === "부산역") {
@@ -249,6 +270,38 @@ async function main() {
     "collecting_candidates",
   );
   assert.deepEqual(geocodeQueries.slice(-3), ["서울역", "부산역", "부산광역시 중구"]);
+
+  const placeDestination = await orchestrator.startItinerary(
+    {
+      origin: "강원도 양양",
+      destination: "경주월드",
+      durationDays: 2,
+      transportMode: "drive",
+    },
+    "gpts:place-destination",
+  );
+  assert.equal(placeDestination.status, "processing");
+  if (placeDestination.status !== "processing") {
+    throw new Error("장소형 목적지 일정이 processing으로 시작되지 않았습니다.");
+  }
+  await orchestrator.advanceItinerary(placeDestination.itineraryId);
+  const placeAnchor = await jobStore.getCheckpoint(
+    placeDestination.itineraryId,
+    1,
+    "resolving_anchors",
+  );
+  const placePayload = placeAnchor?.payload as {
+    intent?: { destination?: string; requestedPlaces?: string[] };
+    destinationCoordinate?: { lat?: number; lng?: number };
+    requiredDestinationPlace?: { title?: string };
+  } | undefined;
+  assert.equal(placePayload?.intent?.destination, "경주시");
+  assert.deepEqual(placePayload?.intent?.requestedPlaces, ["경주월드 어뮤즈먼트"]);
+  assert.deepEqual(placePayload?.destinationCoordinate, {
+    lat: 35.8366,
+    lng: 129.2822,
+  });
+  assert.equal(placePayload?.requiredDestinationPlace?.title, "경주월드 어뮤즈먼트");
 
   const replay = await orchestrator.startItinerary(
     {

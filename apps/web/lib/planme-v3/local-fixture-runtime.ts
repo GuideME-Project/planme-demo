@@ -28,7 +28,7 @@ export function createPlanmeV3LocalFixtureRuntime(input: {
     tourCache: input.tourCache,
     pageOrigin: input.pageOrigin,
     usageRecorder: input.usageRecorder,
-    resolveRegion: async (destination) => resolveLocalTourRegion(destination),
+    resolveDestination: async (destination) => resolveLocalTourDestination(destination),
     geocodeAnchor: async (query) => ({
       status: "ready",
       coordinate: resolveLocalCoordinate(query),
@@ -63,20 +63,29 @@ function createLocalTourCandidateResponse(
   regionCode: string,
 ) {
   const isYangyang = regionCode === "51";
+  const isGyeongju = regionCode === "47";
   if (contentTypeId === 12) {
     return {
       status: "success" as const,
       totalCount: 1,
       records: [
         {
-          contentid: isYangyang ? "local-yangyang-visit-1" : "local-busan-visit-1",
+          contentid: isYangyang
+            ? "local-yangyang-visit-1"
+            : isGyeongju
+              ? "local-gyeongju-visit-1"
+              : "local-busan-visit-1",
           contenttypeid: 12,
-          title: isYangyang ? "낙산사" : "해운대",
-          mapx: isYangyang ? 128.6279 : 129.1587,
-          mapy: isYangyang ? 38.125 : 35.1587,
-          addr1: isYangyang ? "강원특별자치도 양양군 강현면" : "부산광역시 해운대구",
+          title: isYangyang ? "낙산사" : isGyeongju ? "첨성대" : "해운대",
+          mapx: isYangyang ? 128.6279 : isGyeongju ? 129.219 : 129.1587,
+          mapy: isYangyang ? 38.125 : isGyeongju ? 35.8347 : 35.1587,
+          addr1: isYangyang
+            ? "강원특별자치도 양양군 강현면"
+            : isGyeongju
+              ? "경상북도 경주시 인왕동"
+              : "부산광역시 해운대구",
           lDongRegnCd: regionCode,
-          lDongSignguCd: isYangyang ? "830" : "260",
+          lDongSignguCd: isYangyang ? "830" : isGyeongju ? "130" : "260",
         },
       ],
     };
@@ -87,14 +96,22 @@ function createLocalTourCandidateResponse(
       totalCount: 1,
       records: [
         {
-          contentid: isYangyang ? "local-yangyang-lodging-1" : "local-busan-lodging-1",
+          contentid: isYangyang
+            ? "local-yangyang-lodging-1"
+            : isGyeongju
+              ? "local-gyeongju-lodging-1"
+              : "local-busan-lodging-1",
           contenttypeid: 32,
-          title: isYangyang ? "양양 호텔" : "부산 호텔",
-          mapx: isYangyang ? 128.619 : 129.0756,
-          mapy: isYangyang ? 38.0754 : 35.1796,
-          addr1: isYangyang ? "강원특별자치도 양양군 양양읍" : "부산광역시 중구",
+          title: isYangyang ? "양양 호텔" : isGyeongju ? "경주 호텔" : "부산 호텔",
+          mapx: isYangyang ? 128.619 : isGyeongju ? 129.289 : 129.0756,
+          mapy: isYangyang ? 38.0754 : isGyeongju ? 35.839 : 35.1796,
+          addr1: isYangyang
+            ? "강원특별자치도 양양군 양양읍"
+            : isGyeongju
+              ? "경상북도 경주시 보문동"
+              : "부산광역시 중구",
           lDongRegnCd: regionCode,
-          lDongSignguCd: isYangyang ? "830" : "260",
+          lDongSignguCd: isYangyang ? "830" : isGyeongju ? "130" : "260",
         },
       ],
     };
@@ -124,6 +141,31 @@ function resolveLocalTourRegion(destination: string) {
     };
   }
   return null;
+}
+
+function resolveLocalTourDestination(destination: string) {
+  if (destination === "경주월드") {
+    return {
+      region: {
+        regionCode: "47",
+        regionName: "경상북도",
+        districtCode: "130",
+        districtName: "경주시",
+      },
+      place: {
+        contentid: "local-gyeongju-world",
+        contenttypeid: 12,
+        title: "경주월드 어뮤즈먼트",
+        mapx: 129.2822,
+        mapy: 35.8366,
+        addr1: "경상북도 경주시 보문로 544",
+        lDongRegnCd: "47",
+        lDongSignguCd: "130",
+      },
+    };
+  }
+  const region = resolveLocalTourRegion(destination);
+  return region ? { region } : null;
 }
 
 function resolveLocalCoordinate(query: string) {

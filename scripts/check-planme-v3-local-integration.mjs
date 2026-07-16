@@ -163,6 +163,40 @@ try {
   assert.equal(terminalReplay.structuredContent?.status, "ready");
   assert.equal(terminalReplay.structuredContent?.revision, 1);
 
+  const placeDestinationStarted = await callMcp(201, "tools/call", {
+    name: "recommend_planme_itinerary",
+    arguments: {
+      origin: "강원도 양양",
+      destination: "경주월드",
+      transportMode: "자동차",
+      durationDays: 2,
+    },
+  });
+  assert.equal(placeDestinationStarted.structuredContent?.status, "processing");
+  const placeDestinationItineraryId =
+    placeDestinationStarted.structuredContent?.itineraryId;
+  assert.ok(placeDestinationItineraryId);
+  let placeDestinationTerminal = null;
+  for (let attempt = 0; attempt < 32; attempt += 1) {
+    const result = await callMcp(202 + attempt, "tools/call", {
+      name: "get_planme_itinerary",
+      arguments: { itineraryId: placeDestinationItineraryId },
+    });
+    if (result.structuredContent?.status !== "processing") {
+      placeDestinationTerminal = result.structuredContent;
+      break;
+    }
+  }
+  assert.equal(placeDestinationTerminal?.status, "ready");
+  assert.equal(placeDestinationTerminal?.widget?.region, "경주시");
+  assert.equal(
+    placeDestinationTerminal?.widget?.days.some((day) =>
+      day.visits.some((visit) => visit.title === "경주월드 어뮤즈먼트")
+    ),
+    true,
+  );
+  assert.deepEqual(placeDestinationTerminal?.excludedRequestedPlaces, []);
+
   const scenarioResults = [];
   const scenarios = [
     {

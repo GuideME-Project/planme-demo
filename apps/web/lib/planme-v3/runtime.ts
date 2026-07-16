@@ -57,7 +57,7 @@ export function getPlanmeV3Runtime(requestOrigin?: string) {
     tourCache: storage.tourCache,
     pageOrigin,
     usageRecorder: recordWebPlanmeUsage,
-    resolveRegion: tourApi.resolveRegion,
+    resolveDestination: tourApi.resolveDestination,
     listCandidates: tourApi.listCandidates,
     planCandidates: ({ signal, ...input }) =>
       planTourCandidatesWithLuna(input, {
@@ -82,7 +82,7 @@ export function getPlanmeV3ReadRuntime(requestOrigin?: string) {
     jobStore: storage.jobStore,
     tourCache: storage.tourCache,
     pageOrigin: resolvePageOrigin(requestOrigin),
-    resolveRegion: async () => null,
+    resolveDestination: async () => null,
     listCandidates: async () => ({
       status: "failure",
       errorCode: "READ_ONLY_RUNTIME",
