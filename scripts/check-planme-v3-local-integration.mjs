@@ -60,6 +60,17 @@ try {
       "start_planme_planning",
     ],
   );
+  const planningTool = listed.tools.find((tool) => tool.name === "start_planme_planning");
+  const recommendTool = listed.tools.find(
+    (tool) => tool.name === "recommend_planme_itinerary",
+  );
+  const getTool = listed.tools.find((tool) => tool.name === "get_planme_itinerary");
+  assert.match(planningTool?.description ?? "", /출발지·목적지·이동수단·여행 일정/);
+  assert.match(recommendTool?.description ?? "", /processing.*get_planme_itinerary/);
+  assert.match(recommendTool?.description ?? "", /ready.*추가 입력을 요구하지 마세요/);
+  assert.match(recommendTool?.description ?? "", /failed.*자동 재시도/);
+  assert.match(getTool?.description ?? "", /processing.*같은 itineraryId/);
+  assert.match(getTool?.description ?? "", /failed.*기술 오류 코드/);
 
   const assessment = await callMcp(3, "tools/call", {
     name: "start_planme_planning",
@@ -94,6 +105,29 @@ try {
     arguments: toolArguments,
   });
   assert.equal(replay.structuredContent?.itineraryId, itineraryId);
+
+  const koreanTransitReplay = await callMcp(requestId, "tools/call", {
+    name: "recommend_planme_itinerary",
+    arguments: { ...toolArguments, transportMode: "대중교통" },
+  });
+  assert.equal(koreanTransitReplay.structuredContent?.itineraryId, itineraryId);
+
+  const koreanDriveRequestId = `local-korean-drive-${Date.now()}`;
+  const koreanDrive = await callMcp(koreanDriveRequestId, "tools/call", {
+    name: "recommend_planme_itinerary",
+    arguments: { ...toolArguments, transportMode: "자동차" },
+  });
+  assert.equal(koreanDrive.structuredContent?.status, "processing");
+  assert.ok(koreanDrive.structuredContent?.itineraryId);
+
+  const englishDriveReplay = await callMcp(koreanDriveRequestId, "tools/call", {
+    name: "recommend_planme_itinerary",
+    arguments: { ...toolArguments, transportMode: "drive" },
+  });
+  assert.equal(
+    englishDriveReplay.structuredContent?.itineraryId,
+    koreanDrive.structuredContent?.itineraryId,
+  );
 
   const distinctInput = await callMcp(requestId, "tools/call", {
     name: "recommend_planme_itinerary",
