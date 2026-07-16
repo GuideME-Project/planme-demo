@@ -146,10 +146,12 @@ async function listTourCandidates(input: {
   signal?: AbortSignal;
   usageRecorder?: PlanmeUsageRecorder;
 }): Promise<TourCandidateQueryResult> {
+  const startedAt = Date.now();
   if (
     input.query.contentTypeId === 15 &&
     (!input.query.travelStartDate || !input.query.travelEndDate)
   ) {
+    logCandidatePerformance(input.query.contentTypeId, startedAt, 0, "empty");
     return { status: "empty", records: [], totalCount: 0 };
   }
 
@@ -158,8 +160,10 @@ async function listTourCandidates(input: {
   const maxPages = normalizeMaxPages(input.query.maxPages);
   const records: TourApiCandidateRecord[] = [];
   let totalCount = 0;
+  let requestedPages = 0;
 
   for (let pageNo = 1; pageNo <= maxPages; pageNo += 1) {
+    requestedPages += 1;
     const response = await requestTourApi<TourApiCandidateRecord>({
       fetchImpl: input.fetchImpl,
       operation,
@@ -170,6 +174,12 @@ async function listTourCandidates(input: {
     });
 
     if (response.status === "failure") {
+      logCandidatePerformance(
+        input.query.contentTypeId,
+        startedAt,
+        requestedPages,
+        "failure",
+      );
       return response;
     }
 
@@ -185,9 +195,30 @@ async function listTourCandidates(input: {
     }
   }
 
-  return records.length === 0
+  const result: TourCandidateQueryResult = records.length === 0
     ? { status: "empty", records: [], totalCount: 0 }
     : { status: "success", records, totalCount };
+  logCandidatePerformance(
+    input.query.contentTypeId,
+    startedAt,
+    requestedPages,
+    result.status,
+  );
+  return result;
+}
+
+function logCandidatePerformance(
+  contentTypeId: AllowedTourContentTypeId,
+  startedAt: number,
+  requestedPages: number,
+  outcome: "success" | "empty" | "failure",
+) {
+  console.info("PlanME V3 TourAPI candidate performance", {
+    contentTypeId,
+    durationMs: Date.now() - startedAt,
+    requestedPages,
+    outcome,
+  });
 }
 
 async function requestTourApi<Item>(input: {

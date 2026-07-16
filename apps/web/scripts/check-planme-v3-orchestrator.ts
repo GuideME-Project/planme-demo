@@ -4,6 +4,7 @@ import type {
   PlanmeUsageCounterEvent,
   RouteSegment,
 } from "@planme/core";
+import { PLANME_V3_ALLOWED_CONTENT_TYPE_IDS } from "@planme/core";
 import { createMemoryPlanmeV3JobStore } from "../lib/planme-v3/job-store";
 import { createMemoryPlanmeV3TourCache } from "../lib/planme-v3/tour-cache";
 import { createPlanmeV3Orchestrator } from "../lib/planme-v3/orchestrator";
@@ -16,6 +17,9 @@ async function main() {
   let hangRoutes = false;
   let routeConfigurationFailure = false;
   let observedRouteAbort = false;
+  let activeCandidateCalls = 0;
+  let maxActiveCandidateCalls = 0;
+  let firstPlannerCandidateTypes: AllowedTourContentTypeId[] | null = null;
   const geocodeQueries: string[] = [];
   const usageEvents: PlanmeUsageCounterEvent[] = [];
   const jobStore = createMemoryPlanmeV3JobStore({
@@ -50,33 +54,50 @@ async function main() {
             : { lat: 35.1796, lng: 129.0756 },
       };
     },
-    listCandidates: async ({ contentTypeId }) =>
-      emptyVisitCandidates && contentTypeId === 12
-        ? { status: "empty", records: [], totalCount: 0 }
-        : candidateResponse(contentTypeId),
-    planCandidates: async ({ candidates, intent }) => ({
-      ok: true,
-      attempts: 1,
-      source: "luna",
-      selection: {
-        lodgingContentId: candidates.find(
-          (candidate) => candidate.contentTypeId === 32,
-        )?.contentId ?? "",
-        days: Array.from(
-          { length: intent.durationDays },
-          (_, index) => ({
-            day: index + 1,
-            orderedVisitContentIds:
-              index === 0
-                ? candidates
-                    .filter((candidate) => candidate.contentTypeId === 12)
-                    .map((candidate) => candidate.contentId)
-                : [],
-            restaurantContentIds: [],
-          }),
-        ),
-      },
-    }),
+    listCandidates: async ({ contentTypeId }) => {
+      activeCandidateCalls += 1;
+      maxActiveCandidateCalls = Math.max(
+        maxActiveCandidateCalls,
+        activeCandidateCalls,
+      );
+      try {
+        const typeIndex = PLANME_V3_ALLOWED_CONTENT_TYPE_IDS.indexOf(contentTypeId);
+        await new Promise((resolve) => setTimeout(resolve, 8 - typeIndex));
+        return emptyVisitCandidates && contentTypeId === 12
+          ? { status: "empty", records: [], totalCount: 0 }
+          : candidateResponse(contentTypeId);
+      } finally {
+        activeCandidateCalls -= 1;
+      }
+    },
+    planCandidates: async ({ candidates, intent }) => {
+      firstPlannerCandidateTypes ??= candidates.map(
+        (candidate) => candidate.contentTypeId,
+      );
+      return {
+        ok: true,
+        attempts: 1,
+        source: "luna",
+        selection: {
+          lodgingContentId: candidates.find(
+            (candidate) => candidate.contentTypeId === 32,
+          )?.contentId ?? "",
+          days: Array.from(
+            { length: intent.durationDays },
+            (_, index) => ({
+              day: index + 1,
+              orderedVisitContentIds:
+                index === 0
+                  ? candidates
+                      .filter((candidate) => candidate.contentTypeId === 12)
+                      .map((candidate) => candidate.contentId)
+                  : [],
+              restaurantContentIds: [],
+            }),
+          ),
+        },
+      };
+    },
     routeSegment: async ({ from, to, transportMode, signal }) => {
       routeCalls += 1;
       if (routeConfigurationFailure) {
@@ -145,6 +166,8 @@ async function main() {
   for (let step = 0; step < 4; step += 1) {
     await orchestrator.advanceItinerary(started.itineraryId);
   }
+  assert.equal(maxActiveCandidateCalls, 3);
+  assert.deepEqual(firstPlannerCandidateTypes, [12, 32]);
   assert.equal((await jobStore.getJob(started.itineraryId))?.meta.phase, "routing");
   await orchestrator.advanceItinerary(started.itineraryId);
   const afterRouting = await jobStore.getJob(started.itineraryId);

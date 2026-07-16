@@ -55,6 +55,10 @@ const recommendationRequestSchema = z
 
 type PlanningSlot = "origin" | "destination" | "transportMode" | "durationDays";
 
+const GPTS_TOTAL_BUDGET_MS = 55_000;
+const PLANME_RUN_BUDGET_MS = 43_000;
+const RESPONSE_RESERVE_MS = 5_000;
+
 export function handleGptsOpenApiRequest(
   request: IncomingMessage,
   response: ServerResponse,
@@ -102,7 +106,8 @@ export async function handleGptsRecommendItineraryRequest(
     writeJson(response, 405, { error: "METHOD_NOT_ALLOWED" });
     return;
   }
-  const deadlineEpochMs = Date.now() + 55_000;
+  const requestStartedAt = Date.now();
+  const totalDeadlineEpochMs = requestStartedAt + GPTS_TOTAL_BUDGET_MS;
   const parsed = recommendationRequestSchema.safeParse(await readJsonBody(request));
   if (!parsed.success) {
     writeJson(response, 400, invalidRequest(parsed.error));
@@ -136,6 +141,9 @@ export async function handleGptsRecommendItineraryRequest(
 
   try {
     let result;
+    let startDurationMs = 0;
+    let runDurationMs = 0;
+    const startStartedAt = Date.now();
     try {
       result = await startPlanmeV3Itinerary(
         startInput,
@@ -154,15 +162,34 @@ export async function handleGptsRecommendItineraryRequest(
         recoveredIdempotencyKey,
       );
     }
+    startDurationMs = Date.now() - startStartedAt;
     if (invocationId && result.status === "failed") {
+      const recoveryStartedAt = Date.now();
       result = await startPlanmeV3Itinerary(
         startInput,
         recoveredIdempotencyKey,
       );
+      startDurationMs += Date.now() - recoveryStartedAt;
     }
     if (result.status === "processing") {
-      result = await runPlanmeV3Itinerary(result.itineraryId, deadlineEpochMs);
+      const runStartedAt = Date.now();
+      const runDeadlineEpochMs = Math.min(
+        runStartedAt + PLANME_RUN_BUDGET_MS,
+        totalDeadlineEpochMs - RESPONSE_RESERVE_MS,
+      );
+      result = await runPlanmeV3Itinerary(
+        result.itineraryId,
+        runDeadlineEpochMs,
+      );
+      runDurationMs = Date.now() - runStartedAt;
     }
+    console.info("PlanME GPTs recommendation performance", {
+      itineraryId: result.itineraryId,
+      status: result.status,
+      startDurationMs,
+      runDurationMs,
+      totalDurationMs: Date.now() - requestStartedAt,
+    });
     if (result.status === "processing") {
       writeJson(response, 200, {
         status: "failed",
@@ -213,6 +240,13 @@ export async function handleGptsRecommendItineraryRequest(
         }
       : result);
   } catch (error) {
+    console.info("PlanME GPTs recommendation performance", {
+      status: "error",
+      totalDurationMs: Date.now() - requestStartedAt,
+      errorCode: error instanceof PlanmeWebClientHttpError
+        ? error.errorCode
+        : "PLANME_WEB_UNAVAILABLE",
+    });
     if (error instanceof PlanmeWebClientHttpError) {
       const status = [400, 409, 429].includes(error.status) ? error.status : 503;
       writeJson(response, status, { error: error.errorCode });
