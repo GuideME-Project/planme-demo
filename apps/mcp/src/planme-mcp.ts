@@ -25,7 +25,7 @@ const PLANME_MCP_ORIGIN = "https://planme-demo-mcp.vercel.app";
 
 const transportModeSchema = z
   .enum(["drive", "transit", "자동차", "대중교통"])
-  .describe("일정 전체 이동 수단입니다.");
+  .describe("일정 전체 이동 수단입니다. 자동차는 drive, 대중교통은 transit으로 처리합니다.");
 type AppTransportMode = z.infer<typeof transportModeSchema>;
 
 const planningSlotSchema = z.enum([
@@ -74,7 +74,9 @@ const widgetSchema = z.object({
   pageUrl: z.string().url(),
 });
 const jobOutputSchema = {
-  status: z.enum(["processing", "ready", "failed"]),
+  status: z.enum(["processing", "ready", "failed"]).describe(
+    "processing이면 현재 itineraryId로 get_planme_itinerary를 호출합니다. ready와 failed는 종료 상태입니다.",
+  ),
   itineraryId: z.string(),
   phase: z.string().optional(),
   retryAfterMs: z.number().optional(),
@@ -99,7 +101,7 @@ export function createPlanmeMcpServer(): McpServer {
     {
       title: "Start PlanME planning",
       description:
-        "출발지, 목적지, 전체 이동 수단, 여행 기간만 확인합니다. 숙소·선호·장소·시간·인원·짐을 먼저 질문하지 마세요.",
+        "출발지·목적지·이동수단·여행 일정(기간)만 확인합니다. 그 외에는 묻지 마세요. needs_input이면 반환된 질문 하나만 하고, ready이면 recommend_planme_itinerary를 호출하세요.",
       inputSchema: {
         message: z.string().optional(),
         origin: z.string().optional(),
@@ -166,7 +168,7 @@ export function createPlanmeMcpServer(): McpServer {
     {
       title: "Recommend PlanME itinerary",
       description:
-        "웹 오케스트레이터에서 TourAPI 장소만으로 일정을 시작합니다. 처리 중 위젯이 자동 조회하므로 사용자에게 추가 호출이나 입력을 요구하지 마세요.",
+        "웹 오케스트레이터에서 TourAPI 장소만으로 일정을 시작합니다. processing이면 recommend_planme_itinerary를 다시 호출하지 말고 현재 itineraryId로 get_planme_itinerary를 호출하세요. ready이면 결과만 전달하고 추가 입력을 요구하지 마세요. failed이면 동일 조건으로 자동 재시도하거나 기술 오류 코드를 사용자에게 노출하지 마세요.",
       inputSchema: {
         origin: z.string().trim().min(1),
         destination: z.string().trim().min(1),
@@ -213,7 +215,7 @@ export function createPlanmeMcpServer(): McpServer {
     {
       title: "Get PlanME itinerary",
       description:
-        "처리 중이면 웹에서 한 단계를 자동 진행하고 상태를 반환합니다. 위젯이 자동 재호출하므로 사용자에게 호출을 요청하지 마세요.",
+        "처리 중이면 웹에서 한 단계를 자동 진행하고 상태를 반환합니다. processing이면 같은 itineraryId로 get_planme_itinerary를 다시 호출하세요. ready이면 결과만 전달하고 추가 입력을 요구하지 마세요. failed이면 동일 조건으로 자동 재시도하거나 기술 오류 코드를 사용자에게 노출하지 마세요.",
       inputSchema: { itineraryId: z.string().min(1) },
       outputSchema: jobOutputSchema,
       _meta: toolWidgetMeta("PlanME 일정을 계산하는 중입니다."),
