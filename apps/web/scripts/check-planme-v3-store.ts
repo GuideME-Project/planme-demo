@@ -23,6 +23,7 @@ const PHASES: ItineraryPhase[] = [
 
 async function main() {
   assertUpstashLuaKeyContract();
+  assertUpstashTourCachePipelineContract();
   let now = Date.parse("2026-07-14T00:00:00.000Z");
   let sequence = 0;
   const store = createMemoryPlanmeV3JobStore({
@@ -241,6 +242,24 @@ async function main() {
   console.log(
     "PlanME V3 storage checks passed (V3-06, V3-07, V3-10).",
   );
+}
+
+function assertUpstashTourCachePipelineContract() {
+  const source = readFileSync(
+    join(import.meta.dirname, "../lib/planme-v3/tour-cache.ts"),
+    "utf8",
+  );
+  const upstashSource = source.slice(
+    source.indexOf("class UpstashPlanmeV3TourCache"),
+  );
+  const saveSource = upstashSource.slice(
+    upstashSource.indexOf("async saveSuccessfulResponse"),
+    upstashSource.indexOf("private async read"),
+  );
+  assert.match(saveSource, /const pipeline = this\.redis\.pipeline\(\)/);
+  assert.equal(saveSource.match(/pipeline\.set\(/g)?.length, 2);
+  assert.equal(saveSource.match(/pipeline\.exec\(\)/g)?.length, 1);
+  assert.doesNotMatch(saveSource, /await this\.redis\.set\(/);
 }
 
 function assertUpstashLuaKeyContract() {

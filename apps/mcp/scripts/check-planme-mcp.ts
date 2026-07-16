@@ -3126,9 +3126,8 @@ async function assertV3ChannelContract(): Promise<void> {
         '요청한 장소 "확인되지 않은 장소": 일정에 포함할 수 없어 제외되었습니다.',
       );
       assert.match(idempotencyKeys[1] ?? "", /^gpts:request:gpts-contract-1:/);
-      assert.ok(capturedDeadline >= beforeRequest + 41_000);
-      assert.ok(capturedDeadline <= Date.now() + 55_000);
-      assert.ok(capturedDeadline > Date.now() + 50_000);
+      assert.ok(capturedDeadline >= beforeRequest + 40_000);
+      assert.ok(capturedDeadline <= Date.now() + 43_000);
 
       const firstContractKey = idempotencyKeys[1] ?? "";
       const changedTransportRecommendation = await originalFetch(

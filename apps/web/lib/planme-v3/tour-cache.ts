@@ -166,20 +166,18 @@ class UpstashPlanmeV3TourCache implements PlanmeV3TourCache {
     let lastGoodStored = false;
 
     try {
-      await this.redis.set(cacheKey(scope, "fresh"), serialized, {
+      const pipeline = this.redis.pipeline();
+      pipeline.set(cacheKey(scope, "fresh"), serialized, {
         ex: FRESH_TTL_MS / 1_000,
       });
-      freshStored = true;
-    } catch {
-      freshStored = false;
-    }
-
-    try {
-      await this.redis.set(cacheKey(scope, "last-good"), serialized, {
+      pipeline.set(cacheKey(scope, "last-good"), serialized, {
         ex: LAST_GOOD_TTL_MS / 1_000,
       });
-      lastGoodStored = true;
+      const [freshResult, lastGoodResult] = await pipeline.exec();
+      freshStored = freshResult === "OK";
+      lastGoodStored = lastGoodResult === "OK";
     } catch {
+      freshStored = false;
       lastGoodStored = false;
     }
 

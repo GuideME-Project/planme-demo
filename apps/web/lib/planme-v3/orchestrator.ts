@@ -36,6 +36,7 @@ import type {
 import {
   loadTourCandidates,
   type PlanmeV3TourCache,
+  type TourCandidateLoadResult,
   type TourCacheScope,
 } from "./tour-cache";
 import type {
@@ -173,6 +174,9 @@ type RoutingProgressPayload = PlanPayload & {
 
 const FIRST_DAY_DEPARTURE_MINUTE = 9 * 60 + 30;
 const ROUTE_BATCH_PROVIDER_CALLS = 6;
+// TourAPI publishes a per-second limit error without a fixed public TPS value,
+// so candidate types use a small bounded concurrency instead of an unbounded fan-out.
+const CANDIDATE_CONTENT_TYPE_CONCURRENCY = 3;
 const VISIT_CONTENT_TYPE_IDS = new Set<AllowedTourContentTypeId>([
   12,
   14,
@@ -427,6 +431,8 @@ export function createPlanmeV3Orchestrator(
       return getItineraryStatus(itineraryId);
     }
 
+    const phaseStartedAt = Date.now();
+    let phaseOutcome: "completed" | "failed" | "aborted" = "completed";
     try {
       const current = await dependencies.jobStore.getJob(itineraryId);
       if (
@@ -441,8 +447,10 @@ export function createPlanmeV3Orchestrator(
       await advancePhase(current.meta, owner, signal);
     } catch (error) {
       if (signal?.aborted) {
+        phaseOutcome = "aborted";
         return getItineraryStatus(itineraryId);
       }
+      phaseOutcome = "failed";
       const errorCode =
         error instanceof OrchestratorFailure ? error.errorCode : "INTERNAL_ERROR";
       await dependencies.jobStore.fail({ itineraryId, errorCode });
@@ -452,6 +460,12 @@ export function createPlanmeV3Orchestrator(
         meta.pendingRevision,
         owner,
       );
+      console.info("PlanME V3 phase performance", {
+        itineraryId,
+        phase: meta.phase,
+        durationMs: Date.now() - phaseStartedAt,
+        outcome: phaseOutcome,
+      });
     }
     return getItineraryStatus(itineraryId);
   }
@@ -601,13 +615,55 @@ export function createPlanmeV3Orchestrator(
       anchors.intent.durationDays,
     );
 
-    for (const contentTypeId of PLANME_V3_ALLOWED_CONTENT_TYPE_IDS) {
+    const candidateCollectionStartedAt = Date.now();
+    const loadedByContentType = await mapWithConcurrency(
+      PLANME_V3_ALLOWED_CONTENT_TYPE_IDS,
+      CANDIDATE_CONTENT_TYPE_CONCURRENCY,
+      async (contentTypeId) => ({
+        contentTypeId,
+        loaded: await loadCandidateType(contentTypeId),
+      }),
+    );
+    const sourceCounts = {
+      freshCache: 0,
+      tourApi: 0,
+      lastGood: 0,
+      unavailable: 0,
+    };
+
+    // Apply results in the contract order so concurrency cannot reorder AI input.
+    for (const { contentTypeId, loaded } of loadedByContentType) {
+      if (loaded.status === "unavailable") {
+        sourceCounts.unavailable += 1;
+        unavailableTypes.add(contentTypeId);
+        removeCandidatesByType(candidateById, contentTypeId);
+        continue;
+      }
+      if (loaded.source === "fresh-cache") sourceCounts.freshCache += 1;
+      if (loaded.source === "tourapi") sourceCounts.tourApi += 1;
+      if (loaded.source === "last-good") sourceCounts.lastGood += 1;
+      removeCandidatesByType(candidateById, contentTypeId);
+      loaded.places.forEach((candidate) => candidateById.set(candidate.contentId, candidate));
+    }
+
+    console.info("PlanME V3 candidate collection performance", {
+      itineraryId,
+      durationMs: Date.now() - candidateCollectionStartedAt,
+      concurrency: CANDIDATE_CONTENT_TYPE_CONCURRENCY,
+      contentTypeCount: loadedByContentType.length,
+      candidateCount: candidateById.size,
+      sourceCounts,
+    });
+
+    async function loadCandidateType(
+      contentTypeId: AllowedTourContentTypeId,
+    ): Promise<TourCandidateLoadResult> {
       const scope: TourCacheScope = {
         regionCode: anchors.region.regionCode,
         districtCode: anchors.region.districtCode ?? null,
         contentTypeId,
       };
-      const loaded = await loadTourCandidates({
+      return loadTourCandidates({
         cache: dependencies.tourCache,
         scope,
         fetchFromTourApi: async () => {
@@ -636,13 +692,6 @@ export function createPlanmeV3Orchestrator(
           };
         },
       });
-      if (loaded.status === "unavailable") {
-        unavailableTypes.add(contentTypeId);
-        removeCandidatesByType(candidateById, contentTypeId);
-        continue;
-      }
-      removeCandidatesByType(candidateById, contentTypeId);
-      loaded.places.forEach((candidate) => candidateById.set(candidate.contentId, candidate));
     }
 
     const candidates = [...candidateById.values()];
@@ -902,6 +951,36 @@ export function createPlanmeV3Orchestrator(
     startItinerary,
     startItineraryEdit,
   };
+}
+
+async function mapWithConcurrency<Input, Output>(
+  inputs: readonly Input[],
+  concurrency: number,
+  mapper: (input: Input, index: number) => Promise<Output>,
+): Promise<Output[]> {
+  const results = new Array<Output>(inputs.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < inputs.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(inputs[index]!, index);
+    }
+  }
+
+  const workerResults = await Promise.allSettled(
+    Array.from(
+      { length: Math.min(concurrency, inputs.length) },
+      () => worker(),
+    ),
+  );
+  for (const workerResult of workerResults) {
+    if (workerResult.status === "rejected") {
+      throw workerResult.reason;
+    }
+  }
+  return results;
 }
 
 async function createGeneratedSelection(
