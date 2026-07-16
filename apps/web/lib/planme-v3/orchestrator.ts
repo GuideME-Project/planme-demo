@@ -174,6 +174,8 @@ type RoutingProgressPayload = PlanPayload & {
 
 const FIRST_DAY_DEPARTURE_MINUTE = 9 * 60 + 30;
 const ROUTE_BATCH_PROVIDER_CALLS = 6;
+// Only Naver driving edges fan out; ODsay transit stays serialized in route-service.
+const DRIVE_ROUTE_CONCURRENCY = 3;
 // TourAPI publishes a per-second limit error without a fixed public TPS value,
 // so candidate types use a small bounded concurrency instead of an unbounded fan-out.
 const CANDIDATE_CONTENT_TYPE_CONCURRENCY = 3;
@@ -810,6 +812,33 @@ export function createPlanmeV3Orchestrator(
       ? (existingProgress.payload as RoutingProgressPayload).routeCache ?? {}
       : {};
     let providerCalls = 0;
+    const inFlightRoutes = new Map<
+      string,
+      ReturnType<PlanmeV3OrchestratorDependencies["routeSegment"]>
+    >();
+    let routeBatchCheckpoint: Promise<void> | null = null;
+
+    const saveRouteBatchCheckpoint = async () => {
+      await Promise.allSettled([...inFlightRoutes.values()]);
+      const saved = await dependencies.jobStore.savePhase({
+        itineraryId,
+        revision,
+        expectedPhase: "routing",
+        nextPhase: "routing",
+        routeCursor: Object.keys(routeCache).length,
+        lockOwner,
+        checkpoint: {
+          schemaVersion: 3,
+          phaseVersion: 1,
+          inputDigest: checkpoint.inputDigest,
+          payload: toJsonValue({ ...payload, routeCache }),
+        },
+      });
+      if (!saved) {
+        throw new OrchestratorFailure("JOB_CONFLICT");
+      }
+    };
+
     const checkpointingRouteSegment: PlanmeV3OrchestratorDependencies["routeSegment"] =
       async (routeInput) => {
         const key = routeCacheKey(routeInput);
@@ -817,33 +846,27 @@ export function createPlanmeV3Orchestrator(
         if (cached) {
           return cached;
         }
-        const result = await dependencies.routeSegment({
-          ...routeInput,
-          signal: routeInput.signal ?? signal,
-        });
-        providerCalls += 1;
-        routeCache[key] = result;
+        const inFlight = inFlightRoutes.get(key);
+        if (inFlight) {
+          return inFlight;
+        }
         if (providerCalls >= ROUTE_BATCH_PROVIDER_CALLS) {
-          const saved = await dependencies.jobStore.savePhase({
-            itineraryId,
-            revision,
-            expectedPhase: "routing",
-            nextPhase: "routing",
-            routeCursor: Object.keys(routeCache).length,
-            lockOwner,
-            checkpoint: {
-              schemaVersion: 3,
-              phaseVersion: 1,
-              inputDigest: checkpoint.inputDigest,
-              payload: toJsonValue({ ...payload, routeCache }),
-            },
-          });
-          if (!saved) {
-            throw new OrchestratorFailure("JOB_CONFLICT");
-          }
+          routeBatchCheckpoint ??= saveRouteBatchCheckpoint();
+          await routeBatchCheckpoint;
           throw new RouteBatchYield();
         }
-        return result;
+        providerCalls += 1;
+        const pending = dependencies.routeSegment({
+          ...routeInput,
+          signal: routeInput.signal ?? signal,
+        }).then((result) => {
+          routeCache[key] = result;
+          return result;
+        }).finally(() => {
+          inFlightRoutes.delete(key);
+        });
+        inFlightRoutes.set(key, pending);
+        return pending;
       };
     let routedRevision: ItineraryRevision;
     try {
@@ -1202,6 +1225,10 @@ async function routeVariant(
   }> = [];
   let firstDayArrivalMinute = FIRST_DAY_DEPARTURE_MINUTE;
 
+  if (plan.intent.transportMode === "drive") {
+    await prefetchDriveVariantRoutes(plan, kind, input);
+  }
+
   if (kind === "carryme" && plan.intent.luggageCount > 0) {
     const delivery = await requestRoute(
       {
@@ -1321,6 +1348,78 @@ async function routeVariant(
     luggageSegments,
     luggageEvents,
   };
+}
+
+async function prefetchDriveVariantRoutes(
+  plan: TripPlan,
+  kind: RouteVariant["kind"],
+  input: {
+    originCoordinate: Coordinate;
+    routeSegment: PlanmeV3OrchestratorDependencies["routeSegment"];
+  },
+) {
+  const origin: PlanmeRoutePoint = {
+    ref: "origin",
+    coordinate: input.originCoordinate,
+  };
+  const lodging = pointForPlace(plan.lodging);
+  const requests: Array<{
+    from: PlanmeRoutePoint;
+    to: PlanmeRoutePoint;
+    requiredSegment: boolean;
+  }> = [];
+
+  if (kind === "carryme" && plan.intent.luggageCount > 0) {
+    requests.push({ from: origin, to: lodging, requiredSegment: true });
+  }
+
+  for (const day of plan.days) {
+    const isFirstDay = day.day === 1;
+    const isLastDay = day.day === plan.intent.durationDays;
+    const visits = day.visits.map((visit) => {
+      const place = plan.selectedPlaces[visit.contentId];
+      if (!place) {
+        throw new OrchestratorFailure("JOB_CONFLICT");
+      }
+      return pointForPlace(place);
+    });
+    let current = lodging;
+    let startVisitIndex = 0;
+
+    if (isFirstDay && kind === "standard" && plan.intent.luggageCount > 0) {
+      requests.push({ from: origin, to: lodging, requiredSegment: true });
+    } else if (isFirstDay && visits[0]) {
+      requests.push({ from: origin, to: visits[0], requiredSegment: false });
+      current = visits[0];
+      startVisitIndex = 1;
+    } else if (isFirstDay) {
+      requests.push({ from: origin, to: lodging, requiredSegment: true });
+    }
+
+    for (let index = startVisitIndex; index < visits.length; index += 1) {
+      const visit = visits[index]!;
+      requests.push({ from: current, to: visit, requiredSegment: false });
+      current = visit;
+    }
+
+    const end = isLastDay ? origin : lodging;
+    if (current.ref !== end.ref) {
+      requests.push({
+        from: current,
+        to: end,
+        requiredSegment: current.ref === lodging.ref,
+      });
+    }
+  }
+
+  await mapWithConcurrency(
+    requests,
+    DRIVE_ROUTE_CONCURRENCY,
+    (request) => input.routeSegment({
+      ...request,
+      transportMode: "drive",
+    }),
+  );
 }
 
 async function requestRoute(
