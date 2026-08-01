@@ -217,7 +217,7 @@ function createTimeline(
           scheduledDay.day === 1
             ? `${revision.intent.origin} 출발`
             : `${revision.plan.lodging.title} 출발`,
-        description: "서버에서 확정한 이동 일정을 시작합니다.",
+        description: "이동을 시작합니다.",
         category: "arrival",
       },
     },
@@ -311,7 +311,7 @@ function createTimeline(
       event: {
         time: formatClock(scheduledDay.returnTravelStartMinute),
         title: `${revision.intent.origin} 복귀 이동 시작`,
-        description: "서버에서 확정한 복귀 경로로 이동합니다.",
+        description: "출발지로 이동합니다.",
         category: "transit",
       },
     });
