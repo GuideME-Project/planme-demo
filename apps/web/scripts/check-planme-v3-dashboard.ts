@@ -138,6 +138,22 @@ assert.equal(
 );
 assert.equal(dashboard.days[0].standardTimeline?.[0]?.time, "09:30");
 assert.equal(
+  [dashboard.days[0].standardTimeline, dashboard.days[0].carrymeTimeline].every(
+    (timeline) =>
+      timeline?.find((event) => event.title === `${intent.origin} 출발`)
+        ?.description === "이동을 시작합니다.",
+  ),
+  true,
+);
+assert.equal(
+  [dashboard.days[0].standardTimeline, dashboard.days[0].carrymeTimeline].every(
+    (timeline) =>
+      timeline?.find((event) => event.title === `${intent.origin} 복귀 이동 시작`)
+        ?.description === "출발지로 이동합니다.",
+  ),
+  true,
+);
+assert.equal(
   dashboard.days[0].standardTimeline?.some(
     (event) => event.title === `${lodging.title} 수하물 보관` && event.time === "10:00",
   ),
