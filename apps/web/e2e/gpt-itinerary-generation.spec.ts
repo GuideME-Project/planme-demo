@@ -168,18 +168,18 @@ test("separates Standard check-in from CarryME delivery and removes row emphasis
     }
   }
 
-  await page.getByRole("button", { name: "테마 버전 Light" }).click();
-  await expect(page.getByRole("button", { name: "테마 버전 Dark" })).toBeVisible();
+  await page.setViewportSize({ height: 852, width: 393 });
+  await expect(page.getByRole("button", { name: /테마 버전/ })).toHaveCount(0);
 
-  const darkRowContents = page.getByTestId("timeline-event-content");
-  const darkRowCount = await darkRowContents.count();
-  for (let rowIndex = 0; rowIndex < darkRowCount; rowIndex += 1) {
-    await expect(darkRowContents.nth(rowIndex)).toHaveCSS(
-      "background-color",
-      "rgba(0, 0, 0, 0)",
-    );
-    await expect(darkRowContents.nth(rowIndex)).toHaveCSS("border-top-width", "0px");
-  }
+  const brandAttribution = page.getByText("by GuideME", { exact: true });
+  await expect(brandAttribution).toHaveCSS("white-space", "nowrap");
+  const brandAttributionMetrics = await brandAttribution.evaluate((element) => ({
+    height: element.getBoundingClientRect().height,
+    lineHeight: Number.parseFloat(getComputedStyle(element).lineHeight),
+  }));
+  expect(brandAttributionMetrics.height).toBeLessThanOrEqual(
+    brandAttributionMetrics.lineHeight + 1,
+  );
 });
 
 test("does not fall back to demo data for missing generated itinerary ids", async ({

@@ -2090,7 +2090,7 @@ export function ItineraryDashboard({
   routeRevision = 0,
 }: ItineraryDashboardProps) {
   const theme = useTheme();
-  const { mode, toggleMode } = usePlanmeColorMode();
+  const { mode } = usePlanmeColorMode();
   const [selectedDay, setSelectedDay] = useState(1);
   const [editableDays, setEditableDays] = useState<EditableDayPlan[]>(() =>
     createEditableDays(itinerary.days),
@@ -2452,7 +2452,7 @@ export function ItineraryDashboard({
       }}
     >
       <Stack spacing={3}>
-        <TopBar mode={mode} onToggleMode={toggleMode} />
+        <TopBar />
 
         <Box
           sx={{
@@ -2516,7 +2516,13 @@ export function ItineraryDashboard({
               color="primary"
               onChange={handleViewChange}
               value={activeView}
-              sx={{ justifySelf: { xs: "stretch", md: "start" } }}
+              sx={{
+                justifySelf: { xs: "stretch", md: "start" },
+                width: { xs: "100%", md: "auto" },
+                "& .MuiToggleButtonGroup-grouped": {
+                  flex: { xs: 1, md: "initial" },
+                },
+              }}
             >
               <ToggleButton value="compare">
                 <RouteRoundedIcon sx={{ mr: 1 }} />
@@ -2531,19 +2537,29 @@ export function ItineraryDashboard({
             <Stack
               direction="row"
               spacing={0.75}
-              sx={{ alignItems: "center", justifySelf: "center" }}
+              sx={{
+                alignItems: "center",
+                justifySelf: { xs: "stretch", md: "center" },
+                width: { xs: "100%", md: "auto" },
+              }}
             >
               <ToggleButtonGroup
                 exclusive
                 color="primary"
                 onChange={handleDayChange}
                 value={selectedDay}
+                sx={{ flex: { xs: 1, md: "initial" }, minWidth: 0 }}
               >
                 {editableDays.map((day, index) => (
                   <ToggleButton
                     key={day.uiId}
                     value={day.day}
-                    sx={{ minWidth: 112, position: "relative", px: 2.8 }}
+                    sx={{
+                      flex: { xs: 1, md: "initial" },
+                      minWidth: { xs: 0, sm: 112 },
+                      position: "relative",
+                      px: { xs: 1, sm: 2.8 },
+                    }}
                   >
                     {formatDayToggleLabel(day, index)}
                   </ToggleButton>
@@ -2714,15 +2730,10 @@ export function ItineraryDashboard({
   );
 }
 
-type TopBarProps = {
-  mode: "light" | "dark";
-  onToggleMode: () => void;
-};
-
 /**
- * Renders the compact PlanME header controls.
+ * Renders the compact PlanME brand header.
  */
-function TopBar({ mode, onToggleMode }: TopBarProps) {
+function TopBar() {
   return (
     <Stack
       direction="row"
@@ -2737,17 +2748,12 @@ function TopBar({ mode, onToggleMode }: TopBarProps) {
         <Typography color="primary" sx={{ fontSize: 28, fontWeight: 900 }}>
           PlanME
         </Typography>
-        <Typography color="text.secondary" sx={{ fontWeight: 700 }}>
+        <Typography
+          color="text.secondary"
+          sx={{ fontWeight: 700, whiteSpace: "nowrap" }}
+        >
           by GuideME
         </Typography>
-      </Stack>
-      <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-        <Button onClick={onToggleMode} size="small" variant="outlined">
-          테마 버전
-          <Typography component="span" sx={{ ml: 0.8, fontSize: 12 }}>
-            {mode === "dark" ? "Dark" : "Light"}
-          </Typography>
-        </Button>
       </Stack>
     </Stack>
   );
@@ -3462,23 +3468,25 @@ function DestinationEditor({
               ))}
             </TextField>
             <Button
+              aria-label="경유지 추가"
               onClick={handleAddWaypoint}
               size="small"
               startIcon={<AddRoundedIcon />}
-              sx={{ minHeight: 34 }}
+              sx={{ minHeight: 34, whiteSpace: "nowrap" }}
               variant="outlined"
             >
-              경유지 추가
+              추가
             </Button>
             <Button
+              aria-label={routeStatus === "loading" ? "경로 계산 중" : "경로 다시 계산"}
               disabled={routeStatus === "loading" || rows.length < 2}
               onClick={handleCheckRoute}
               size="small"
               startIcon={<RouteRoundedIcon />}
-              sx={{ minHeight: 34 }}
+              sx={{ minHeight: 34, whiteSpace: "nowrap" }}
               variant="contained"
             >
-              {routeStatus === "loading" ? "계산 중" : "경로 다시 계산"}
+              {routeStatus === "loading" ? "계산 중" : "재계산"}
             </Button>
           </Stack>
         </Stack>

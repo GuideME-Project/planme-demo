@@ -7,7 +7,7 @@ const routeMapPath = new URL("../apps/web/components/itinerary/RouteMap.tsx", im
 const timelinePanelPath = new URL("../apps/web/components/itinerary/TimelinePanel.tsx", import.meta.url);
 
 const requiredTexts = [
-  "테마 버전",
+  "by GuideME",
   "총 이동 시간",
   "약 6시간 30분 → 5시간 20분",
   "절약 시간",
@@ -57,6 +57,7 @@ const requiredTimelinePanelSourceFragments = [
 
 const forbiddenHtmlFragments = [
   "data-planme-roller-wing",
+  "테마 버전",
 ];
 
 const forbiddenSourceFragments = [
