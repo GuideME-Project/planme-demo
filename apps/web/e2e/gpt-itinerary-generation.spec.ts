@@ -171,15 +171,17 @@ test("separates Standard check-in from CarryME delivery and removes row emphasis
   await page.setViewportSize({ height: 852, width: 393 });
   await expect(page.getByRole("button", { name: /테마 버전/ })).toHaveCount(0);
 
-  const brandAttribution = page.getByText("by GuideME", { exact: true });
-  await expect(brandAttribution).toHaveCSS("white-space", "nowrap");
-  const brandAttributionMetrics = await brandAttribution.evaluate((element) => ({
+  const brandLogo = page.getByRole("img", { name: "PlanME by GuideME" });
+  await expect(brandLogo).toBeVisible();
+  const brandLogoMetrics = await brandLogo.evaluate((element) => ({
     height: element.getBoundingClientRect().height,
-    lineHeight: Number.parseFloat(getComputedStyle(element).lineHeight),
+    naturalHeight: (element as HTMLImageElement).naturalHeight,
+    naturalWidth: (element as HTMLImageElement).naturalWidth,
+    width: element.getBoundingClientRect().width,
   }));
-  expect(brandAttributionMetrics.height).toBeLessThanOrEqual(
-    brandAttributionMetrics.lineHeight + 1,
-  );
+  expect(brandLogoMetrics).toMatchObject({ naturalHeight: 237, naturalWidth: 1414 });
+  expect(brandLogoMetrics.height).toBeLessThanOrEqual(41);
+  expect(brandLogoMetrics.width).toBeLessThanOrEqual(240);
 });
 
 test("does not fall back to demo data for missing generated itinerary ids", async ({
