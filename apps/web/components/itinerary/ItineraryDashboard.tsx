@@ -35,6 +35,7 @@ import type {
   ReactNode,
 } from "react";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import type {
   BenefitItem,
   MapCoordinate,
@@ -2743,18 +2744,16 @@ function TopBar() {
         justifyContent: "space-between",
       }}
     >
-      <Stack direction="row" spacing={1.4} sx={{ alignItems: "center" }}>
-        <RouteRoundedIcon color="primary" sx={{ fontSize: 38 }} />
-        <Typography color="primary" sx={{ fontSize: 28, fontWeight: 900 }}>
-          PlanME
-        </Typography>
-        <Typography
-          color="text.secondary"
-          sx={{ fontWeight: 700, whiteSpace: "nowrap" }}
-        >
-          by GuideME
-        </Typography>
-      </Stack>
+      <Box sx={{ maxWidth: "100%", width: { xs: 240, sm: 264 } }}>
+        <Image
+          alt="PlanME by GuideME"
+          height={237}
+          priority
+          src="/brand/planme-logo.png"
+          style={{ display: "block", height: "auto", width: "100%" }}
+          width={1414}
+        />
+      </Box>
     </Stack>
   );
 }

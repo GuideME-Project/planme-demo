@@ -37,6 +37,7 @@ const requiredSourceFragments = [
 ];
 
 const requiredDashboardSourceFragments = [
+  "/brand/planme-logo.png",
   "function formatDayToggleLabel",
   "PlanmeRowMode",
   "PlanmeStopRole",
