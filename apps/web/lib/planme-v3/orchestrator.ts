@@ -8,6 +8,7 @@ import {
   recordPlanmeUsageSafely,
   resolveTripIntent,
   scheduleTripPlan,
+  selectTourCandidates,
   validateAiPlanSelection,
   type AllowedTourContentTypeId,
   type Coordinate,
@@ -155,6 +156,7 @@ type AnchorPayload = QueuedPayload & {
   originCoordinate: Coordinate;
   destinationCoordinate: Coordinate;
   region: TourRegion;
+  candidateRegions?: TourRegion[];
   requiredDestinationPlace?: TourPlaceSnapshot;
 };
 
@@ -224,7 +226,6 @@ export function createPlanmeV3Orchestrator(
     if (created.status === "conflict") {
       return { status: "idempotency_conflict" };
     }
-
     if (created.meta.phase === "queued") {
       const existing = await runStartStorageStage(
         "PLANME_V3_STORE_CHECKPOINT_READ_FAILED",
@@ -580,7 +581,7 @@ export function createPlanmeV3Orchestrator(
     if (!resolvedDestination) {
       throw new OrchestratorFailure("DESTINATION_NOT_RESOLVED");
     }
-    const { region, place } = resolvedDestination;
+    const { region, candidateRegions, place } = resolvedDestination;
     const destinationPlace = place
       ? normalizeTourCandidate(place, {
           expectedRegionCode: region.regionCode,
@@ -621,6 +622,7 @@ export function createPlanmeV3Orchestrator(
         originCoordinate,
         destinationCoordinate,
         region,
+        ...(candidateRegions?.length ? { candidateRegions } : {}),
         ...(destinationPlace ? { requiredDestinationPlace: destinationPlace } : {}),
       },
     });
@@ -665,17 +667,36 @@ export function createPlanmeV3Orchestrator(
 
     // Apply results in the contract order so concurrency cannot reorder AI input.
     for (const { contentTypeId, loaded } of loadedByContentType) {
-      if (loaded.status === "unavailable") {
-        sourceCounts.unavailable += 1;
+      const available = loaded.filter((result) => result.status === "available");
+      for (const result of loaded) {
+        if (result.status === "unavailable") {
+          sourceCounts.unavailable += 1;
+        } else if (result.source === "fresh-cache") {
+          sourceCounts.freshCache += 1;
+        } else if (result.source === "tourapi") {
+          sourceCounts.tourApi += 1;
+        } else {
+          sourceCounts.lastGood += 1;
+        }
+      }
+      if (available.length === 0) {
         unavailableTypes.add(contentTypeId);
         removeCandidatesByType(candidateById, contentTypeId);
         continue;
       }
-      if (loaded.source === "fresh-cache") sourceCounts.freshCache += 1;
-      if (loaded.source === "tourapi") sourceCounts.tourApi += 1;
-      if (loaded.source === "last-good") sourceCounts.lastGood += 1;
       removeCandidatesByType(candidateById, contentTypeId);
-      loaded.places.forEach((candidate) => candidateById.set(candidate.contentId, candidate));
+      const merged = selectTourCandidates(
+        available.flatMap((result) => result.places),
+        {
+          preferences: anchors.intent.preferences,
+          requestedPlaces: anchors.intent.requestedPlaces,
+        },
+      );
+      for (const candidate of merged) {
+        if (!candidateById.has(candidate.contentId)) {
+          candidateById.set(candidate.contentId, candidate);
+        }
+      }
     }
     if (anchors.requiredDestinationPlace) {
       candidateById.set(
@@ -689,47 +710,55 @@ export function createPlanmeV3Orchestrator(
       durationMs: Date.now() - candidateCollectionStartedAt,
       concurrency: CANDIDATE_CONTENT_TYPE_CONCURRENCY,
       contentTypeCount: loadedByContentType.length,
+      candidateRegionCount: anchors.candidateRegions?.length ?? 1,
       candidateCount: candidateById.size,
       sourceCounts,
     });
 
     async function loadCandidateType(
       contentTypeId: AllowedTourContentTypeId,
-    ): Promise<TourCandidateLoadResult> {
-      const scope: TourCacheScope = {
-        regionCode: anchors.region.regionCode,
-        districtCode: anchors.region.districtCode ?? null,
-        contentTypeId,
-      };
-      return loadTourCandidates({
-        cache: dependencies.tourCache,
-        scope,
-        fetchFromTourApi: async () => {
-          const result = await dependencies.listCandidates({
-            region: anchors.region,
-            contentTypeId,
-            travelStartDate: anchors.intent.travelStartDate,
-            travelEndDate,
-          }, signal);
-          if (result.status === "failure") {
-            return { status: "failure" };
-          }
-          const records = result.status === "empty" ? [] : result.records;
-          return {
-            status: "success",
-            places: normalizeTourCandidates(records, {
-              expectedContentTypeId: contentTypeId,
-              expectedRegionCode: anchors.region.regionCode,
-              expectedDistrictCode: anchors.region.districtCode,
-              fetchedAt: new Date(now()).toISOString(),
-              preferences: anchors.intent.preferences,
-              requestedPlaces: anchors.intent.requestedPlaces,
+    ): Promise<TourCandidateLoadResult[]> {
+      const candidateRegions = anchors.candidateRegions?.length
+        ? anchors.candidateRegions
+        : [anchors.region];
+      const loaded: TourCandidateLoadResult[] = [];
+      for (const region of candidateRegions) {
+        const scope: TourCacheScope = {
+          regionCode: region.regionCode,
+          districtCode: region.districtCode ?? null,
+          contentTypeId,
+        };
+        loaded.push(await loadTourCandidates({
+          cache: dependencies.tourCache,
+          scope,
+          fetchFromTourApi: async () => {
+            const result = await dependencies.listCandidates({
+              region,
+              contentTypeId,
               travelStartDate: anchors.intent.travelStartDate,
               travelEndDate,
-            }),
-          };
-        },
-      });
+            }, signal);
+            if (result.status === "failure") {
+              return { status: "failure" };
+            }
+            const records = result.status === "empty" ? [] : result.records;
+            return {
+              status: "success",
+              places: normalizeTourCandidates(records, {
+                expectedContentTypeId: contentTypeId,
+                expectedRegionCode: region.regionCode,
+                expectedDistrictCode: region.districtCode,
+                fetchedAt: new Date(now()).toISOString(),
+                preferences: anchors.intent.preferences,
+                requestedPlaces: anchors.intent.requestedPlaces,
+                travelStartDate: anchors.intent.travelStartDate,
+                travelEndDate,
+              }),
+            };
+          },
+        }));
+      }
+      return loaded;
     }
 
     const candidates = [...candidateById.values()];

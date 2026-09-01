@@ -578,9 +578,203 @@ async function main() {
       message: "제한 시간 안에 안전한 일정을 완성하지 못했습니다.",
     });
   }
-
+  await checkChildDistrictCandidateCollection();
   console.log(
     "PlanME V3 orchestrator checks passed (V3-02, V3-08 staged terminal delivery).",
+  );
+}
+
+async function checkChildDistrictCandidateCollection() {
+  const now = Date.parse("2026-08-31T00:00:00.000Z");
+  const jobStore = createMemoryPlanmeV3JobStore({
+    now: () => now,
+    createId: () => "child-district-merge",
+  });
+  const tourCache = createMemoryPlanmeV3TourCache({ now: () => now });
+  await tourCache.saveSuccessfulResponse(
+    { regionCode: "52", districtCode: "110", contentTypeId: 12 },
+    [
+      {
+        contentId: "parent-cache-must-not-be-used",
+        contentTypeId: 12,
+        title: "상위 전주시 캐시",
+        coordinate: { lat: 35.8242, lng: 127.148 },
+        regionCode: "52",
+        districtCode: "110",
+        fetchedAt: "2026-08-30T00:00:00.000Z",
+        cacheStatus: "fresh",
+        source: "tourapi",
+      },
+    ],
+  );
+  const candidateQueries: Array<{
+    districtCode?: string;
+    contentTypeId: AllowedTourContentTypeId;
+  }> = [];
+  const orchestrator = createPlanmeV3Orchestrator({
+    jobStore,
+    tourCache,
+    now: () => now,
+    pageOrigin: "https://planme.example",
+    createLockOwner: () => "child-district-worker",
+    resolveDestination: async () => ({
+      region: {
+        regionCode: "52",
+        regionName: "전북특별자치도",
+        districtCode: "110",
+        districtName: "전주시",
+      },
+      candidateRegions: [
+        {
+          regionCode: "52",
+          regionName: "전북특별자치도",
+          districtCode: "111",
+          districtName: "전주시 완산구",
+        },
+        {
+          regionCode: "52",
+          regionName: "전북특별자치도",
+          districtCode: "113",
+          districtName: "전주시 덕진구",
+        },
+      ],
+    }),
+    geocodeAnchor: async () => ({
+      status: "ready",
+      coordinate: { lat: 35.8242, lng: 127.148 },
+    }),
+    listCandidates: async ({ region, contentTypeId }) => {
+      candidateQueries.push({ districtCode: region.districtCode, contentTypeId });
+      if (contentTypeId === 12) {
+        return {
+          status: "success",
+          totalCount: 2,
+          records: [
+            {
+              contentid: "shared-attraction",
+              contenttypeid: 12,
+              title: region.districtCode === "111" ? "공통 명소 첫 결과" : "공통 명소 중복",
+              mapx: 127.148,
+              mapy: 35.8242,
+              lDongRegnCd: "52",
+              lDongSignguCd: region.districtCode,
+            },
+            {
+              contentid: `visit-${region.districtCode}`,
+              contenttypeid: 12,
+              title: `전주 명소 ${region.districtCode}`,
+              mapx: 127.15,
+              mapy: 35.82,
+              lDongRegnCd: "52",
+              lDongSignguCd: region.districtCode,
+            },
+          ],
+        };
+      }
+      if (contentTypeId === 14 && region.districtCode === "111") {
+        return { status: "failure", errorCode: "TOURAPI_NETWORK", retriable: true };
+      }
+      if (contentTypeId === 14) {
+        return {
+          status: "success",
+          totalCount: 1,
+          records: [
+            {
+              contentid: "museum-113",
+              contenttypeid: 14,
+              title: "덕진구 박물관",
+              mapx: 127.13,
+              mapy: 35.85,
+              lDongRegnCd: "52",
+              lDongSignguCd: "113",
+            },
+          ],
+        };
+      }
+      if (contentTypeId === 32) {
+        return {
+          status: "success",
+          totalCount: 1,
+          records: [
+            {
+              contentid: `lodging-${region.districtCode}`,
+              contenttypeid: 32,
+              title: `전주 숙소 ${region.districtCode}`,
+              mapx: 127.14,
+              mapy: 35.83,
+              lDongRegnCd: "52",
+              lDongSignguCd: region.districtCode,
+            },
+          ],
+        };
+      }
+      return { status: "empty", records: [], totalCount: 0 };
+    },
+    planCandidates: async () => ({
+      ok: false,
+      errorCode: "OPENAI_CONFIGURATION_MISSING",
+      attempts: 0,
+    }),
+    routeSegment: async () => ({
+      status: "failed",
+      errorCode: "NOT_USED",
+    }),
+  });
+
+  const started = await orchestrator.startItinerary(
+    {
+      origin: "서울역",
+      destination: "전주",
+      durationDays: 1,
+      transportMode: "drive",
+    },
+    "child-district-merge",
+  );
+  assert.equal(started.status, "processing");
+  if (started.status !== "processing") {
+    throw new Error("하위 구 병합 일정이 processing으로 시작되지 않았습니다.");
+  }
+  await orchestrator.advanceItinerary(started.itineraryId);
+  await orchestrator.advanceItinerary(started.itineraryId);
+  assert.equal(
+    (await jobStore.getJob(started.itineraryId))?.meta.phase,
+    "arranging",
+  );
+  assert.equal(candidateQueries.length, PLANME_V3_ALLOWED_CONTENT_TYPE_IDS.length * 2);
+  assert.equal(
+    candidateQueries.some((query) => query.districtCode === "110"),
+    false,
+  );
+  assert.deepEqual(
+    [...new Set(candidateQueries.map((query) => query.districtCode))],
+    ["111", "113"],
+  );
+
+  const checkpoint = await jobStore.getCheckpoint(
+    started.itineraryId,
+    1,
+    "collecting_candidates",
+  );
+  const payload = checkpoint?.payload as {
+    candidates?: Array<{ contentId?: string; title?: string }>;
+  } | undefined;
+  assert.deepEqual(
+    payload?.candidates?.map((candidate) => candidate.contentId),
+    [
+      "shared-attraction",
+      "visit-111",
+      "visit-113",
+      "museum-113",
+      "lodging-111",
+      "lodging-113",
+    ],
+  );
+  assert.equal(payload?.candidates?.[0]?.title, "공통 명소 첫 결과");
+  assert.equal(
+    payload?.candidates?.some(
+      (candidate) => candidate.contentId === "parent-cache-must-not-be-used",
+    ),
+    false,
   );
 }
 

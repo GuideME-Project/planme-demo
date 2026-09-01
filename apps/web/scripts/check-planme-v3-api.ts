@@ -182,6 +182,7 @@ assert.match(internalEditRouteSource, /ITINERARY_VERSION_CONFLICT/);
 const mcpSources = [
   "apps/mcp/src/gpts-actions-api.ts",
   "apps/mcp/src/planme-mcp.ts",
+  "apps/mcp/src/planme-web-client.ts",
 ].map((path) => readFileSync(join(root, path), "utf8")).join("\n");
 assert.doesNotMatch(
   mcpSources,
