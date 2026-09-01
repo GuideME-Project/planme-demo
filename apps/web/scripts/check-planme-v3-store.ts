@@ -9,6 +9,7 @@ import {
 import {
   createMemoryPlanmeV3TourCache,
   loadTourCandidates,
+  type PlanmeV3TourCache,
   type TourCacheScope,
 } from "../lib/planme-v3/tour-cache";
 
@@ -298,6 +299,13 @@ async function checkTourCachePolicy() {
   };
   const oldAttraction = place("old-attraction", 12, "기존 명소");
 
+  assert.deepEqual(await cache.saveSuccessfulResponse(lodgingScope, []), {
+    freshStored: false,
+    lastGoodStored: false,
+  });
+  assert.deepEqual(await cache.readFresh(lodgingScope), { status: "miss" });
+  assert.deepEqual(await cache.readLastGood(lodgingScope), { status: "miss" });
+
   await cache.saveSuccessfulResponse(attractionScope, [oldAttraction]);
   now += 24 * 60 * 60 * 1_000 + 1;
   assert.deepEqual(await cache.readFresh(attractionScope), { status: "miss" });
@@ -322,7 +330,14 @@ async function checkTourCachePolicy() {
     assert.deepEqual(normalEmpty.places, []);
   }
 
-  const emptyFreshHit = await loadTourCandidates({
+  assert.deepEqual(await cache.readFresh(attractionScope), { status: "miss" });
+  const preservedLastGood = await cache.readLastGood(attractionScope);
+  assert.equal(preservedLastGood.status, "hit");
+  if (preservedLastGood.status === "hit") {
+    assert.equal(preservedLastGood.places[0]?.contentId, oldAttraction.contentId);
+  }
+
+  const outageAfterEmpty = await loadTourCandidates({
     cache,
     scope: attractionScope,
     fetchFromTourApi: async () => {
@@ -330,24 +345,14 @@ async function checkTourCachePolicy() {
       return { status: "failure" };
     },
   });
-  assert.equal(fetchCount, 1);
-  assert.deepEqual(emptyFreshHit, {
-    status: "available",
-    source: "fresh-cache",
-    places: [],
-  });
-
-  now += 24 * 60 * 60 * 1_000 + 1;
-  const outageAfterEmpty = await loadTourCandidates({
-    cache,
-    scope: attractionScope,
-    fetchFromTourApi: async () => ({ status: "failure" }),
-  });
+  assert.equal(fetchCount, 2);
   assert.equal(outageAfterEmpty.status, "available");
   if (outageAfterEmpty.status === "available") {
     assert.equal(outageAfterEmpty.source, "last-good");
-    assert.deepEqual(outageAfterEmpty.places, []);
+    assert.equal(outageAfterEmpty.places[0]?.contentId, oldAttraction.contentId);
   }
+
+  await checkLegacyEmptyCacheIsIgnored(attractionScope, oldAttraction);
 
   const otherTypeOutage = await loadTourCandidates({
     cache,
@@ -355,6 +360,42 @@ async function checkTourCachePolicy() {
     fetchFromTourApi: async () => ({ status: "failure" }),
   });
   assert.deepEqual(otherTypeOutage, { status: "unavailable" });
+}
+
+async function checkLegacyEmptyCacheIsIgnored(
+  scope: TourCacheScope,
+  recoveredPlace: TourPlaceSnapshot,
+) {
+  const legacyEmptyCache: PlanmeV3TourCache = {
+    readFresh: async () => ({ status: "hit", places: [] }),
+    readLastGood: async () => ({ status: "hit", places: [] }),
+    saveSuccessfulResponse: async () => ({
+      freshStored: true,
+      lastGoodStored: true,
+    }),
+  };
+  let fetchCount = 0;
+  const recovered = await loadTourCandidates({
+    cache: legacyEmptyCache,
+    scope,
+    fetchFromTourApi: async () => {
+      fetchCount += 1;
+      return { status: "success", places: [recoveredPlace] };
+    },
+  });
+  assert.equal(fetchCount, 1);
+  assert.equal(recovered.status, "available");
+  if (recovered.status === "available") {
+    assert.equal(recovered.source, "tourapi");
+    assert.equal(recovered.places[0]?.contentId, recoveredPlace.contentId);
+  }
+
+  const unavailable = await loadTourCandidates({
+    cache: legacyEmptyCache,
+    scope,
+    fetchFromTourApi: async () => ({ status: "failure" }),
+  });
+  assert.deepEqual(unavailable, { status: "unavailable" });
 }
 
 async function advanceToActivating(

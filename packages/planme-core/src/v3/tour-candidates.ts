@@ -30,6 +30,14 @@ export type NormalizeTourCandidatesOptions = {
   limitPerContentType?: number;
 };
 
+export type SelectTourCandidatesOptions = Pick<
+  NormalizeTourCandidatesOptions,
+  | "expectedDistrictCode"
+  | "requestedPlaces"
+  | "preferences"
+  | "limitPerContentType"
+>;
+
 // The initial AI candidate cap is 30 places per content type.
 export const PLANME_V3_CANDIDATE_LIMIT_PER_CONTENT_TYPE = 30;
 
@@ -41,6 +49,17 @@ export function normalizeTourCandidates(
   records: TourApiCandidateRecord[],
   options: NormalizeTourCandidatesOptions,
 ): TourPlaceSnapshot[] {
+  const candidates = records.flatMap((record) => {
+    const candidate = normalizeTourCandidate(record, options);
+    return candidate ? [candidate] : [];
+  });
+  return selectTourCandidates(candidates, options);
+}
+
+export function selectTourCandidates(
+  candidates: TourPlaceSnapshot[],
+  options: SelectTourCandidatesOptions = {},
+): TourPlaceSnapshot[] {
   const requestedTitles = new Set(
     (options.requestedPlaces ?? []).map(normalizeComparableTitle).filter(Boolean),
   );
@@ -49,13 +68,7 @@ export function normalizeTourCandidates(
     .filter(Boolean);
   const byStableId = new Map<string, TourPlaceSnapshot>();
 
-  for (const record of records) {
-    const candidate = normalizeTourCandidate(record, options);
-
-    if (!candidate) {
-      continue;
-    }
-
+  for (const candidate of candidates) {
     const stableId = `${candidate.contentTypeId}:${candidate.contentId}`;
     if (!byStableId.has(stableId)) {
       byStableId.set(stableId, candidate);

@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "npm --workspace @planme/core run build && next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "check:search-rate-limit": "tsx scripts/check-planme-search-rate-limit.ts"
   },
   "dependencies": {
     "@emotion/cache": "^11.14.0",

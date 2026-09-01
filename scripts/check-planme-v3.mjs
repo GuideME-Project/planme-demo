@@ -9,6 +9,7 @@ import {
   parseAndValidateAiPlanSelection,
   resolveTripIntent,
   scheduleTripPlan,
+  selectTourCandidates,
 } from "@planme/core";
 
 const intentResult = resolveTripIntent({
@@ -152,6 +153,23 @@ assert.equal(
   }).some((candidate) => candidate.contentId === "wrong-district"),
   false,
 );
+
+const mergedCandidates = Array.from({ length: 40 }, (_, index) => ({
+  contentId: `merged-${index}`,
+  contentTypeId: 12,
+  title: `병합 후보 ${String(index).padStart(2, "0")}`,
+  coordinate: { lat: 35.8 + index * 0.001, lng: 127.1 + index * 0.001 },
+  regionCode: "52",
+  districtCode: index % 2 === 0 ? "111" : "113",
+  fetchedAt: "2026-08-31T00:00:00.000Z",
+  cacheStatus: "fresh",
+  source: "tourapi",
+}));
+const selectedMergedCandidates = selectTourCandidates(mergedCandidates, {
+  requestedPlaces: ["병합 후보 39"],
+});
+assert.equal(selectedMergedCandidates.length, 30);
+assert.equal(selectedMergedCandidates[0]?.contentId, "merged-39");
 
 const validSelectionJson = JSON.stringify({
   lodgingContentId: "lodging-1",

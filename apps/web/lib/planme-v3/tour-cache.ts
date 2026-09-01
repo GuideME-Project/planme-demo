@@ -63,13 +63,16 @@ export async function loadTourCandidates(input: {
   >;
 }): Promise<TourCandidateLoadResult> {
   const fresh = await input.cache.readFresh(input.scope);
-  if (fresh.status === "hit") {
+  if (fresh.status === "hit" && fresh.places.length > 0) {
     return { status: "available", source: "fresh-cache", places: fresh.places };
   }
 
   const response = await input.fetchFromTourApi();
   if (response.status === "success") {
     const places = withCacheStatus(response.places, "fresh");
+    if (places.length === 0) {
+      return { status: "available", source: "tourapi", places };
+    }
     const cacheWrite = await input.cache.saveSuccessfulResponse(
       input.scope,
       places,
@@ -78,7 +81,7 @@ export async function loadTourCandidates(input: {
   }
 
   const lastGood = await input.cache.readLastGood(input.scope);
-  if (lastGood.status === "hit") {
+  if (lastGood.status === "hit" && lastGood.places.length > 0) {
     return {
       status: "available",
       source: "last-good",
@@ -112,6 +115,9 @@ class MemoryPlanmeV3TourCache implements PlanmeV3TourCache {
     places: TourPlaceSnapshot[],
   ): Promise<TourCacheWriteResult> {
     assertScopeMatchesPlaces(scope, places);
+    if (places.length === 0) {
+      return { freshStored: false, lastGoodStored: false };
+    }
     const freshPlaces = withCacheStatus(places, "fresh");
     const now = this.now();
     this.values.set(cacheKey(scope, "fresh"), {
@@ -161,6 +167,9 @@ class UpstashPlanmeV3TourCache implements PlanmeV3TourCache {
     places: TourPlaceSnapshot[],
   ): Promise<TourCacheWriteResult> {
     assertScopeMatchesPlaces(scope, places);
+    if (places.length === 0) {
+      return { freshStored: false, lastGoodStored: false };
+    }
     const serialized = JSON.stringify(withCacheStatus(places, "fresh"));
     let freshStored = false;
     let lastGoodStored = false;

@@ -49,6 +49,7 @@ export type TourRegion = {
 
 export type TourDestinationResolution = {
   region: TourRegion;
+  candidateRegions?: TourRegion[];
   place?: TourApiCandidateRecord;
 };
 
@@ -152,7 +153,11 @@ async function resolveTourDestination(input: {
 
   const directRegion = matchTourRegion(input.destination, regions.items);
   if (directRegion) {
-    return { region: directRegion };
+    const candidateRegions = findChildTourRegions(directRegion, regions.items);
+    return {
+      region: directRegion,
+      ...(candidateRegions.length > 0 ? { candidateRegions } : {}),
+    };
   }
 
   const places = await requestTourApi<TourApiCandidateRecord>({
@@ -371,26 +376,7 @@ function matchTourRegion(
 ): TourRegion | null {
   const comparableDestination = normalizeRegionName(destination);
   const compactDestination = compactRegionName(destination);
-  const normalized = records.flatMap((record) => {
-    const regionCode = normalizeScalar(record.lDongRegnCd);
-    const regionName = record.lDongRegnNm?.trim();
-
-    if (!regionCode || !regionName) {
-      return [];
-    }
-
-    const districtCode = normalizeScalar(record.lDongSignguCd);
-    const districtName = record.lDongSignguNm?.trim() || undefined;
-
-    return [
-      {
-        regionCode,
-        regionName,
-        ...(districtCode ? { districtCode } : {}),
-        ...(districtName ? { districtName } : {}),
-      },
-    ];
-  });
+  const normalized = normalizeTourRegions(records);
   const candidates = normalized.map((region) => {
     const regionName = normalizeRegionName(region.regionName);
     const districtName = normalizeRegionName(region.districtName ?? "");
@@ -470,6 +456,43 @@ function matchTourRegion(
     ...(match.districtCode ? { districtCode: match.districtCode } : {}),
     ...(match.districtName ? { districtName: match.districtName } : {}),
   };
+}
+
+function findChildTourRegions(
+  parent: TourRegion,
+  records: TourApiLegalDongRecord[],
+) {
+  if (!parent.districtCode || !parent.districtName) {
+    return [];
+  }
+  const childNamePrefix = `${parent.districtName} `;
+  return normalizeTourRegions(records).filter(
+    (region) => region.regionCode === parent.regionCode &&
+      region.districtCode !== parent.districtCode &&
+      region.districtName?.startsWith(childNamePrefix),
+  );
+}
+
+function normalizeTourRegions(records: TourApiLegalDongRecord[]) {
+  return records.flatMap((record): TourRegion[] => {
+    const regionCode = normalizeScalar(record.lDongRegnCd);
+    const regionName = record.lDongRegnNm?.trim();
+
+    if (!regionCode || !regionName) {
+      return [];
+    }
+
+    const districtCode = normalizeScalar(record.lDongSignguCd);
+    const districtName = record.lDongSignguNm?.trim() || undefined;
+    return [
+      {
+        regionCode,
+        regionName,
+        ...(districtCode ? { districtCode } : {}),
+        ...(districtName ? { districtName } : {}),
+      },
+    ];
+  });
 }
 
 function matchTourRegionCodes(

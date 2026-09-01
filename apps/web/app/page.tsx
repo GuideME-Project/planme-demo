@@ -1,17 +1,18 @@
-import { ItineraryDashboard } from "@/components/itinerary/ItineraryDashboard";
-import { getDemoItinerary } from "@planme/core";
+import { randomUUID } from "node:crypto";
+import { PlanmeSearchHome } from "@/components/planme-search/PlanmeSearchHome";
 
-/**
- * Renders the PlanME demo landing page.
- */
-export default function Home() {
-  const itinerary = getDemoItinerary();
+type HomeProps = {
+  searchParams: Promise<{ q?: string | string[] }>;
+};
+
+export default async function Home({ searchParams }: HomeProps) {
+  const params = await searchParams;
+  const query = Array.isArray(params.q) ? params.q[0] : params.q;
 
   return (
-    <main className="min-h-screen">
-      <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-5 py-6 lg:px-8">
-        <ItineraryDashboard itinerary={itinerary} compact={false} />
-      </div>
-    </main>
+    <PlanmeSearchHome
+      initialDestination={query?.trim().slice(0, 100) ?? ""}
+      initialSubmissionId={randomUUID()}
+    />
   );
 }

@@ -150,6 +150,24 @@ const tourClient = createTourApiClient({
                   lDongSignguCd: "48840",
                   lDongSignguNm: "남해군",
                 },
+                {
+                  lDongRegnCd: "52",
+                  lDongRegnNm: "전북특별자치도",
+                  lDongSignguCd: "110",
+                  lDongSignguNm: "전주시",
+                },
+                {
+                  lDongRegnCd: "52",
+                  lDongRegnNm: "전북특별자치도",
+                  lDongSignguCd: "111",
+                  lDongSignguNm: "전주시 완산구",
+                },
+                {
+                  lDongRegnCd: "52",
+                  lDongRegnNm: "전북특별자치도",
+                  lDongSignguCd: "113",
+                  lDongSignguNm: "전주시 덕진구",
+                },
               ],
             },
           },
@@ -280,6 +298,39 @@ assert.deepEqual(await tourClient.resolveDestination("경주월드"), {
     lDongSignguCd: "130",
   },
 });
+assert.deepEqual(await tourClient.resolveDestination("전주"), {
+  region: {
+    regionCode: "52",
+    regionName: "전북특별자치도",
+    districtCode: "110",
+    districtName: "전주시",
+  },
+  candidateRegions: [
+    {
+      regionCode: "52",
+      regionName: "전북특별자치도",
+      districtCode: "111",
+      districtName: "전주시 완산구",
+    },
+    {
+      regionCode: "52",
+      regionName: "전북특별자치도",
+      districtCode: "113",
+      districtName: "전주시 덕진구",
+    },
+  ],
+});
+assert.deepEqual(await tourClient.resolveDestination("전주시 완산구"), {
+  region: {
+    regionCode: "52",
+    regionName: "전북특별자치도",
+    districtCode: "111",
+    districtName: "전주시 완산구",
+  },
+});
+assert.deepEqual(await tourClient.resolveDestination("부산"), {
+  region: { regionCode: "26", regionName: "부산광역시" },
+});
 const tourResult: TourCandidateQueryResult = await tourClient.listCandidates({
   contentTypeId: 12,
   region,
@@ -301,6 +352,9 @@ const stayRequest = requestedUrls.at(-1);
 assert.equal(stayRequest?.pathname.endsWith("/searchStay2"), true);
 assert.equal(stayRequest?.searchParams.get("contentTypeId"), null);
 assert.deepEqual(tourUsageEvents, [
+  "tourapi_request",
+  "tourapi_request",
+  "tourapi_request",
   "tourapi_request",
   "tourapi_request",
   "tourapi_request",
