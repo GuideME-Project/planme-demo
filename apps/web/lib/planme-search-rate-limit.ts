@@ -16,6 +16,7 @@ export type PlanmeSearchRateLimitDecision = {
 };
 
 export type PlanmeSearchRateLimitInput = {
+  limits?: { minute: number; day: number };
   dayKey: string;
   dayTtlSeconds: number;
   minuteKey: string;
@@ -115,6 +116,30 @@ export async function consumePlanmeSearchRateLimit(
   });
 }
 
+// Conservative demo defaults approved for this implementation, not Google quotas or settled product policy.
+export const PLANME_AUTOCOMPLETE_LIMITS = { minute: 30, day: 200 };
+export const PLANME_AUTOCOMPLETE_GLOBAL_LIMITS = { minute: 300, day: 3000 };
+
+export async function consumePlanmeAutocompleteRateLimit(sessionId: string) {
+  const nowMs = Date.now();
+  const store = getPlanmeSearchRateLimitStore();
+  for (const [subject, limits] of [
+    [sessionId, PLANME_AUTOCOMPLETE_LIMITS],
+    ["global", PLANME_AUTOCOMPLETE_GLOBAL_LIMITS],
+  ] as const) {
+    const keys = createPlanmeSearchRateLimitKeys(subject, nowMs);
+    const result = await store.consume({
+      ...keys,
+      dayKey: keys.dayKey.replace(PLANME_SEARCH_RATE_KEY_PREFIX, "planme:autocomplete-rate"),
+      minuteKey: keys.minuteKey.replace(PLANME_SEARCH_RATE_KEY_PREFIX, "planme:autocomplete-rate"),
+      nowMs,
+      limits,
+    });
+    if (!result.allowed) return result;
+  }
+  return { allowed: true, blockedBy: null } satisfies PlanmeSearchRateLimitDecision;
+}
+
 /**
  * Builds only hashed Redis keys so anonymous cookie values are never persisted.
  */
@@ -198,8 +223,8 @@ class UpstashPlanmeSearchRateLimitStore implements PlanmeSearchRateLimitStore {
       PLANME_SEARCH_RATE_LIMIT_LUA,
       [input.minuteKey, input.dayKey],
       [
-        PLANME_SEARCH_MINUTE_LIMIT,
-        PLANME_SEARCH_DAILY_LIMIT,
+        input.limits?.minute ?? PLANME_SEARCH_MINUTE_LIMIT,
+        input.limits?.day ?? PLANME_SEARCH_DAILY_LIMIT,
         input.minuteTtlSeconds,
         input.dayTtlSeconds,
       ],
@@ -219,10 +244,10 @@ class MemoryPlanmeSearchRateLimitStore implements PlanmeSearchRateLimitStore {
     const minute = this.getActiveCounter(input.minuteKey, input.nowMs);
     const day = this.getActiveCounter(input.dayKey, input.nowMs);
 
-    if ((minute?.count ?? 0) >= PLANME_SEARCH_MINUTE_LIMIT) {
+    if ((minute?.count ?? 0) >= (input.limits?.minute ?? PLANME_SEARCH_MINUTE_LIMIT)) {
       return { allowed: false, blockedBy: "minute" };
     }
-    if ((day?.count ?? 0) >= PLANME_SEARCH_DAILY_LIMIT) {
+    if ((day?.count ?? 0) >= (input.limits?.day ?? PLANME_SEARCH_DAILY_LIMIT)) {
       return { allowed: false, blockedBy: "day" };
     }
 

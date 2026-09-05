@@ -17,7 +17,6 @@ import {
   Divider,
   FormHelperText,
   IconButton,
-  InputBase,
   Popover,
   Stack,
   ToggleButton,
@@ -25,7 +24,10 @@ import {
   Typography,
 } from "@mui/material";
 import Image from "next/image";
-import { useActionState, useRef, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
+import { PlanmeGlobalPreparation } from "./PlanmeGlobalPreparation";
+import { PlanmePlaceInput } from "./PlanmePlaceInput";
+import type { PlanmePlaceSelection } from "@/lib/planme-places";
 import {
   type PlanmeSearchActionState,
   startPlanmeSearchAction,
@@ -42,8 +44,19 @@ export function PlanmeSearchHome({
   initialDestination,
   initialSubmissionId,
 }: PlanmeSearchHomeProps) {
+  const [originSelection, setOriginSelection] = useState<PlanmePlaceSelection | null>(null);
+  const [destinationSelection, setDestinationSelection] = useState<PlanmePlaceSelection | null>(null);
+  const [consumedTokens, setConsumedTokens] = useState<string[]>([]);
   const [state, formAction, pending] = useActionState(
-    startPlanmeSearchAction,
+    async (previousState: PlanmeSearchActionState, formData: FormData) => {
+      try {
+        return await startPlanmeSearchAction(previousState, formData);
+      } finally {
+        const tokens = [formData.get("originSessionToken"), formData.get("destinationSessionToken")]
+          .filter((token): token is string => typeof token === "string" && Boolean(token));
+        setConsumedTokens((current) => [...new Set([...current, ...tokens])]);
+      }
+    },
     {} satisfies PlanmeSearchActionState,
   );
   const [destination, setDestination] = useState(initialDestination);
@@ -53,9 +66,26 @@ export function PlanmeSearchHome({
   const [submissionId, setSubmissionId] = useState(initialSubmissionId);
   const [durationAnchor, setDurationAnchor] = useState<HTMLElement | null>(null);
   const durationPaperRef = useRef<HTMLDivElement | null>(null);
+  const destinationInputRef = useRef<HTMLInputElement | null>(null);
+  const submittingRef = useRef(false);
+  const visibleState: PlanmeSearchActionState = !pending && state.submissionId === submissionId ? state : {};
+  const globalPreparation = state.globalPreparation?.submissionId === submissionId
+    ? state.globalPreparation
+    : undefined;
+
+  useEffect(() => {
+    if (!pending) submittingRef.current = false;
+  }, [pending, state]);
 
   const rotateSubmissionId = () => setSubmissionId(crypto.randomUUID());
   const selectedDurationDays = durationDays ? Number(durationDays) : 1;
+
+  const searchAgain = () => {
+    setDestination("");
+    setDestinationSelection(null);
+    rotateSubmissionId();
+    requestAnimationFrame(() => destinationInputRef.current?.focus());
+  };
 
   const selectDuration = (value: number) => {
     setDurationDays(String(Math.min(14, Math.max(1, value))));
@@ -112,7 +142,16 @@ export function PlanmeSearchHome({
         </Box>
       </Box>
 
-      <Box
+      {globalPreparation ? (
+        <PlanmeGlobalPreparation
+          origin={globalPreparation.origin}
+          internationalSide={globalPreparation.internationalSide}
+          destination={globalPreparation.destination}
+          countryName={globalPreparation.countryName}
+          attributions={globalPreparation.attributions}
+          onSearchAgain={searchAgain}
+        />
+      ) : <Box
         sx={{
           minHeight: { xs: "calc(100dvh - 76px)", md: "calc(100dvh - 96px)" },
           display: "flex",
@@ -127,6 +166,15 @@ export function PlanmeSearchHome({
         <Box
           component="form"
           action={formAction}
+          aria-busy={pending}
+          onSubmit={(event) => {
+            if (pending || submittingRef.current) {
+              event.preventDefault();
+              return;
+            }
+            submittingRef.current = true;
+            setDurationAnchor(null);
+          }}
           noValidate
           sx={{
             width: "100%",
@@ -148,57 +196,65 @@ export function PlanmeSearchHome({
           <input type="hidden" name="submissionId" value={submissionId} />
           <input type="hidden" name="transportMode" value={transportMode} />
           <input type="hidden" name="durationDays" value={durationDays} />
+          <input type="hidden" name="originPlaceId" value={originSelection?.placeId ?? ""} />
+          <input type="hidden" name="destinationPlaceId" value={destinationSelection?.placeId ?? ""} />
+          <input type="hidden" name="originSessionToken" value={originSelection && !consumedTokens.includes(originSelection.sessionToken) ? originSelection.sessionToken : ""} />
+          <input type="hidden" name="destinationSessionToken" value={destinationSelection && !consumedTokens.includes(destinationSelection.sessionToken) ? destinationSelection.sessionToken : ""} />
 
           <SearchField
             label="출발지"
             labelFor="planme-origin"
-            error={!origin ? state.fieldErrors?.origin : undefined}
+            error={visibleState.fieldErrors?.origin}
             icon={<AdjustRoundedIcon />}
             divider
           >
-            <InputBase
+            <PlanmePlaceInput
               id="planme-origin"
               name="origin"
+              label="출발지"
+              selection={originSelection}
+              disabled={pending}
               value={origin}
-              onChange={(event) => {
-                setOrigin(event.target.value);
+              onValueChange={(value, selection) => {
+                setOrigin(value);
+                setOriginSelection(selection);
                 rotateSubmissionId();
               }}
-              placeholder="출발지"
-              inputProps={{ "aria-label": "출발지", maxLength: 100 }}
-              sx={inputSx}
             />
           </SearchField>
 
           <SearchField
             label="목적지"
             labelFor="planme-destination"
-            error={!destination ? state.fieldErrors?.destination : undefined}
+            error={visibleState.fieldErrors?.destination}
             icon={<LocationOnOutlinedIcon />}
             divider
           >
-            <InputBase
+            <PlanmePlaceInput
               id="planme-destination"
               name="destination"
+              label="목적지"
+              selection={destinationSelection}
+              inputRef={destinationInputRef}
+              disabled={pending}
               value={destination}
-              onChange={(event) => {
-                setDestination(event.target.value);
+              onValueChange={(value, selection) => {
+                setDestination(value);
+                setDestinationSelection(selection);
                 rotateSubmissionId();
               }}
-              placeholder="목적지"
-              inputProps={{ "aria-label": "목적지", maxLength: 100 }}
-              sx={inputSx}
             />
           </SearchField>
 
           <SearchField
             label="여행 기간"
             labelFor="planme-duration"
-            error={!durationDays ? state.fieldErrors?.durationDays : undefined}
+            error={!durationDays ? visibleState.fieldErrors?.durationDays : undefined}
             divider
           >
             <ButtonBase
               id="planme-duration"
+              disabled={pending}
               aria-label="여행 기간 선택"
               aria-haspopup="dialog"
               aria-expanded={Boolean(durationAnchor)}
@@ -291,9 +347,10 @@ export function PlanmeSearchHome({
 
           <SearchField
             label="이동수단"
-            error={!transportMode ? state.fieldErrors?.transportMode : undefined}
+            error={!transportMode ? visibleState.fieldErrors?.transportMode : undefined}
           >
             <ToggleButtonGroup
+              disabled={pending}
               exclusive
               value={transportMode}
               onChange={(_event, value: TransportMode | null) => {
@@ -349,21 +406,21 @@ export function PlanmeSearchHome({
                 },
               }}
             >
-              {pending ? "일정 시작 중" : "검색"}
+              {pending ? "여행지 확인 중" : "검색"}
             </Button>
           </Box>
 
-          {state.error ? (
+          {visibleState.error ? (
             <Typography
               role="alert"
               color="error"
               sx={{ gridColumn: "1 / -1", mt: 1.5, px: 1, fontSize: 14 }}
             >
-              {state.error}
+              {visibleState.error}
             </Typography>
           ) : null}
         </Box>
-      </Box>
+      </Box>}
     </Box>
   );
 }
@@ -453,13 +510,3 @@ function DurationStepButton(props: React.ComponentProps<typeof IconButton>) {
 function formatDuration(days: number) {
   return days === 1 ? "당일치기" : `${days - 1}박 ${days}일`;
 }
-
-const inputSx = {
-  width: "100%",
-  mt: 0.5,
-  color: "#17233c",
-  fontSize: { xs: 20, md: 23 },
-  fontWeight: 650,
-  "& input": { py: 0.5 },
-  "& input::placeholder": { color: "#8993a5", opacity: 1 },
-};
