@@ -6,6 +6,7 @@ import {
   consumePlanmeSearchRateLimit,
   getOrCreatePlanmeSearchSessionId,
 } from "@/lib/planme-search-rate-limit";
+import { isPlanmeProgressPreviewEnabled } from "@/lib/planme-progress-preview";
 import { getPlanmeV3Runtime } from "@/lib/planme-v3/runtime";
 
 const MAX_LOCATION_LENGTH = 100;
@@ -80,16 +81,21 @@ export async function startPlanmeSearchAction(
     );
 
     if (result.status === "processing") {
-      result = await runtime.runUntilTerminal(
-        result.itineraryId,
-        Date.now() + GENERATION_DEADLINE_MS,
-      );
+      if (!isPlanmeProgressPreviewEnabled()) {
+        result = await runtime.runUntilTerminal(
+          result.itineraryId,
+          Date.now() + GENERATION_DEADLINE_MS,
+        );
+      }
     }
   } catch (error) {
     console.error("PlanME web search failed", error);
     return { error: "일정 생성에 실패했습니다. 다시 시도해 주세요." };
   }
 
+  if (result?.status === "processing" && isPlanmeProgressPreviewEnabled()) {
+    redirect(`/itinerary/${encodeURIComponent(result.itineraryId)}`);
+  }
   if (result?.status === "ready") {
     redirect(`/itinerary/${encodeURIComponent(result.itineraryId)}`);
   }

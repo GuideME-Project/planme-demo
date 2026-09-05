@@ -11,9 +11,12 @@ import {
 import type { PlanmeV3TourCache } from "./tour-cache";
 
 const LOCAL_FIXTURE_ENV = "PLANME_V3_LOCAL_FIXTURE";
+const PROGRESS_PREVIEW_ENV = "PLANME_PROGRESS_UI_PREVIEW";
 
 export function isPlanmeV3LocalFixtureEnabled() {
-  return process.env.NODE_ENV !== "production" &&
+  const isolatedProgressPreview =
+    process.env[PROGRESS_PREVIEW_ENV]?.trim() === "1";
+  return (process.env.NODE_ENV !== "production" || isolatedProgressPreview) &&
     process.env[LOCAL_FIXTURE_ENV]?.trim() === "1";
 }
 

@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ItineraryDashboard } from "@/components/itinerary/ItineraryDashboard";
+import { PlanmeGenerationProgress } from "@/components/planme-search/PlanmeGenerationProgress";
 import { createV3DashboardItinerary } from "@planme/core";
+import { isPlanmeProgressPreviewEnabled } from "@/lib/planme-progress-preview";
 import { createRouteFinalizationToken } from "@/lib/route-finalization-token";
 import { getPlanmeV3Storage } from "@/lib/planme-v3/runtime";
 import {
@@ -76,6 +78,14 @@ export default async function ItineraryPage({ params }: ItineraryPageProps) {
     const revision = snapshot.activeRevision;
     const pageOrigin = process.env.PLANME_WEB_ORIGIN?.trim() || "https://planme-demo.vercel.app";
     if (!revision) {
+      if (isPlanmeProgressPreviewEnabled()) {
+        return (
+          <PlanmeGenerationProgress
+            itineraryId={id}
+            initialPhase={snapshot.meta.phase}
+          />
+        );
+      }
       return (
         <main className="min-h-screen px-5 py-8 lg:px-8">
           <p>여행 일정을 준비하고 있습니다.</p>

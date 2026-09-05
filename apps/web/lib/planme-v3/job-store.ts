@@ -1,5 +1,8 @@
 import { Redis } from "@upstash/redis";
-import type { ItineraryRevision, JsonValue } from "@planme/core";
+import type {
+  ItineraryRevision,
+  JsonValue,
+} from "@planme/core";
 
 export type ItineraryPhase =
   | "queued"
@@ -689,7 +692,10 @@ async function throwClassifiedUpstashFailure(redis: Redis): Promise<never> {
   throw new Error("PLANME_V3_REDIS_CREATE_GENERATION_FAILED");
 }
 
-function createGenerationMeta(itineraryId: string, nowMs: number): ItineraryJobMeta {
+function createGenerationMeta(
+  itineraryId: string,
+  nowMs: number,
+): ItineraryJobMeta {
   const createdAt = new Date(nowMs).toISOString();
   return {
     schemaVersion: 3,

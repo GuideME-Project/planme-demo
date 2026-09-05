@@ -1,44 +1,44 @@
-**Source Visual Truth**
-- White mode: `/Users/dev1/Documents/Obsidian/GuideME/20_업무/Projects/04_PlanME/assets/planme_route_compare_white_mode_concept.png`
-- Dark mode: `/Users/dev1/Documents/Obsidian/GuideME/20_업무/Projects/04_PlanME/assets/planme_route_compare_dark_mode_concept.png`
+# PlanME 여행 기간 스테퍼 디자인 QA
 
-**Implementation Evidence**
-- Local URL: `http://localhost:3009/itinerary/osaka-2d1n`
-- Viewport: `1512x1077`
-- State: desktop, Day 1, route comparison tab, Standard and CarryME overlays visible
-- Light implementation screenshot: `/tmp/planme-implementation-light.png`
-- Dark implementation screenshot: `/tmp/planme-implementation-dark.png`
-- Full-view comparison, light: `/Users/dev1/.config/superpowers/worktrees/planme-demo/fix-og-image-response/design-qa-assets/compare-white.png`
-- Full-view comparison, dark: `/Users/dev1/.config/superpowers/worktrees/planme-demo/fix-og-image-response/design-qa-assets/compare-dark.png`
+## 비교 대상
 
-**Findings**
-- No P0, P1, or P2 findings remain.
+- 디자인 기준: `/Users/mion/.codex/generated_images/01a04600-e913-74b3-911c-49ac68358635/exec-25d766bb-8519-4fe5-9d44-097b1e813997.png`
+- 구현 캡처 원본: `artifacts/design-qa/duration-stepper-matched@2x.png`
+- 구현 정규화 캡처: `artifacts/design-qa/duration-stepper-matched.png`
+- 전체 비교: `artifacts/design-qa/duration-stepper-matched-comparison.png`
+- 기간 영역 비교: `artifacts/design-qa/duration-stepper-focused-comparison.png`
 
-**Required Fidelity Surfaces**
-- Fonts and typography: The implementation uses Geist with similar hierarchy and compact dashboard weights. Headline, metric cards, route summaries, timeline labels, CTA, and benefit strip remain readable in both themes. No truncation or broken wrapping was visible at the desktop viewport.
-- Spacing and layout rhythm: The adopted two-column structure is preserved: route comparison and map on the left, timeline panel on the right, benefit strip below. The implementation is slightly narrower than the source concept because it follows the app's existing `max-w-7xl` shell, but the density and scan path remain aligned.
-- Colors and visual tokens: Light and dark palettes match the concept direction with blue Standard, green CarryME, red savings, muted cards, and low-contrast borders. A dark-mode body background mismatch was found during QA and fixed by binding global CSS variables to `data-planme-theme`.
-- Image quality and asset fidelity: The map is implemented as a mock route surface, not a live Google Maps tile. This is an intentional demo constraint because the Google Maps API key, billing, map style ID, and domain restrictions are not configured in this worktree. The mock still preserves route color, markers, legend, and handoff meaning.
-- Copy and content: Core product copy from the concept is represented: PlanME title, route comparison, detailed map, total duration, saved duration, Standard/CarryME schedules, CarryME luggage handoff, demo CTA, and benefit strip.
+## 뷰포트와 정규화
 
-**Patches Made Since Previous QA Pass**
-- Updated `app/globals.css` so `:root[data-planme-theme="dark"]` and `:root[data-planme-theme="light"]` set global background and foreground tokens.
-- Rebuilt and restarted the production server so the latest CSS was reflected in browser screenshots.
-- Recaptured light and dark mode screenshots at the source-aligned desktop viewport.
+- 상태: 목적지 `경주월드`, 여행 기간 `1박 2일`, 기간 팝오버 열림
+- 디자인 기준 원본: 1487 × 1058px
+- 구현 브라우저: 1387 × 987 CSS px, DPR 2
+- 구현 캡처 원본: 2774 × 1974px
+- 비교 시 양쪽을 1387 × 987px로 정규화했습니다.
 
-**Focused Region Comparison Evidence**
-- Header and metrics: checked in `/tmp/planme-implementation-light.png` and `/tmp/planme-implementation-dark.png`; dark header text is visible after the global CSS fix.
-- Route map and legend: checked in both full-view comparison images; route colors and labels are readable, with lower map-tile fidelity accepted for this mock stage.
-- Timeline and CTA: checked in both full-view comparison images; highlighted CarryME handoff, savings badge, duration card, and CTA are visible in both themes.
+## 필수 표면 확인
 
-**Implementation Checklist**
-- Keep current light/dark theme switch and URL copy interaction.
-- Keep current Day 1/Day 2 segmented control and route overlay toggles.
-- Defer live Google Maps integration until API key, billing, style ID, domain restriction, and route polyline data are available.
+- 글꼴과 위계: 검색 레일의 기존 Geist/MUI 글꼴 체계를 유지했고 `1박 2일`을 팝오버의 주 정보로 강조했습니다.
+- 간격과 배치: 여행 기간 필드 바로 아래에 306px 팝오버를 배치하고 감소·값·증가를 한 행으로 정렬했습니다.
+- 색상: 기존 PlanME 파랑, 짙은 본문색, 회색 보조색과 동일한 토큰을 유지했습니다.
+- 이미지와 아이콘: 기존 로고와 배경 자산을 그대로 사용하고 MUI의 달 모양·증가·감소 아이콘을 적용했습니다.
+- 문구: `당일치기`, `1박 2일`, `최대 13박 14일`을 사용하며 실제 전송값은 기존 `durationDays`입니다.
 
-**Follow-up Polish**
-- P3: Replace the mock map background with Google Maps JavaScript API once project credentials are ready.
-- P3: Increase route arrow density and curvature to match the concept more closely after live polyline rendering is introduced.
-- P3: Tune the shell width if the product wants the concept's almost full-viewport density instead of the existing app `max-w-7xl` constraint.
+## 동작과 반응형 확인
+
+- 팝오버를 여는 것만으로 기간이 확정되지 않습니다.
+- 미선택 상태에서 `+` 한 번은 `1박 2일`과 `durationDays=2`를 설정합니다.
+- 최대 `13박 14일`에서 증가 버튼, `당일치기`에서 감소 버튼이 비활성화됩니다.
+- `당일치기` 빠른 선택이 `durationDays=1`로 동작합니다.
+- Escape로 팝오버를 닫을 수 있습니다.
+- 390 × 844 모바일에서 팝오버 폭은 306px, 좌우 위치는 42~348px이며 가로 넘침이 없습니다.
+- `경주월드`, `서울역`, `1박 2일`, `자동차`로 검색해 기존 V3 로컬 고정 데이터 경로가 2일 일정 상세로 이동함을 확인했습니다.
+- 홈 화면 콘솔 오류는 없습니다. 상세 화면의 Naver 지도 localhost 인증 오류는 기존 제약입니다.
+
+## 비교 이력과 판정
+
+- 최초 비교에서 달 아이콘이 기준보다 채워져 보여 MUI의 외곽선 아이콘으로 교체했습니다.
+- 최종 전체·기간 영역 비교에서 P0/P1/P2 차이는 없습니다.
+- P3: 디자인 기준의 팝오버 연결 삼각형은 별도 CSS 도형을 만들지 않고 생략했습니다. 조작 의미와 배치는 유지됩니다.
 
 final result: passed
