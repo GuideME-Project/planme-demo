@@ -168,7 +168,11 @@ export async function consumePreviewFinalizationRateLimit(
   limit: number,
   windowSeconds: number,
 ) {
-  return getPreviewItineraryStore().consumeRateLimit(key, limit, windowSeconds);
+  return getPreviewItineraryStore().consumeRateLimit(
+    `preview-finalization:${key}`,
+    limit,
+    windowSeconds,
+  );
 }
 
 /** Provides the active store while keeping Redis-specific behavior behind one boundary. */

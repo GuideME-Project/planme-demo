@@ -2,13 +2,12 @@ import { createHash } from "node:crypto";
 import type {
   ExcludedRequestedPlace,
   ItineraryDisplayDto,
-  PlanmeV3TransportMode,
 } from "@planme/core";
 
 export type PlanmeV3StartInput = {
   origin: string;
   destination: string;
-  transportMode: PlanmeV3TransportMode;
+  transportMode: "drive" | "transit";
   durationDays: number;
   travelStartDate?: string;
   preferences?: string[];
@@ -71,7 +70,9 @@ export async function startPlanmeV3Itinerary(
     "/api/internal/planme/v3/itineraries",
     {
       method: "POST",
-      headers: { "Idempotency-Key": idempotencyKey },
+      headers: {
+        "Idempotency-Key": idempotencyKey,
+      },
       body: JSON.stringify(input),
     },
     8_000,

@@ -296,5 +296,6 @@ function getUtcDayTtlSeconds(nowMs: number) {
 }
 
 function isProductionRuntime() {
-  return process.env.NODE_ENV === "production";
+  return process.env.NODE_ENV === "production" &&
+    process.env.PLANME_PROGRESS_UI_PREVIEW?.trim() !== "1";
 }

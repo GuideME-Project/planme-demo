@@ -152,7 +152,7 @@ export function PlanmeSearchHome({
           <SearchField
             label="출발지"
             labelFor="planme-origin"
-            error={state.fieldErrors?.origin}
+            error={!origin ? state.fieldErrors?.origin : undefined}
             icon={<AdjustRoundedIcon />}
             divider
           >
@@ -173,7 +173,7 @@ export function PlanmeSearchHome({
           <SearchField
             label="목적지"
             labelFor="planme-destination"
-            error={state.fieldErrors?.destination}
+            error={!destination ? state.fieldErrors?.destination : undefined}
             icon={<LocationOnOutlinedIcon />}
             divider
           >
@@ -194,7 +194,7 @@ export function PlanmeSearchHome({
           <SearchField
             label="여행 기간"
             labelFor="planme-duration"
-            error={state.fieldErrors?.durationDays}
+            error={!durationDays ? state.fieldErrors?.durationDays : undefined}
             divider
           >
             <ButtonBase
@@ -289,7 +289,10 @@ export function PlanmeSearchHome({
             </Popover>
           </SearchField>
 
-          <SearchField label="이동수단" error={state.fieldErrors?.transportMode}>
+          <SearchField
+            label="이동수단"
+            error={!transportMode ? state.fieldErrors?.transportMode : undefined}
+          >
             <ToggleButtonGroup
               exclusive
               value={transportMode}
@@ -340,9 +343,13 @@ export function PlanmeSearchHome({
                 fontSize: 19,
                 fontWeight: 750,
                 "&:hover": { bgcolor: "#0f50c4", boxShadow: "none" },
+                "&.Mui-disabled": {
+                  bgcolor: "#dbe9ff",
+                  color: "#3973c9",
+                },
               }}
             >
-              검색
+              {pending ? "일정 시작 중" : "검색"}
             </Button>
           </Box>
 

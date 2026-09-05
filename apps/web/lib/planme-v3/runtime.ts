@@ -115,7 +115,7 @@ export function getPlanmeV3Storage() {
     };
     return cachedStorage;
   }
-  if (process.env.NODE_ENV === "production") {
+  if (process.env.NODE_ENV === "production" && !isPlanmeV3LocalFixtureEnabled()) {
     throw new Error("PLANME_V3_STORAGE_CONFIGURATION_MISSING");
   }
   const developmentGlobal = globalThis as PlanmeV3DevelopmentGlobal;
