@@ -1294,3 +1294,57 @@
     transform: none;
   }
 }
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  margin-top: 36px;
+}
+.pagination > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+.pagination button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-width: 40px;
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  color: #497fae;
+  font-size: 18px;
+  cursor: pointer;
+}
+.pagination button[aria-current="page"] {
+  color: #1556a5;
+  font-weight: 800;
+}
+.pagination button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.pagination button:focus-visible {
+  outline: 2px solid #1556a5;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.pageGap {
+  color: #657791;
+}
+@media (min-width: 768px) {
+  .faq {
+    grid-template-columns: 1.7fr 1fr;
+  }
+  .faq > div:first-child {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .faqList {
+    grid-column: 1;
+    grid-row: 1;
+  }
+}

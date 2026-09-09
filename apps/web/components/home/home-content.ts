@@ -21,11 +21,11 @@ export type HomeArticle = {
 };
 
 export const categories: { id: ContentCategory; label: string }[] = [
-  { id: "all", label: "전체" },
-  { id: "magazine", label: "매거진" },
-  { id: "flight", label: "항공 · FlyME" },
-  { id: "stay", label: "숙소 · RestME" },
-  { id: "tour", label: "투어 · PlayME" },
+  { id: "all", label: "All" },
+  { id: "magazine", label: "Roller’s Dispatch" },
+  { id: "flight", label: "FlyME" },
+  { id: "stay", label: "RestME" },
+  { id: "tour", label: "PlayME" },
 ];
 
 export const picks: {
@@ -109,23 +109,23 @@ export const picks: {
 
 export const questions = [
   {
-    question: "PlanME로 어떻게 여행 일정을 만드나요?",
+    question: "What type of travel services does GuideME offer?",
     answer:
-      "출발지와 목적지, 여행 기간, 이동수단을 선택한 뒤 검색해 주세요. 국내 여행은 추천 장소와 이동 경로가 포함된 일정을 만들고, 생성된 일정 상세 화면으로 안내합니다.",
+      "PlanME helps you create domestic travel itineraries and review recommended places and routes. You can explore flights, stays, and activities through our partners, and meet local Rollers through the GuideME app.",
   },
   {
-    question: "해외 여행도 검색할 수 있나요?",
+    question: "How do I book a trip with GuideME?",
     answer:
-      "해외 출발지나 목적지를 선택하면 해당 여행의 준비 안내를 확인할 수 있습니다. 현재 국내 일정 생성과 해외 여행 준비 안내는 서로 다른 흐름으로 제공됩니다.",
+      "Enter your departure, destination, dates, and transport preference to plan a domestic trip. Flight, stay, and activity links open our partner sites, where you can check availability and complete your booking. International itinerary searches currently show a preparation guide.",
   },
   {
-    question: "항공권과 숙소는 어디에서 예약하나요?",
+    question: "What is the payment process for GuideME?",
     answer:
-      "항공·숙소·투어 버튼을 누르면 각 제휴사 사이트가 새 탭으로 열립니다. 상품 가격과 예약 가능 여부, 결제 및 취소 조건은 해당 제휴사에서 확인해 주세요.",
+      "For flights, stays, and activities linked from this page, payment is handled by the partner site. Check that site's prices, payment options, and booking conditions before purchasing.",
   },
   {
-    question: "GuideME 앱에서는 무엇을 할 수 있나요?",
+    question: "How do I cancel my booking with GuideME?",
     answer:
-      "여행지에서 함께할 현지 서포터인 롤러를 찾아보고, 번역을 지원하는 채팅으로 여행을 준비할 수 있습니다. 앱 다운로드 영역에서 공식 스토어로 이동할 수 있어요.",
+      "For a booking made through one of the partner links on this page, contact the provider you booked with and follow its cancellation policy. Cancellation and refund conditions depend on that booking.",
   },
 ];
