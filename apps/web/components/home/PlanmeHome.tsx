@@ -287,7 +287,15 @@ function ContentExplorer({ articles }: { articles: HomeArticle[] }) {
         <span className={styles.srOnly} role="status">
           콘텐츠 {visiblePicks.length + visibleArticles.length}개
         </span>
-        <div className={view === "grid" ? styles.pickGrid : styles.pickList}>
+        <div
+          className={view === "grid" ? styles.pickGrid : styles.pickList}
+          data-count={visiblePicks.length + visibleArticles.length}
+          data-layout={
+            visiblePicks.length === 6 && !visibleArticles.length
+              ? "mosaic"
+              : "balanced"
+          }
+        >
           {visiblePicks.map((pick) => (
             <a
               key={pick.id}
@@ -300,7 +308,11 @@ function ContentExplorer({ articles }: { articles: HomeArticle[] }) {
                 src={pick.image}
                 alt={pick.imageAlt}
                 fill
-                sizes="(max-width: 639px) 100vw, (max-width: 1023px) 50vw, 40vw"
+                sizes={
+                  visiblePicks.length + visibleArticles.length === 1
+                    ? "100vw"
+                    : "(max-width: 639px) 100vw, (max-width: 1023px) 50vw, 66vw"
+                }
               />
               <div className={styles.cardShade} />
               <span className={styles.partnerBadge}>
