@@ -6,12 +6,12 @@
   background: white;
   font-family: var(--font-geist-sans), Arial, sans-serif;
 }
-.home a:not(:where(#trip-search *)) {
+.home a:not(:where([id="trip-search"] *)) {
   text-decoration: none;
   color: inherit;
 }
-.home button:not(:where(#trip-search *)),
-.home input:not(:where(#trip-search *)) {
+.home button:not(:where([id="trip-search"] *)),
+.home input:not(:where([id="trip-search"] *)) {
   font: inherit;
 }
 .home button,
@@ -20,22 +20,22 @@
 }
 .home
   :is(a, button, input, summary, video):not(
-    :where(#trip-search *)
+    :where([id="trip-search"] *)
   ):focus-visible {
   outline: 3px solid #126cde;
   outline-offset: 5px;
 }
-.home :is(h1, h2, h3, p):not(:where(#trip-search *)) {
+.home :is(h1, h2, h3, p):not(:where([id="trip-search"] *)) {
   margin: 0;
 }
-.home h2:not(:where(#trip-search *)) {
+.home h2:not(:where([id="trip-search"] *)) {
   color: var(--ink);
   font-size: clamp(28px, 3.2vw, 44px);
   font-weight: 780;
   letter-spacing: -0.055em;
   line-height: 1.25;
 }
-.home p:not(:where(#trip-search *)) {
+.home p:not(:where([id="trip-search"] *)) {
   line-height: 1.8;
 }
 .container {
