@@ -2,7 +2,6 @@
 
 import AdjustRoundedIcon from "@mui/icons-material/AdjustRounded";
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
-import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import DirectionsBusRoundedIcon from "@mui/icons-material/DirectionsBusRounded";
 import DirectionsCarRoundedIcon from "@mui/icons-material/DirectionsCarRounded";
 import KeyboardArrowDownRoundedIcon from "@mui/icons-material/KeyboardArrowDownRounded";
@@ -148,13 +147,13 @@ export function PlanmeSearchHome({
             gridTemplateColumns: {
               xs: "1fr",
               sm: "1fr 1fr",
-              lg: "1.08fr 1fr 0.72fr 1.12fr auto",
+              xl: "1.08fr 1fr minmax(150px, 0.85fr) 1.12fr auto",
             },
             alignItems: "stretch",
-            p: { xs: 2.25, sm: 3, lg: 2.25 },
+            p: { xs: 2.25, sm: 3, xl: 2.25 },
             bgcolor: "rgba(255, 255, 255, 0.96)",
             border: "1px solid rgba(153, 168, 193, 0.55)",
-            borderRadius: { xs: 3, lg: 2.25 },
+            borderRadius: { xs: 3, xl: 2.25 },
             boxShadow: "0 12px 32px rgba(57, 91, 139, 0.10)",
           }}
         >
@@ -238,14 +237,14 @@ export function PlanmeSearchHome({
                   minWidth: 0,
                   flex: 1,
                   color: durationDays ? "#17233c" : "#8993a5",
-                  fontSize: { xs: 18, lg: 20 },
+                  fontSize: { xs: 18, xl: 20 },
                   fontWeight: 650,
                   whiteSpace: "nowrap",
+                  lineHeight: 1.4,
                 }}
               >
                 {durationDays ? formatDuration(selectedDurationDays) : "Select Dates"}
               </Typography>
-              <DarkModeOutlinedIcon sx={{ ml: 0.75, color: "#79859a", fontSize: 22 }} />
               <KeyboardArrowDownRoundedIcon sx={{ ml: 0.25, color: "#79859a", fontSize: 22 }} />
             </ButtonBase>
 
@@ -347,7 +346,7 @@ export function PlanmeSearchHome({
             </ToggleButtonGroup>
           </SearchField>
 
-          <Box sx={{ display: "flex", alignItems: "stretch", gridColumn: { sm: "1 / -1", lg: "auto" }, pl: { lg: 2.25 } }}>
+          <Box sx={{ display: "flex", alignItems: "stretch", gridColumn: { sm: "1 / -1", xl: "auto" }, pl: { xl: 2.25 } }}>
             <Button
               type="submit"
               variant="contained"
@@ -356,9 +355,9 @@ export function PlanmeSearchHome({
                 pending ? <CircularProgress size={20} color="inherit" /> : <SearchRoundedIcon />
               }
               sx={{
-                width: { xs: "100%", lg: 158 },
-                minHeight: { xs: 58, lg: 106 },
-                mt: { xs: 2.25, lg: 0 },
+                width: { xs: "100%", xl: 158 },
+                minHeight: { xs: 58, xl: 106 },
+                mt: { xs: 2.25, xl: 0 },
                 borderRadius: 2,
                 bgcolor: "#1660df",
                 boxShadow: "none",
@@ -404,10 +403,10 @@ function SearchField({ label, labelFor, error, icon, divider, children }: Search
     <Box
       sx={{
         minWidth: 0,
-        px: { xs: 1, lg: 2.75 },
-        py: { xs: 2, lg: 0.5 },
-        borderBottom: { xs: divider ? "1px solid #e3e7ee" : "none", lg: "none" },
-        borderRight: { xs: "none", lg: divider ? "1px solid #cfd6e2" : "none" },
+        px: { xs: 1, xl: 2.75 },
+        py: { xs: 2, xl: 0.5 },
+        borderBottom: { xs: divider ? "1px solid #e3e7ee" : "none", xl: "none" },
+        borderRight: { xs: "none", xl: divider ? "1px solid #cfd6e2" : "none" },
       }}
     >
       <Typography
@@ -421,7 +420,7 @@ function SearchField({ label, labelFor, error, icon, divider, children }: Search
         <Box sx={{ minWidth: 0, flex: 1 }}>{children}</Box>
         {icon ? <Box sx={{ color: "#a0a9ba", display: "flex" }}>{icon}</Box> : null}
       </Stack>
-      {error ? <FormHelperText error>{error}</FormHelperText> : null}
+      {error ? <FormHelperText error sx={{ mt: 1, lineHeight: 1.5 }}>{error}</FormHelperText> : null}
     </Box>
   );
 }
