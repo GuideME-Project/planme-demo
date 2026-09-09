@@ -23,7 +23,6 @@ import {
   ToggleButtonGroup,
   Typography,
 } from "@mui/material";
-import Image from "next/image";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { PlanmeGlobalPreparation } from "./PlanmeGlobalPreparation";
 import { PlanmePlaceInput } from "./PlanmePlaceInput";
@@ -108,40 +107,12 @@ export function PlanmeSearchHome({
 
   return (
     <Box
-      component="main"
+      component="section"
+      id="trip-search"
+      aria-label="여행 일정 검색"
       onPointerDownCapture={closeDurationOnOutsidePointerDown}
-      sx={{ minHeight: "100dvh", bgcolor: "#f8fbff" }}
+      sx={{ scrollMarginTop: 24, position: "relative", zIndex: 2 }}
     >
-      <Box
-        component="header"
-        sx={{
-          height: { xs: 76, md: 96 },
-          display: "flex",
-          alignItems: "center",
-          px: { xs: 2.5, md: 3.5 },
-          bgcolor: "#fff",
-          borderBottom: "1px solid rgba(23, 50, 91, 0.06)",
-        }}
-      >
-        <Box
-          sx={{
-            position: "relative",
-            width: { xs: 270, md: 320 },
-            maxWidth: "76vw",
-            aspectRatio: "1707 / 237",
-          }}
-        >
-          <Image
-            src="/brand/planme-logo.png"
-            alt="PlanME by GuideME"
-            fill
-            priority
-            sizes="(max-width: 899px) 270px, 320px"
-            style={{ objectFit: "contain" }}
-          />
-        </Box>
-      </Box>
-
       {globalPreparation ? (
         <PlanmeGlobalPreparation
           origin={globalPreparation.origin}
@@ -153,14 +124,7 @@ export function PlanmeSearchHome({
         />
       ) : <Box
         sx={{
-          minHeight: { xs: "calc(100dvh - 76px)", md: "calc(100dvh - 96px)" },
           display: "flex",
-          alignItems: { xs: "flex-start", md: "center" },
-          px: { xs: 2, sm: 4, lg: 5.5 },
-          py: { xs: 4, md: 8 },
-          backgroundImage: 'url("/brand/planme-search-background.png")',
-          backgroundPosition: "center",
-          backgroundSize: "cover",
         }}
       >
         <Box
@@ -183,13 +147,14 @@ export function PlanmeSearchHome({
             display: "grid",
             gridTemplateColumns: {
               xs: "1fr",
-              md: "1.08fr 1fr 0.64fr 1.12fr auto",
+              sm: "1fr 1fr",
+              lg: "1.08fr 1fr 0.72fr 1.12fr auto",
             },
             alignItems: "stretch",
-            p: { xs: 2.25, sm: 3, md: 2.25 },
+            p: { xs: 2.25, sm: 3, lg: 2.25 },
             bgcolor: "rgba(255, 255, 255, 0.96)",
             border: "1px solid rgba(153, 168, 193, 0.55)",
-            borderRadius: { xs: 3, md: 2.25 },
+            borderRadius: { xs: 3, lg: 2.25 },
             boxShadow: "0 12px 32px rgba(57, 91, 139, 0.10)",
           }}
         >
@@ -273,7 +238,7 @@ export function PlanmeSearchHome({
                   minWidth: 0,
                   flex: 1,
                   color: durationDays ? "#17233c" : "#8993a5",
-                  fontSize: { xs: 18, md: 20 },
+                  fontSize: { xs: 18, lg: 20 },
                   fontWeight: 650,
                   whiteSpace: "nowrap",
                 }}
@@ -382,7 +347,7 @@ export function PlanmeSearchHome({
             </ToggleButtonGroup>
           </SearchField>
 
-          <Box sx={{ display: "flex", alignItems: "stretch", pl: { md: 2.25 } }}>
+          <Box sx={{ display: "flex", alignItems: "stretch", gridColumn: { sm: "1 / -1", lg: "auto" }, pl: { lg: 2.25 } }}>
             <Button
               type="submit"
               variant="contained"
@@ -391,9 +356,9 @@ export function PlanmeSearchHome({
                 pending ? <CircularProgress size={20} color="inherit" /> : <SearchRoundedIcon />
               }
               sx={{
-                width: { xs: "100%", md: 158 },
-                minHeight: { xs: 58, md: 106 },
-                mt: { xs: 2.25, md: 0 },
+                width: { xs: "100%", lg: 158 },
+                minHeight: { xs: 58, lg: 106 },
+                mt: { xs: 2.25, lg: 0 },
                 borderRadius: 2,
                 bgcolor: "#1660df",
                 boxShadow: "none",
@@ -439,10 +404,10 @@ function SearchField({ label, labelFor, error, icon, divider, children }: Search
     <Box
       sx={{
         minWidth: 0,
-        px: { xs: 1, md: 2.75 },
-        py: { xs: 2, md: 0.5 },
-        borderBottom: { xs: divider ? "1px solid #e3e7ee" : "none", md: "none" },
-        borderRight: { xs: "none", md: divider ? "1px solid #cfd6e2" : "none" },
+        px: { xs: 1, lg: 2.75 },
+        py: { xs: 2, lg: 0.5 },
+        borderBottom: { xs: divider ? "1px solid #e3e7ee" : "none", lg: "none" },
+        borderRight: { xs: "none", lg: divider ? "1px solid #cfd6e2" : "none" },
       }}
     >
       <Typography
