@@ -167,7 +167,7 @@ export function PlanmeSearchHome({
           <input type="hidden" name="destinationSessionToken" value={destinationSelection && !consumedTokens.includes(destinationSelection.sessionToken) ? destinationSelection.sessionToken : ""} />
 
           <SearchField
-            label="출발지"
+            label="Departure"
             labelFor="planme-origin"
             error={visibleState.fieldErrors?.origin}
             icon={<AdjustRoundedIcon />}
@@ -176,7 +176,7 @@ export function PlanmeSearchHome({
             <PlanmePlaceInput
               id="planme-origin"
               name="origin"
-              label="출발지"
+              label="Departure"
               selection={originSelection}
               disabled={pending}
               value={origin}
@@ -189,7 +189,7 @@ export function PlanmeSearchHome({
           </SearchField>
 
           <SearchField
-            label="목적지"
+            label="Destination"
             labelFor="planme-destination"
             error={visibleState.fieldErrors?.destination}
             icon={<LocationOnOutlinedIcon />}
@@ -198,7 +198,7 @@ export function PlanmeSearchHome({
             <PlanmePlaceInput
               id="planme-destination"
               name="destination"
-              label="목적지"
+              label="Destination"
               selection={destinationSelection}
               inputRef={destinationInputRef}
               disabled={pending}
@@ -212,7 +212,7 @@ export function PlanmeSearchHome({
           </SearchField>
 
           <SearchField
-            label="여행 기간"
+            label="Date"
             labelFor="planme-duration"
             error={!durationDays ? visibleState.fieldErrors?.durationDays : undefined}
             divider
@@ -243,7 +243,7 @@ export function PlanmeSearchHome({
                   whiteSpace: "nowrap",
                 }}
               >
-                {durationDays ? formatDuration(selectedDurationDays) : "기간 선택"}
+                {durationDays ? formatDuration(selectedDurationDays) : "Select Dates"}
               </Typography>
               <DarkModeOutlinedIcon sx={{ ml: 0.75, color: "#79859a", fontSize: 22 }} />
               <KeyboardArrowDownRoundedIcon sx={{ ml: 0.25, color: "#79859a", fontSize: 22 }} />
@@ -371,7 +371,7 @@ export function PlanmeSearchHome({
                 },
               }}
             >
-              {pending ? "여행지 확인 중" : "검색"}
+              {pending ? "여행지 확인 중" : "Search"}
             </Button>
           </Box>
 
