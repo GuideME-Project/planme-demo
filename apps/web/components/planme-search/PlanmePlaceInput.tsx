@@ -131,13 +131,15 @@ export function PlanmePlaceInput({ id, name, label, value, selection, disabled, 
           />
         )}
         sx={{ width: "100%", mt: 0.5,
-          "& .MuiInputBase-root": { color: "#17233c", fontSize: { xs: 20, md: 23 }, fontWeight: 650 },
+          "& .MuiInputBase-root": { color: "#17233c", fontSize: 20, fontWeight: 650 },
           "& .MuiInput-root::before, & .MuiInput-root::after, & .MuiInput-root:hover:not(.Mui-disabled)::before": { borderBottom: "none" },
+          "& .MuiInputBase-input": { boxSizing: "border-box", height: 44, lineHeight: "28px", padding: "8px 4px", minWidth: 0 },
+          "& .MuiInputBase-input:focus-visible": { outline: "2px solid #126cde", outlineOffset: 0, borderRadius: 1 },
           "& input::placeholder": { color: "#8993a5", opacity: 1 },
         }}
       />
-      {open && suggestions.length === 0 ? <Typography role="status" sx={{ mt: 0.75, color: "#64748b", fontSize: 12 }}>{!loaded ? "장소 후보를 찾고 있어요…" : message || "후보가 없습니다. 직접 입력해 검색할 수 있어요."}</Typography> : null}
-      {selection?.address ? <Typography sx={{ mt: 0.75, color: "#64748b", fontSize: 12, overflowWrap: "anywhere" }}>{selection.address} · <Box component="span" translate="no" sx={{ fontFamily: "Arial, sans-serif", color: "#5e5e5e" }}>Google Maps</Box></Typography> : null}
+      {open && suggestions.length === 0 ? <Typography role="status" sx={{ mt: 1, color: "#52627a", fontSize: 12, lineHeight: 1.5 }}>{!loaded ? "장소 후보를 찾고 있어요…" : message || "후보가 없습니다. 직접 입력해 검색할 수 있어요."}</Typography> : null}
+      {selection?.address ? <Typography sx={{ mt: 1, color: "#52627a", fontSize: 12, lineHeight: 1.5, overflowWrap: "anywhere" }}>{selection.address} · <Box component="span" translate="no" sx={{ fontFamily: "Arial, sans-serif", color: "#5e5e5e" }}>Google Maps</Box></Typography> : null}
     </Box>
   );
 }
