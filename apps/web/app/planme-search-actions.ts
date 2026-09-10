@@ -1,13 +1,14 @@
 "use server";
 
-import { redirect } from "next/navigation";
+import { createV3DashboardItinerary, type PlanmeItinerary } from "@planme/core";
+import type { ItineraryPhase } from "@/lib/planme-v3/job-store";
 import { cookies } from "next/headers";
 import {
   consumePlanmeSearchRateLimit,
   getOrCreatePlanmeSearchSessionId,
 } from "@/lib/planme-search-rate-limit";
 import { isPlanmeProgressPreviewEnabled } from "@/lib/planme-progress-preview";
-import { getPlanmeV3Runtime } from "@/lib/planme-v3/runtime";
+import { getPlanmeV3Storage, getPlanmeV3Runtime } from "@/lib/planme-v3/runtime";
 import { resolvePlanmeGlobalTrip, type PlanmeGlobalTripPreparation } from "@/lib/planme-global-trip";
 import { isPlanmePlaceId, isPlanmePlacesSessionToken, resolveSelectedPlanmePlace } from "@/lib/planme-places";
 import { resolveSelectedDomesticDestination } from "@/lib/planme-selected-destination";
@@ -17,6 +18,7 @@ const GENERATION_DEADLINE_MS = 45_000;
 
 export type PlanmeSearchActionState = {
   submissionId?: string;
+  itineraryResult?: PlanmeInlineItineraryResult;
   globalPreparation?: PlanmeGlobalTripPreparation & {
     submissionId: string;
   };
@@ -133,11 +135,14 @@ export async function startPlanmeSearchAction(
     return { submissionId, error: "일정 생성에 실패했습니다. 다시 시도해 주세요." };
   }
 
-  if (result?.status === "processing" && isPlanmeProgressPreviewEnabled()) {
-    redirect(`/itinerary/${encodeURIComponent(result.itineraryId)}`);
-  }
-  if (result?.status === "ready") {
-    redirect(`/itinerary/${encodeURIComponent(result.itineraryId)}`);
+  if (result?.status === "ready" || (result?.status === "processing" && isPlanmeProgressPreviewEnabled())) {
+    try {
+      const itineraryResult = await loadPlanmeInlineItineraryAction(result.itineraryId);
+      if (itineraryResult) return { submissionId, itineraryResult };
+    } catch (error) {
+      console.error("PlanME inline result failed", error);
+    }
+    return { submissionId, error: "일정 결과를 불러오지 못했습니다. 다시 시도해 주세요." };
   }
 
   if (result?.status === "invalid") {
@@ -153,4 +158,27 @@ export async function startPlanmeSearchAction(
 function readText(formData: FormData, field: string) {
   const value = formData.get(field);
   return typeof value === "string" ? value.trim() : "";
+}
+
+export type PlanmeInlineItineraryResult = {
+  itineraryId: string;
+  phase: ItineraryPhase;
+  itinerary: PlanmeItinerary | null;
+  revision: number;
+};
+
+/** Loads the same public V3 itinerary used by the share page, for display on the home screen. */
+export async function loadPlanmeInlineItineraryAction(id: string): Promise<PlanmeInlineItineraryResult | null> {
+  if (!/^planme-v3-[0-9a-f-]{36}$/i.test(id)) return null;
+  const snapshot = await getPlanmeV3Storage().jobStore.getJob(id);
+  if (!snapshot) return null;
+  const revision = snapshot.activeRevision;
+  const origin = process.env.PLANME_WEB_ORIGIN?.trim() || "https://planme-demo.vercel.app";
+  const shareUrl = new URL(`/itinerary/${encodeURIComponent(id)}`, origin).toString();
+  return {
+    itineraryId: id,
+    phase: snapshot.meta.phase,
+    itinerary: revision ? createV3DashboardItinerary(revision, shareUrl) : null,
+    revision: revision?.revision ?? 0,
+  };
 }

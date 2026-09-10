@@ -17,6 +17,8 @@ import type { ItineraryPhase } from "@/lib/planme-v3/job-store";
 type PlanmeGenerationProgressProps = {
   itineraryId: string;
   initialPhase: ItineraryPhase;
+  embedded?: boolean;
+  onReady?: () => Promise<void>;
 };
 
 const STEPS = [
@@ -30,6 +32,8 @@ const STEPS = [
 export function PlanmeGenerationProgress({
   itineraryId,
   initialPhase,
+  embedded = false,
+  onReady,
 }: PlanmeGenerationProgressProps) {
   const router = useRouter();
   const [phase, setPhase] = useState(initialPhase);
@@ -67,7 +71,11 @@ export function PlanmeGenerationProgress({
               setRetryAfterMs(nextRetryAfterMs);
               setRequestVersion((current) => current + 1);
             },
-            onReady: () => router.refresh(),
+            onReady: () => {
+              setPhase("ready");
+              if (onReady) void onReady().catch(() => setFailure("일정 결과를 불러오지 못했습니다. 다시 시도해 주세요."));
+              else router.refresh();
+            },
             onFailed: setFailure,
           });
         } catch {
@@ -79,11 +87,11 @@ export function PlanmeGenerationProgress({
     }, retryAfterMs);
 
     return () => window.clearTimeout(timer);
-  }, [failure, itineraryId, phase, requestVersion, retryAfterMs, router]);
+  }, [failure, itineraryId, phase, requestVersion, retryAfterMs, router, onReady]);
 
   return (
-    <Box component="main" sx={{ minHeight: "100dvh", bgcolor: "#f8fbff" }}>
-      <Box
+    <Box component={embedded ? "div" : "main"} sx={{ minHeight: embedded ? undefined : "100dvh", bgcolor: "#f8fbff" }}>
+      {!embedded && <Box
         component="header"
         sx={{
           height: { xs: 76, md: 96 },
@@ -104,11 +112,11 @@ export function PlanmeGenerationProgress({
             style={{ objectFit: "contain" }}
           />
         </Box>
-      </Box>
+      </Box>}
 
       <Box
         sx={{
-          minHeight: { xs: "calc(100dvh - 76px)", md: "calc(100dvh - 96px)" },
+          minHeight: embedded ? undefined : { xs: "calc(100dvh - 76px)", md: "calc(100dvh - 96px)" },
           display: "grid",
           placeItems: "center",
           px: 2,
@@ -138,11 +146,11 @@ export function PlanmeGenerationProgress({
                 <Typography sx={{ color: "#0b66e4", fontSize: 14, fontWeight: 800, letterSpacing: "0.04em" }}>
                   AI 여행 일정 생성 중
                 </Typography>
-                <Typography component="h1" sx={{ mt: 1.25, color: "#17233c", fontSize: { xs: 27, sm: 34 }, fontWeight: 800, letterSpacing: "-0.035em" }}>
+                <Typography component={embedded ? "h2" : "h1"} sx={{ mt: 1.25, color: "#17233c", fontSize: { xs: 27, sm: 34 }, fontWeight: 800, letterSpacing: "-0.035em" }}>
                   가벼운 여행을 준비하고 있어요
                 </Typography>
                 <Typography sx={{ mt: 1.25, color: "#6f7c91", fontSize: { xs: 15, sm: 17 }, lineHeight: 1.65 }}>
-                  장소와 이동 경로를 확인한 뒤 일정 화면으로 자동 이동합니다.
+                  {embedded ? "장소와 이동 경로를 확인한 뒤 이곳에 일정을 표시합니다." : "장소와 이동 경로를 확인한 뒤 일정 화면으로 자동 이동합니다."}
                 </Typography>
               </Box>
 

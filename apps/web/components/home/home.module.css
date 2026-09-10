@@ -1351,3 +1351,5 @@
     grid-row: 1;
   }
 }
+
+.home:has([id="trip-result"]) .tripIntro { display: none; }
