@@ -24,6 +24,7 @@ import {
 } from "@mui/material";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { PlanmeGlobalPreparation } from "./PlanmeGlobalPreparation";
+import { PlanmeInlineItinerary } from "./PlanmeInlineItinerary";
 import { PlanmePlaceInput } from "./PlanmePlaceInput";
 import type { PlanmePlaceSelection } from "@/lib/planme-places";
 import {
@@ -385,6 +386,7 @@ export function PlanmeSearchHome({
           ) : null}
         </Box>
       </Box>}
+      {visibleState.itineraryResult && <PlanmeInlineItinerary key={visibleState.itineraryResult.itineraryId} initialResult={visibleState.itineraryResult} />}
     </Box>
   );
 }

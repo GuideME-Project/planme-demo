@@ -57,6 +57,7 @@ import { usePlanmeColorMode } from "@/theme/ThemeRegistry";
 type ItineraryDashboardProps = {
   itinerary: PlanmeItinerary;
   compact: boolean;
+  embedded?: boolean;
   editingEnabled?: boolean;
   finalizationToken?: string;
   routeFinalized?: boolean;
@@ -2085,6 +2086,7 @@ function createPendingRoute(route: RoutePlan, durationLabel: string): RoutePlan 
 export function ItineraryDashboard({
   itinerary,
   compact,
+  embedded = false,
   editingEnabled = true,
   finalizationToken,
   routeFinalized = false,
@@ -2453,7 +2455,7 @@ export function ItineraryDashboard({
       }}
     >
       <Stack spacing={3}>
-        <TopBar />
+        {!embedded && <TopBar />}
 
         <Box
           sx={{
@@ -2464,7 +2466,7 @@ export function ItineraryDashboard({
           }}
         >
           <Box>
-            <Typography variant="h1">{displayTitle}</Typography>
+            <Typography component={embedded ? "h2" : "h1"} variant="h1">{displayTitle}</Typography>
           </Box>
           <Stack
             direction={{ xs: "column", sm: "row" }}
