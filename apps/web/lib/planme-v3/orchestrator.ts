@@ -141,6 +141,7 @@ export type PlanmeV3OrchestratorDependencies = {
 
 type QueuedPayload = {
   intent: ResolvedTripIntent;
+  selectedOriginCoordinate?: Coordinate;
   editCommand?: {
     lodgingContentId: string;
     days: Array<{
@@ -202,6 +203,7 @@ export function createPlanmeV3Orchestrator(
   async function startItinerary(
     input: StartItineraryRequest,
     idempotencyKey: string,
+    options: { selectedOriginCoordinate?: Coordinate } = {},
   ): Promise<StartItineraryResult> {
     const resolved = resolveTripIntent(input);
     if (!resolved.ok) {
@@ -215,7 +217,16 @@ export function createPlanmeV3Orchestrator(
       return { status: "idempotency_conflict" };
     }
 
-    const inputDigest = await digestValue(resolved.value);
+    const selectedOriginCoordinate = options.selectedOriginCoordinate;
+    if (selectedOriginCoordinate && !isValidAnchorCoordinate(selectedOriginCoordinate)) {
+      return { status: "invalid", missingSlots: [], invalidSlots: ["origin"] };
+    }
+    // Server-verified Place Details coordinates must survive retries and worker restarts.
+    const payload: QueuedPayload = {
+      intent: resolved.value,
+      ...(selectedOriginCoordinate ? { selectedOriginCoordinate } : {}),
+    };
+    const inputDigest = await digestValue(selectedOriginCoordinate ? payload : resolved.value);
     const created = await runStartStorageStage(
       "PLANME_V3_STORE_CREATE_STAGE_FAILED",
       () => dependencies.jobStore.createGeneration({
@@ -247,7 +258,7 @@ export function createPlanmeV3Orchestrator(
               schemaVersion: 3,
               phaseVersion: 1,
               inputDigest,
-              payload: toJsonValue({ intent: resolved.value }),
+              payload: toJsonValue(payload),
             },
           }),
         );
@@ -295,6 +306,12 @@ export function createPlanmeV3Orchestrator(
     if (!base) {
       return { status: "not_found" };
     }
+    const baseAnchorCheckpoint = await dependencies.jobStore.getCheckpoint(
+      itineraryId,
+      input.baseRevision,
+      "resolving_anchors",
+    );
+    const baseAnchors = baseAnchorCheckpoint?.payload as AnchorPayload | undefined;
     if (
       !Number.isInteger(input.baseRevision) ||
       input.days.length !== base.intent.durationDays ||
@@ -344,6 +361,9 @@ export function createPlanmeV3Orchestrator(
         inputDigest,
         payload: toJsonValue({
           intent,
+          ...(baseAnchors?.selectedOriginCoordinate
+            ? { selectedOriginCoordinate: baseAnchors.selectedOriginCoordinate }
+            : {}),
           editCommand,
           baseCandidates: Object.values(base.selectedPlaceSnapshots),
         }),
@@ -573,7 +593,9 @@ export function createPlanmeV3Orchestrator(
     );
     const queued = checkpoint.payload as QueuedPayload;
     const [origin, destination, resolvedDestination] = await Promise.all([
-      dependencies.geocodeAnchor(queued.intent.origin, signal),
+      queued.selectedOriginCoordinate && isValidAnchorCoordinate(queued.selectedOriginCoordinate)
+        ? { status: "ready" as const, coordinate: queued.selectedOriginCoordinate }
+        : dependencies.geocodeAnchor(queued.intent.origin, signal),
       dependencies.geocodeAnchor(queued.intent.destination, signal),
       dependencies.resolveDestination(queued.intent.destination, signal),
     ]);
@@ -1634,6 +1656,11 @@ function requireAnchor(
       ? "INTERNAL_CONFIGURATION_ERROR"
       : notFoundCode,
   );
+}
+
+function isValidAnchorCoordinate(coordinate: Coordinate) {
+  return Number.isFinite(coordinate.lat) && Math.abs(coordinate.lat) <= 90 &&
+    Number.isFinite(coordinate.lng) && Math.abs(coordinate.lng) <= 180;
 }
 
 function regionAnchorQuery(region: TourRegion) {
