@@ -77,7 +77,12 @@ export async function startPlanmeSearchAction(
     const rateLimit = await consumePlanmeSearchRateLimit(sessionId);
 
     if (!rateLimit.allowed) {
-      return { submissionId, error: "요청이 많습니다. 잠시 후 다시 시도해 주세요." };
+      return {
+        submissionId,
+        error: rateLimit.blockedBy === "day"
+          ? "하루 일정 생성 횟수에 도달했습니다. 한국 시간 오전 9시에 다시 이용할 수 있습니다."
+          : "1분에 최대 2회 일정을 생성할 수 있습니다. 최대 1분 후 다시 시도해 주세요.",
+      };
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown error";
@@ -120,6 +125,7 @@ export async function startPlanmeSearchAction(
         transportMode,
       },
       submissionId,
+      { selectedOriginCoordinate: selectedOrigin?.coordinate },
     );
 
     if (result.status === "processing") {
@@ -150,6 +156,20 @@ export async function startPlanmeSearchAction(
   }
   if (result?.status === "idempotency_conflict") {
     return { submissionId, error: "입력값이 변경되었습니다. 다시 검색해 주세요." };
+  }
+
+  if (result?.status === "failed") {
+    console.error("PlanME web generation failed", {
+      itineraryId: result.itineraryId,
+      errorCode: result.errorCode,
+    });
+    if (result.errorCode === "ORIGIN_NOT_RESOLVED") {
+      return { submissionId, fieldErrors: { origin: "출발지 위치를 확인하지 못했습니다. 검색 후보에서 장소를 선택해 주세요." } };
+    }
+    if (result.errorCode === "DESTINATION_NOT_RESOLVED") {
+      return { submissionId, fieldErrors: { destination: "목적지 위치를 확인하지 못했습니다. 도시·지역을 선택하거나 다시 입력해 주세요." } };
+    }
+    return { submissionId, error: result.message };
   }
 
   return { submissionId, error: "일정 생성에 실패했습니다. 다시 시도해 주세요." };
