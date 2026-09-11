@@ -3,7 +3,7 @@ import FlightTakeoffRoundedIcon from "@mui/icons-material/FlightTakeoffRounded";
 import HotelRoundedIcon from "@mui/icons-material/HotelRounded";
 import InfoRoundedIcon from "@mui/icons-material/InfoRounded";
 import TrainRoundedIcon from "@mui/icons-material/TrainRounded";
-import { alpha, Box, Stack, Typography, useTheme } from "@mui/material";
+import { Alert, alpha, Box, Button, Stack, Typography, useTheme } from "@mui/material";
 import type { MapCoordinate, RoutePlan, RouteTransitMarker } from "@planme/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PlanmeThemeMode } from "@/theme/theme";
@@ -65,6 +65,7 @@ type NaverLatLng = {
 };
 
 type NaverMapInstance = {
+  destroy: () => void;
   fitBounds: (bounds: object) => void;
 };
 
@@ -123,8 +124,44 @@ type PlanmeNaverWindow = Window & {
   naver?: {
     maps?: NaverMapsNamespace;
   };
+  navermap_authFailure?: () => void;
   planmeNaverMapsPromise?: Promise<NaverMapsNamespace>;
+  planmeNaverMapsLoaderState?: NaverMapsLoaderState;
 };
+
+type NaverMapFailure = "authentication" | "load";
+
+type NaverMapsLoaderState = {
+  authFailureListeners: Set<() => void>;
+  script: HTMLScriptElement | null;
+};
+
+function getNaverMapsLoaderState(): NaverMapsLoaderState {
+  const naverWindow = window as PlanmeNaverWindow;
+
+  if (naverWindow.planmeNaverMapsLoaderState) {
+    return naverWindow.planmeNaverMapsLoaderState;
+  }
+
+  const state: NaverMapsLoaderState = {
+    authFailureListeners: new Set(),
+    script: null,
+  };
+  const previousAuthFailure = naverWindow.navermap_authFailure;
+
+  // Keep one callback and subscriber set across concurrent maps and hot reloads.
+  naverWindow.planmeNaverMapsLoaderState = state;
+  naverWindow.navermap_authFailure = () => {
+    // Authentication can invalidate an SDK whose script already finished loading.
+    delete naverWindow.planmeNaverMapsPromise;
+    state.script?.remove();
+    state.script = null;
+    state.authFailureListeners.forEach((listener) => listener());
+    previousAuthFailure?.();
+  };
+
+  return state;
+}
 
 type RollerGuidanceContent = {
   headline: string;
@@ -220,7 +257,9 @@ function getFirstRouteCoordinate(route: RoutePlan) {
 function loadNaverMaps(clientId: string): Promise<NaverMapsNamespace> {
   const naverWindow = window as PlanmeNaverWindow;
 
-  if (naverWindow.naver?.maps) {
+  const loaderState = getNaverMapsLoaderState();
+
+  if (typeof naverWindow.naver?.maps?.Map === "function") {
     return Promise.resolve(naverWindow.naver.maps);
   }
 
@@ -228,8 +267,9 @@ function loadNaverMaps(clientId: string): Promise<NaverMapsNamespace> {
     return naverWindow.planmeNaverMapsPromise;
   }
 
-  naverWindow.planmeNaverMapsPromise = new Promise((resolve, reject) => {
+  naverWindow.planmeNaverMapsPromise = new Promise<NaverMapsNamespace>((resolve, reject) => {
     const script = document.createElement("script");
+    loaderState.script = script;
     const params = new URLSearchParams({
       ncpKeyId: clientId,
     });
@@ -239,7 +279,7 @@ function loadNaverMaps(clientId: string): Promise<NaverMapsNamespace> {
     script.defer = true;
     script.onerror = () => reject(new Error("Naver Maps JavaScript SDK failed to load"));
     script.onload = () => {
-      if (naverWindow.naver?.maps) {
+      if (typeof naverWindow.naver?.maps?.Map === "function") {
         resolve(naverWindow.naver.maps);
         return;
       }
@@ -248,6 +288,11 @@ function loadNaverMaps(clientId: string): Promise<NaverMapsNamespace> {
     };
     script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?${params.toString()}`;
     document.head.append(script);
+  }).catch((error: Error) => {
+    delete naverWindow.planmeNaverMapsPromise;
+    loaderState.script?.remove();
+    loaderState.script = null;
+    throw error;
   });
 
   return naverWindow.planmeNaverMapsPromise;
@@ -256,7 +301,7 @@ function loadNaverMaps(clientId: string): Promise<NaverMapsNamespace> {
 type NaverRouteMapProps = {
   carrymeColor: string;
   carrymeRoute: RoutePlan;
-  onLoadFailed: () => void;
+  onLoadFailed: (failure: NaverMapFailure) => void;
   showCarryme: boolean;
   showStandard: boolean;
   standardColor: string;
@@ -293,10 +338,21 @@ function NaverRouteMap({
 
   useEffect(() => {
     let cancelled = false;
+    let mapInstance: NaverMapInstance | null = null;
+    const handleAuthFailure = () => {
+      // The SDK destroys failed maps before notifying navermap_authFailure.
+      mapInstance = null;
+      if (!cancelled) {
+        onLoadFailed("authentication");
+      }
+    };
 
     if (!naverMapsClientId || !mapElementRef.current) {
       return;
     }
+
+    const loaderState = getNaverMapsLoaderState();
+    loaderState.authFailureListeners.add(handleAuthFailure);
 
     async function renderMap(clientId: string): Promise<void> {
       try {
@@ -326,6 +382,7 @@ function NaverRouteMap({
           zoom: 10,
           zoomControl: true,
         });
+        mapInstance = map;
         const bounds = new maps.LatLngBounds();
         let hasBounds = false;
 
@@ -420,7 +477,9 @@ function NaverRouteMap({
         }
       } catch {
         // Naver key or browser restrictions can fail independently from the demo route data.
-        onLoadFailed();
+        if (!cancelled) {
+          onLoadFailed("load");
+        }
       }
     }
 
@@ -428,6 +487,8 @@ function NaverRouteMap({
 
     return () => {
       cancelled = true;
+      loaderState.authFailureListeners.delete(handleAuthFailure);
+      mapInstance?.destroy();
     };
   }, [
     carrymeColor,
@@ -709,13 +770,16 @@ export function RouteMap({
   themeMode,
 }: RouteMapProps) {
   const theme = useTheme();
-  const [naverFailed, setNaverFailed] = useState(false);
-  const handleNaverLoadFailed = useCallback(() => setNaverFailed(true), []);
+  const [naverFailure, setNaverFailure] = useState<NaverMapFailure | null>(null);
+  const handleNaverLoadFailed = useCallback(
+    (failure: NaverMapFailure) => setNaverFailure(failure),
+    [],
+  );
   const isDark = themeMode === "dark";
   const standardColor = theme.palette.primary.main;
   const carrymeColor = theme.palette.secondary.main;
   const rollerGuidance = createRollerGuidanceContent(savingLabel);
-  const canUseNaver = Boolean(naverMapsClientId && !naverFailed);
+  const canUseNaver = Boolean(naverMapsClientId && !naverFailure);
   const visibleTransitMarkers = getVisibleTransitMarkers({
     carrymeRoute,
     showCarryme,
@@ -743,6 +807,21 @@ export function RouteMap({
         overflow: "hidden",
       }}
     >
+      {naverFailure ? (
+        <Alert
+          severity="warning"
+          data-testid="route-map-error"
+          action={
+            <Button color="inherit" size="small" onClick={() => setNaverFailure(null)}>
+              다시 시도
+            </Button>
+          }
+        >
+          {naverFailure === "authentication"
+            ? "네이버 지도 인증을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요."
+            : "네이버 지도를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."}
+        </Alert>
+      ) : null}
       <Box
         data-testid="route-map-viewport"
         sx={{
