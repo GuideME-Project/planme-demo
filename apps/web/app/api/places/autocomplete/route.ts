@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { autocompletePlanmePlaces, isPlanmePlacesSessionToken } from "@/lib/planme-places";
+import { autocompletePlanmePlaces, isPlanmePlacesSessionToken, PlanmePlacesError } from "@/lib/planme-places";
 import { consumePlanmeAutocompleteRateLimit, getOrCreatePlanmeSearchSessionId } from "@/lib/planme-search-rate-limit";
 
 export async function POST(request: Request) {
@@ -21,13 +21,27 @@ export async function POST(request: Request) {
     typeof body.sessionToken !== "string" || !isPlanmePlacesSessionToken(body.sessionToken)) {
     return reply("장소를 두 글자 이상 입력해 주세요.", 400);
   }
+  let stage: "session" | "rate_limit" | "provider" = "session";
   try {
     const sessionId = getOrCreatePlanmeSearchSessionId(await cookies());
+    stage = "rate_limit";
     const limit = await consumePlanmeAutocompleteRateLimit(sessionId);
     if (!limit.allowed) return reply("후보 조회가 많습니다. 직접 입력해 검색하거나 잠시 후 다시 시도해 주세요.", 429);
+    stage = "provider";
     const result = await autocompletePlanmePlaces(body.query.trim(), body.sessionToken, request.signal);
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
-  } catch {
+  } catch (error) {
+    // Input edits cancel requests normally; only log fixed codes for remaining failures.
+    if (!request.signal.aborted) {
+      console.error("PLANME_AUTOCOMPLETE_FAILED", {
+        stage,
+        code: error instanceof PlanmePlacesError ? error.code
+          : error instanceof Error && error.name === "TimeoutError" ? "TIMEOUT"
+            : error instanceof Error && error.name === "AbortError" ? "ABORTED"
+              : "REQUEST_FAILED",
+        httpStatus: error instanceof PlanmePlacesError ? error.httpStatus : null,
+      });
+    }
     return reply("후보를 불러오지 못했습니다. 직접 입력해 검색할 수 있어요.", 503);
   }
 }

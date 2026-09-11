@@ -8,6 +8,18 @@ export type PlanmePlaceSelection = PlanmePlaceSuggestion & { sessionToken: strin
 export type PlanmePlaceAttribution = { provider: string; providerUri?: string };
 export type PlanmePlaceSuggestionsResponse = { suggestions: PlanmePlaceSuggestion[]; message?: string };
 
+export class PlanmePlacesError extends Error {
+  readonly code: "CONFIGURATION_MISSING" | "PROVIDER_HTTP_ERROR";
+  readonly httpStatus: number | null;
+
+  constructor(code: "CONFIGURATION_MISSING" | "PROVIDER_HTTP_ERROR", httpStatus: number | null = null) {
+    super(code);
+    this.name = "PlanmePlacesError";
+    this.code = code;
+    this.httpStatus = httpStatus;
+  }
+}
+
 export function isPlanmePlacesSessionToken(value: string) {
   return SESSION_TOKEN_PATTERN.test(value);
 }
@@ -18,7 +30,7 @@ export function isPlanmePlaceId(value: string) {
 
 export async function autocompletePlanmePlaces(query: string, sessionToken: string, signal?: AbortSignal): Promise<PlanmePlaceSuggestionsResponse> {
   const key = process.env.PLANME_GOOGLE_MAPS_API_KEY?.trim();
-  if (!key) throw new Error("PLACES_UNAVAILABLE");
+  if (!key) throw new PlanmePlacesError("CONFIGURATION_MISSING");
   const response = await fetch(`${PLACES_URL}:autocomplete`, {
     method: "POST",
     headers: {
@@ -34,7 +46,7 @@ export async function autocompletePlanmePlaces(query: string, sessionToken: stri
     signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(PLACES_TIMEOUT_MS)]) : AbortSignal.timeout(PLACES_TIMEOUT_MS),
     cache: "no-store",
   });
-  if (!response.ok) throw new Error("PLACES_UNAVAILABLE");
+  if (!response.ok) throw new PlanmePlacesError("PROVIDER_HTTP_ERROR", response.status);
   const payload = await response.json() as {
     suggestions?: Array<{ placePrediction?: { placeId?: string; structuredFormat?: { mainText?: { text?: string }; secondaryText?: { text?: string } } } }>;
   };
