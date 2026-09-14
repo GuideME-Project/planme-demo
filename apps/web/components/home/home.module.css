@@ -1358,3 +1358,54 @@
 @media (max-width: 767px) {
   .header { min-height: 83px; }
 }
+
+.articleImage,
+.articleImageFallback {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  border-radius: 10px;
+}
+.articleImageFallback {
+  display: grid;
+  place-items: center;
+  background: #e0ecf7;
+  color: #547a9f;
+}
+.magazineNotice {
+  margin: 16px 0 24px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.7;
+}
+.magazineNotice button {
+  margin-top: 8px;
+  padding: 8px 16px;
+  border: 1px solid #c5d5eb;
+  border-radius: 8px;
+  color: var(--blue);
+  background: #fff;
+  cursor: pointer;
+}
+.magazineNotice button:disabled {
+  opacity: .6;
+  cursor: wait;
+}
+.pickList .articleCard {
+  display: grid;
+  grid-template-columns: minmax(120px, 30%) minmax(0, 1fr);
+  column-gap: 24px;
+}
+.pickList .articleCard > :first-child {
+  grid-column: 1;
+  grid-row: 1 / 5;
+  align-self: center;
+}
+.pickList .articleCard > :not(:first-child) {
+  grid-column: 2;
+}
+@media (max-width: 600px) {
+  .pickList .articleCard {
+    display: flex;
+  }
+}

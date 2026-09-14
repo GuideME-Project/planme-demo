@@ -28,6 +28,7 @@ import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { PlanmeGlobalPreparation } from "./PlanmeGlobalPreparation";
 import { PlanmeInlineItinerary } from "./PlanmeInlineItinerary";
 import { PlanmePlaceInput } from "./PlanmePlaceInput";
+import { useMagazineCountry } from "@/components/home/MagazineContext";
 import type { PlanmePlaceSelection } from "@/lib/planme-places";
 import {
   type PlanmeSearchActionState,
@@ -49,6 +50,7 @@ export function PlanmeSearchHome({
   initialSubmissionId,
 }: PlanmeSearchHomeProps) {
   const { t, locale } = useLocale();
+  const { setCountryCode } = useMagazineCountry();
   const [restoredState, setRestoredState] = useState<PlanmeSearchActionState>({});
   const [restoring, setRestoring] = useState(true);
   const [originSelection, setOriginSelection] = useState<PlanmePlaceSelection | null>(null);
@@ -79,6 +81,12 @@ export function PlanmeSearchHome({
   const globalPreparation = currentState.globalPreparation?.submissionId === submissionId
     ? currentState.globalPreparation
     : undefined;
+
+  useEffect(() => {
+    const countryCode = visibleState.globalPreparation?.countryCode ??
+      (visibleState.itineraryResult ? "KR" : null);
+    setCountryCode(countryCode && /^[A-Z]{2}$/.test(countryCode) ? countryCode : null);
+  }, [visibleState, setCountryCode]);
 
   useEffect(() => {
     if (!pending) submittingRef.current = false;

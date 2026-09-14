@@ -18,6 +18,8 @@ export type HomeArticle = {
   title: string;
   summary: string;
   href: string;
+  image?: string | null;
+  language?: string;
 };
 
 export const categories: { id: ContentCategory; label: string }[] = [

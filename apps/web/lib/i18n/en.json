@@ -325,5 +325,11 @@
   "환전": "Currency exchange",
   "후보 조회가 많습니다. 직접 입력해 검색하거나 잠시 후 다시 시도해 주세요.": "Too many suggestion requests. Type a place directly or try again later.",
   "후보가 없습니다. 직접 입력해 검색할 수 있어요.": "No suggestions. You can type a place directly.",
-  "후보를 불러오지 못했습니다. 직접 입력해 검색할 수 있어요.": "Couldn't load suggestions. You can type a place directly."
+  "후보를 불러오지 못했습니다. 직접 입력해 검색할 수 있어요.": "Couldn't load suggestions. You can type a place directly.",
+  "여행지를 검색하면 해당 국가의 매거진 기사를 보여드려요.": "Search for a destination to discover magazine articles from that country.",
+  "매거진 기사를 불러오고 있어요.": "Loading magazine articles…",
+  "매거진 기사를 불러오지 못했어요. 다시 시도해 주세요.": "We couldn’t load the magazine articles. Please try again.",
+  "이 국가에 등록된 매거진 기사가 아직 없어요.": "There are no magazine articles for this country yet.",
+  "검색한 국가의 여행 이야기를 만나보세요.": "Discover travel stories from your selected country.",
+  "기사 더 보기": "Load more articles"
 }
