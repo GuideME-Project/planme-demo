@@ -1353,3 +1353,8 @@
 }
 
 .home:has([id="trip-result"]) .tripIntro { display: none; }
+
+.header { flex-wrap: wrap; gap: 16px; height: auto; min-height: 100px; }
+@media (max-width: 767px) {
+  .header { min-height: 83px; }
+}

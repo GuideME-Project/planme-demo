@@ -31,3 +31,9 @@ body {
 * {
   box-sizing: border-box;
 }
+
+.language-switcher { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.language-switcher a { padding: 8px 10px; border-radius: 6px; font-size: 14px; white-space: nowrap; }
+.language-switcher a[aria-current="page"] { background: #eaf2ff; color: #155acb; font-weight: 700; }
+.language-switcher a:focus-visible { outline: 2px solid #155acb; outline-offset: 2px; }
+html[lang="en"] { overflow-wrap: break-word; }

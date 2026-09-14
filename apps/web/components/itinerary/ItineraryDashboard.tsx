@@ -1,4 +1,7 @@
 "use client";
+import { LanguageSwitcher } from "@/components/i18n/LanguageSwitcher";
+import { translateError } from "@/lib/i18n/messages";
+import { useLocale } from "@/components/i18n/LocaleProvider";
 
 import AccessTimeRoundedIcon from "@mui/icons-material/AccessTimeRounded";
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
@@ -2092,6 +2095,7 @@ export function ItineraryDashboard({
   routeFinalized = false,
   routeRevision = 0,
 }: ItineraryDashboardProps) {
+  const { t, locale } = useLocale();
   const theme = useTheme();
   const { mode } = usePlanmeColorMode();
   const [selectedDay, setSelectedDay] = useState(1);
@@ -2466,7 +2470,7 @@ export function ItineraryDashboard({
           }}
         >
           <Box>
-            <Typography component={embedded ? "h2" : "h1"} variant="h1">{displayTitle}</Typography>
+            <Typography component={embedded ? "h2" : "h1"} variant="h1">{t(displayTitle)}</Typography>
           </Box>
           <Stack
             direction={{ xs: "column", sm: "row" }}
@@ -2475,13 +2479,13 @@ export function ItineraryDashboard({
           >
             <MetricCard
               icon={<AccessTimeRoundedIcon />}
-              label="총 이동 시간"
+              label={t("총 이동 시간")}
               tone="primary"
               value={shouldHideProviderResult ? hiddenDurationLabel : totalDurationLabel}
             />
             <MetricCard
               icon={<WbSunnyRoundedIcon />}
-              label="절약 시간"
+              label={t("절약 시간")}
               tone="error"
               value={displaySavingLabel}
             />
@@ -2496,7 +2500,7 @@ export function ItineraryDashboard({
             borderRadius: 2,
             boxShadow: isDark
               ? "0 20px 70px rgba(0,0,0,0.24)"
-              : "0 18px 60px rgba(23, 32, 51, 0.08)",
+              : "0 8px 28px rgba(18, 75, 151, 0.04)",
             overflow: "hidden",
           }}
         >
@@ -2528,13 +2532,9 @@ export function ItineraryDashboard({
               }}
             >
               <ToggleButton value="compare">
-                <RouteRoundedIcon sx={{ mr: 1 }} />
-                동선 비교
-              </ToggleButton>
+                <RouteRoundedIcon sx={{ mr: 1 }} />{t("동선 비교")}</ToggleButton>
               <ToggleButton value="map">
-                <MapOutlinedIcon sx={{ mr: 1 }} />
-                상세 지도
-              </ToggleButton>
+                <MapOutlinedIcon sx={{ mr: 1 }} />{t("상세 지도")}</ToggleButton>
             </ToggleButtonGroup>
 
             <Stack
@@ -2564,13 +2564,13 @@ export function ItineraryDashboard({
                       px: { xs: 1, sm: 2.8 },
                     }}
                   >
-                    {formatDayToggleLabel(day, index)}
+                    {t(formatDayToggleLabel(day, index))}
                   </ToggleButton>
                 ))}
               </ToggleButtonGroup>
               {editingEnabled ? (
                 <Button
-                  aria-label="일자 추가"
+                  aria-label={t("일자 추가")}
                   onClick={handleAddDay}
                   size="small"
                   sx={{ minWidth: 42, px: 1 }}
@@ -2629,7 +2629,7 @@ export function ItineraryDashboard({
                   py: 1.5,
                 }}
               >
-                {finalizationMessage}
+                {translateError(locale, finalizationMessage)}
               </Box>
             ) : null}
             <Stack spacing={1.5}>
@@ -2723,10 +2723,7 @@ export function ItineraryDashboard({
         <BenefitStrip benefits={displayBenefits} />
 
         {!compact ? (
-          <Typography color="text.secondary" variant="body2">
-            이 화면은 Custom GPT Actions가 반환한 링크를 누른 뒤 PlanME 웹에서
-            확인하는 상세 화면 예시입니다.
-          </Typography>
+          <Typography color="text.secondary" variant="body2">{t("이 화면은 Custom GPT Actions가 반환한 링크를 누른 뒤 PlanME 웹에서 확인하는 상세 화면 예시입니다.")}</Typography>
         ) : null}
       </Stack>
     </Box>
@@ -2756,6 +2753,7 @@ function TopBar() {
           width={1414}
         />
       </Box>
+      <LanguageSwitcher />
     </Stack>
   );
 }
@@ -2771,6 +2769,7 @@ type MetricCardProps = {
  * Renders a top KPI card for travel duration and time saved.
  */
 function MetricCard({ icon, label, tone, value }: MetricCardProps) {
+  const { t } = useLocale();
   const theme = useTheme();
   const color =
     tone === "error" ? theme.palette.error.main : theme.palette.primary.main;
@@ -2793,9 +2792,9 @@ function MetricCard({ icon, label, tone, value }: MetricCardProps) {
       <Box sx={{ color, display: "flex" }}>{icon}</Box>
       <Box>
         <Typography color={tone} sx={{ fontSize: 13, fontWeight: 800 }}>
-          {label}
+          {t(label)}
         </Typography>
-        <Typography sx={{ fontSize: 18, fontWeight: 900 }}>{value}</Typography>
+        <Typography sx={{ fontSize: 18, fontWeight: 750 }}>{t(value)}</Typography>
       </Box>
     </Stack>
   );
@@ -2817,6 +2816,7 @@ function RouteToggleButton({
   label,
   onClick,
 }: RouteToggleButtonProps) {
+  const { t } = useLocale();
   return (
     <Button
       color="inherit"
@@ -2833,7 +2833,7 @@ function RouteToggleButton({
           width: 24,
         }}
       />
-      {label}
+      {t(label)}
     </Button>
   );
 }
@@ -2852,6 +2852,7 @@ function RouteComparisonCard({
   route,
   tone,
 }: RouteComparisonCardProps) {
+  const { t } = useLocale();
   const theme = useTheme();
   const dividerColor =
     theme.palette.mode === "dark"
@@ -2880,11 +2881,11 @@ function RouteComparisonCard({
           sx={{ alignSelf: "flex-start" }}
         />
         <Box>
-          <Typography sx={{ fontSize: 20, fontWeight: 900 }}>
+          <Typography sx={{ fontSize: 18, fontWeight: 700, lineHeight: 1.65 }}>
             {route.routeText}
           </Typography>
           <Typography color={tone} sx={{ fontSize: 14, fontWeight: 800, mt: 0.5 }}>
-            {normalizeRouteDescription(route.description)}
+            {t(normalizeRouteDescription(route.description))}
           </Typography>
         </Box>
       </Stack>
@@ -2920,6 +2921,7 @@ function DestinationEditor({
   transportMode,
   onTransportModeChange,
 }: DestinationEditorProps) {
+  const { t, locale } = useLocale();
   const theme = useTheme();
   const [rows, setRows] = useState<DestinationRow[]>(initialRows);
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -3438,9 +3440,7 @@ function DestinationEditor({
               minWidth: 0,
             }}
           >
-            <Typography sx={{ fontSize: 15, fontWeight: 900 }}>
-              행선지 편집
-            </Typography>
+            <Typography sx={{ fontSize: 15, fontWeight: 900 }}>{t("행선지 편집")}</Typography>
           </Stack>
           <Stack
             direction="row"
@@ -3453,7 +3453,7 @@ function DestinationEditor({
             <TextField
               data-testid="itinerary-transport-mode"
               select
-              label="이동 수단"
+              label={t("이동 수단")}
               onChange={handleTransportModeSelect}
               size="small"
               value={transportMode}
@@ -3469,17 +3469,15 @@ function DestinationEditor({
               ))}
             </TextField>
             <Button
-              aria-label="경유지 추가"
+              aria-label={t("경유지 추가")}
               onClick={handleAddWaypoint}
               size="small"
               startIcon={<AddRoundedIcon />}
               sx={{ minHeight: 34, whiteSpace: "nowrap" }}
               variant="outlined"
-            >
-              추가
-            </Button>
+            >{t("추가")}</Button>
             <Button
-              aria-label={routeStatus === "loading" ? "경로 계산 중" : "경로 다시 계산"}
+              aria-label={routeStatus === "loading" ? t("경로 계산 중") : t("경로 다시 계산")}
               disabled={routeStatus === "loading" || rows.length < 2}
               onClick={handleCheckRoute}
               size="small"
@@ -3487,7 +3485,7 @@ function DestinationEditor({
               sx={{ minHeight: 34, whiteSpace: "nowrap" }}
               variant="contained"
             >
-              {routeStatus === "loading" ? "계산 중" : "재계산"}
+              {routeStatus === "loading" ? t("계산 중") : t("재계산")}
             </Button>
           </Stack>
         </Stack>
@@ -3512,7 +3510,7 @@ function DestinationEditor({
               py: 0.8,
             }}
           >
-            {routeMessage}
+            {translateError(locale, routeMessage)}
           </Box>
         ) : null}
 
@@ -3636,7 +3634,7 @@ function DestinationEditor({
                   >
                     <LocationOnOutlinedIcon color="action" fontSize="small" />
                     <Box
-                      aria-label={`${getDestinationRoleLabel(row)} 행선지`}
+                      aria-label={t(`${t(getDestinationRoleLabel(row))} 행선지`)}
                       component="input"
                       onChange={(event) => handleDestinationNameChange(row.id, event)}
                       onFocus={() => setActiveRowId(row.id)}
@@ -3661,7 +3659,7 @@ function DestinationEditor({
                       color="text.secondary"
                       sx={{ fontSize: 11, fontWeight: 800, whiteSpace: "nowrap" }}
                     >
-                      {getDestinationRoleLabel(row)}
+                      {t(getDestinationRoleLabel(row))}
                     </Typography>
                     {activeRowId === row.id &&
                     (suggestionStatus === "loading" ||
@@ -3690,13 +3688,11 @@ function DestinationEditor({
                         }}
                       >
                         {suggestionStatus === "loading" ? (
-                          <Typography color="text.secondary" sx={{ fontSize: 13, p: 1.2 }}>
-                            장소를 검색하는 중입니다.
-                          </Typography>
+                          <Typography color="text.secondary" sx={{ fontSize: 13, p: 1.2 }}>{t("장소를 검색하는 중입니다.")}</Typography>
                         ) : null}
                         {suggestionStatus === "error" ? (
                           <Typography color="error" sx={{ fontSize: 13, p: 1.2 }}>
-                            {suggestionMessage ?? "장소 검색에 실패했습니다."}
+                            {translateError(locale, suggestionMessage ?? "장소 검색에 실패했습니다.")}
                           </Typography>
                         ) : null}
                         {suggestionStatus !== "loading"
@@ -3747,9 +3743,7 @@ function DestinationEditor({
                             ))
                           : null}
                         {suggestionStatus === "success" && suggestions.length === 0 ? (
-                          <Typography color="text.secondary" sx={{ fontSize: 13, p: 1.2 }}>
-                            검색 결과가 없습니다.
-                          </Typography>
+                          <Typography color="text.secondary" sx={{ fontSize: 13, p: 1.2 }}>{t("검색 결과가 없습니다.")}</Typography>
                         ) : null}
                       </Box>
                     ) : null}
@@ -3767,9 +3761,7 @@ function DestinationEditor({
                       px: 1,
                     }}
                     variant="outlined"
-                  >
-                    삭제
-                  </Button>
+                  >{t("삭제")}</Button>
                 </Box>
 
                 {nextRow ? (
@@ -3874,6 +3866,7 @@ type BenefitStripProps = {
  * Renders the bottom benefit strip from the selected UI concept.
  */
 function BenefitStrip({ benefits }: BenefitStripProps) {
+  const { t } = useLocale();
   const theme = useTheme();
 
   return (
@@ -3891,7 +3884,7 @@ function BenefitStrip({ benefits }: BenefitStripProps) {
     >
       {benefits.map((benefit, index) => (
         <Stack
-          key={benefit.title}
+          key={t(benefit.title)}
           direction="row"
           spacing={1.5}
           sx={{
@@ -3935,9 +3928,9 @@ function BenefitStrip({ benefits }: BenefitStripProps) {
             {benefitIcons[benefit.icon]}
           </Box>
           <Box>
-            <Typography sx={{ fontWeight: 900 }}>{benefit.title}</Typography>
+            <Typography sx={{ fontWeight: 900 }}>{t(benefit.title)}</Typography>
             <Typography color="text.secondary" sx={{ fontSize: 13 }}>
-              {benefit.description}
+              {t(benefit.description)}
             </Typography>
           </Box>
         </Stack>
