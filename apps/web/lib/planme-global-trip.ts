@@ -6,6 +6,7 @@ export type PlanmeGlobalTripPreparation = {
   origin: string;
   destination: string;
   countryName: string;
+  countryCode: string;
   internationalSide: "origin" | "destination";
   attributions?: PlanmePlaceAttribution[];
 };
@@ -31,6 +32,7 @@ export async function resolvePlanmeGlobalTrip(input: {
     origin: input.selectedOrigin?.name ?? input.origin,
     destination: input.selectedDestination?.name ?? input.destination,
     countryName: country.countryName,
+    countryCode: country.countryCode,
     internationalSide,
     ...(attributions.length ? { attributions } : {}),
   };

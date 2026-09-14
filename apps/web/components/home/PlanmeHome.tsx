@@ -36,6 +36,7 @@ import {
 } from "./home-content";
 import styles from "./home.module.css";
 import { getContentPage } from "./content-pagination";
+import { useMagazine } from "./use-magazine";
 
 type PlanmeHomeProps = { children: ReactNode; articles?: HomeArticle[] };
 
@@ -187,11 +188,39 @@ function subscribeContentSearch(callback: () => void) {
 function contentSearchSnapshot() {
   try { return sessionStorage.getItem("planme-content-search"); } catch { return null; }
 }
-function SavedContentExplorer({ articles }: { articles: HomeArticle[] }) {
+type MagazineState = ReturnType<typeof useMagazine>;
+function SavedContentExplorer({ articles, magazine }: { articles: HomeArticle[]; magazine: MagazineState }) {
   const saved = useSyncExternalStore(subscribeContentSearch, contentSearchSnapshot, () => null);
-  return <ContentExplorer key={saved ?? "initial"} articles={articles} initial={readContentSearch(saved)} />;
+  return <ContentExplorer key={saved ?? "initial"} articles={articles} magazine={magazine} initial={readContentSearch(saved)} />;
 }
-function ContentExplorer({ articles, initial }: { articles: HomeArticle[]; initial: ContentSearch }) {
+function ArticleImage({ article }: { article: HomeArticle }) {
+  const [failed, setFailed] = useState(false);
+  return article.image && !failed ? (
+    // Use the API's absolute media URL without introducing an image optimization cache.
+    // eslint-disable-next-line @next/next/no-img-element
+    <img className={styles.articleImage} src={article.image} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />
+  ) : <div className={styles.articleImageFallback} aria-hidden="true"><Compass size={40} /></div>;
+}
+
+function MagazineNotice({ magazine }: { magazine: MagazineState }) {
+  const { t, locale } = useLocale();
+  const name = magazine.countryCode
+    ? new Intl.DisplayNames([locale], { type: "region" }).of(magazine.countryCode) : null;
+  return <div className={styles.magazineNotice} aria-busy={magazine.loading}>
+    {name && <strong>{name} · {t("Roller’s Dispatch")}</strong>}
+    <p role={magazine.failed ? "alert" : "status"}>
+      {!magazine.countryCode ? t("여행지를 검색하면 해당 국가의 매거진 기사를 보여드려요.")
+        : magazine.loading ? t("매거진 기사를 불러오고 있어요.")
+        : magazine.failed ? t("매거진 기사를 불러오지 못했어요. 다시 시도해 주세요.")
+        : !magazine.articles.length ? t("이 국가에 등록된 매거진 기사가 아직 없어요.")
+        : t("검색한 국가의 여행 이야기를 만나보세요.")}
+    </p>
+    {magazine.failed && <button type="button" onClick={magazine.retry}>{t("다시 시도")}</button>}
+    {magazine.hasMore && <button type="button" disabled={magazine.loading} onClick={magazine.loadMore}>{t("기사 더 보기")}</button>}
+  </div>;
+}
+
+function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticle[]; initial: ContentSearch; magazine: MagazineState }) {
   const { t, locale } = useLocale();
   const [category, setCategory] = useState<ContentCategory>(initial.category);
   const [query, setQuery] = useState(initial.query);
@@ -335,6 +364,7 @@ function ContentExplorer({ articles, initial }: { articles: HomeArticle[]; initi
         </div>
       </div>
       <p className={styles.contentNotice}>{t("제휴사에서 상품과 예약 가능 여부를 확인해 주세요. 콘텐츠 검색은 위 여행 일정 검색과 별도로 동작합니다.")}</p>
+      {(category === "all" || category === "magazine") && <MagazineNotice magazine={magazine} />}
       <div
         ref={panelRef}
         id="home-content-panel"
@@ -403,27 +433,24 @@ function ContentExplorer({ articles, initial }: { articles: HomeArticle[]; initi
               target="_blank"
               rel="noopener noreferrer"
             >
+              <ArticleImage article={article} />
               <span className={styles.eyebrow}>{t("ROLLER’S DISPATCH")}</span>
-              <h3>{article.title}</h3>
-              <p>{article.summary}</p>
+              <h3 lang={article.language}>{article.title}</h3>
+              <p lang={article.language}>{article.summary}</p>
               <span>{t("기사 읽기")}<ArrowUpRight size={18} aria-hidden="true" />
                 <span className={styles.srOnly}>{t("(새 탭)")}</span>
               </span>
             </a>
           ))}
         </div>
-        {!visiblePicks.length && !visibleArticles.length && (
+        {!visiblePicks.length && !visibleArticles.length && (category !== "magazine" || (!magazine.loading && !magazine.failed && !!magazine.countryCode && articles.length > 0)) && (
           <div className={styles.emptyState}>
             <Compass size={32} aria-hidden="true" />
             <h3>
-              {category === "magazine"
-                ? t("새로운 여행 이야기를 준비하고 있어요")
-                : t("검색한 콘텐츠가 없어요")}
+              {t("검색한 콘텐츠가 없어요")}
             </h3>
             <p>
-              {category === "magazine"
-                ? t("다른 여행 콘텐츠에서 다음 여행의 영감을 찾아보세요.")
-                : t("다른 도시 이름이나 여행 스타일로 다시 찾아보세요.")}
+              {t("다른 도시 이름이나 여행 스타일로 다시 찾아보세요.")}
             </p>
             <button
               onClick={() => {
@@ -474,8 +501,10 @@ function ContentExplorer({ articles, initial }: { articles: HomeArticle[]; initi
   );
 }
 
-export function PlanmeHome({ children, articles = [] }: PlanmeHomeProps) {
+export function PlanmeHome({ children, articles: initialArticles = [] }: PlanmeHomeProps) {
   const { t, locale } = useLocale();
+  const magazine = useMagazine();
+  const articles = magazine.countryCode ? magazine.articles : initialArticles;
   return (
     <main className={styles.home}>
       <a className={styles.skipLink} href="#trip-search">{t("여행 검색으로 바로가기")}</a>
@@ -570,8 +599,8 @@ export function PlanmeHome({ children, articles = [] }: PlanmeHomeProps) {
             <PartnerBanner />
           </div>
         </section>
-        {locale === "en" && articles.length > 0 && <p>{t("원문 콘텐츠 안내")}</p>}
-        <SavedContentExplorer articles={articles} />
+        {locale === "en" && articles.some(article => article.language !== "en") && <p>{t("원문 콘텐츠 안내")}</p>}
+        <SavedContentExplorer articles={articles} magazine={magazine} />
         <section className={styles.staySection} aria-labelledby="stay-title">
           <div>
             <span className={styles.eyebrow}>RestME</span>
@@ -628,8 +657,9 @@ export function PlanmeHome({ children, articles = [] }: PlanmeHomeProps) {
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  <h3>{article.title}</h3>
-                  <p>{article.summary}</p>
+                  <ArticleImage article={article} />
+                  <h3 lang={article.language}>{article.title}</h3>
+                  <p lang={article.language}>{article.summary}</p>
                   <span>{t("기사 읽기")}<ArrowUpRight size={18} aria-hidden="true" />
                     <span className={styles.srOnly}>{t("(새 탭)")}</span>
                   </span>
