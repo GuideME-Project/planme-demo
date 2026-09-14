@@ -1,3 +1,5 @@
+
+import { useLocale } from "@/components/i18n/LocaleProvider";
 import AttractionsRoundedIcon from "@mui/icons-material/AttractionsRounded";
 import FlightTakeoffRoundedIcon from "@mui/icons-material/FlightTakeoffRounded";
 import HotelRoundedIcon from "@mui/icons-material/HotelRounded";
@@ -60,6 +62,7 @@ function RouteTimelineColumn({
   routeStops,
   savingLabel,
 }: RouteTimelineColumnProps) {
+  const { t } = useLocale();
   const theme = useTheme();
   const tone = isCarryme ? "secondary" : "primary";
   const visibleEvents = isCarryme
@@ -77,8 +80,8 @@ function RouteTimelineColumn({
         p: { xs: 2, md: 2.5 },
       }}
     >
-      <Typography color={tone} sx={{ fontSize: 16, fontWeight: 900 }}>
-        {isCarryme ? "CarryME 일정" : "Standard 일정"}
+      <Typography color={tone} sx={{ fontSize: 16, fontWeight: 750 }}>
+        {isCarryme ? t("CarryME 일정") : t("Standard 일정")}
       </Typography>
 
       <Stack spacing={0}>
@@ -88,7 +91,7 @@ function RouteTimelineColumn({
 
           return (
             <Box
-              key={`${event.time}-${event.title}-${index}`}
+              key={`${event.time}-${t(event.title)}-${index}`}
               sx={{
                 display: "grid",
                 gridTemplateColumns: "58px 40px 1fr",
@@ -113,14 +116,14 @@ function RouteTimelineColumn({
                       ? "primary.main"
                       : isDark
                         ? "#1f2937"
-                        : "#344054",
+                        : alpha(theme.palette[tone].main, 0.1),
                     border: "3px solid",
                     borderColor: isDark ? "#0f1720" : "#fff",
                     borderRadius: "999px",
                     boxShadow: isCarrymeDelivery
                       ? `0 0 28px ${alpha(theme.palette.primary.main, 0.72)}`
-                      : "0 8px 20px rgba(15, 23, 42, 0.16)",
-                    color: "#fff",
+                      : "none",
+                    color: isCarrymeDelivery || isDark ? "#fff" : `${tone}.main`,
                     display: "flex",
                     height: 38,
                     justifyContent: "center",
@@ -157,9 +160,9 @@ function RouteTimelineColumn({
                   py: 0.4,
                 }}
               >
-                <Typography sx={{ fontWeight: 900 }}>{event.title}</Typography>
+                <Typography sx={{ fontWeight: 750 }}>{t(event.title)}</Typography>
                 <Typography color="text.secondary" sx={{ fontSize: 14, mt: 0.2 }}>
-                  {event.description}
+                  {t(event.description)}
                 </Typography>
               </Box>
             </Box>
@@ -184,17 +187,17 @@ function RouteTimelineColumn({
       >
         <Box>
           <Typography color={tone} sx={{ fontSize: 13, fontWeight: 800 }}>
-            {durationTitle}
+            {t(durationTitle)}
           </Typography>
-          <Typography color={tone} sx={{ fontSize: 18, fontWeight: 900 }}>
-            {durationLabel}
+          <Typography color={tone} sx={{ fontSize: 18, fontWeight: 750 }}>
+            {t(durationLabel)}
           </Typography>
         </Box>
         {isCarryme ? (
           <Chip
             color="error"
             data-testid="carryme-duration-saving-chip"
-            label={savingLabel}
+            label={t(savingLabel)}
           />
         ) : null}
       </Box>
@@ -206,9 +209,7 @@ function RouteTimelineColumn({
           size="large"
           startIcon={<WorkRoundedIcon />}
           variant="contained"
-        >
-          CarryME로 짐 맡기기 (데모)
-        </Button>
+        >{t("CarryME로 짐 맡기기 (데모)")}</Button>
       ) : null}
     </Stack>
   );
@@ -228,6 +229,7 @@ export function TimelinePanel({
   standardEvents,
   standardStops,
 }: TimelinePanelProps) {
+  const { t } = useLocale();
   const isDark = mode === "dark";
 
   return (
@@ -249,7 +251,7 @@ export function TimelinePanel({
       >
         <RouteTimelineColumn
           durationLabel={standardDurationLabel}
-          durationTitle="Standard 총 이동 시간"
+          durationTitle={t("Standard 총 이동 시간")}
           events={standardEvents}
           isFinalDay={isFinalDay}
           isDark={isDark}
@@ -258,7 +260,7 @@ export function TimelinePanel({
         />
         <RouteTimelineColumn
           durationLabel={carrymeDurationLabel}
-          durationTitle="CarryME 총 이동 시간"
+          durationTitle={t("CarryME 총 이동 시간")}
           events={carrymeEvents}
           isFinalDay={isFinalDay}
           isCarryme
@@ -267,9 +269,7 @@ export function TimelinePanel({
           savingLabel={savingLabel}
         />
       </Box>
-      <Typography color="text.secondary" sx={{ fontSize: 12, pb: 2, textAlign: "center" }}>
-        * 실제 결제 기능은 포함되어 있지 않은 데모입니다.
-      </Typography>
+      <Typography color="text.secondary" sx={{ fontSize: 12, pb: 2, textAlign: "center" }}>{t("* 실제 결제 기능은 포함되어 있지 않은 데모입니다.")}</Typography>
     </Box>
   );
 }

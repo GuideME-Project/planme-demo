@@ -1,8 +1,10 @@
 "use client";
+import { useLocale } from "@/components/i18n/LocaleProvider";
 
+import { LanguageSwitcher } from "@/components/i18n/LanguageSwitcher";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import {
   ArrowDown,
   ArrowRight,
@@ -46,6 +48,7 @@ function PartnerLink({
   children: ReactNode;
   className?: string;
 }) {
+  const { t } = useLocale();
   return (
     <a
       href={href}
@@ -55,12 +58,13 @@ function PartnerLink({
     >
       {children}
       <ArrowUpRight size={18} aria-hidden="true" />
-      <span className={styles.srOnly}> (제휴 사이트, 새 탭)</span>
+      <span className={styles.srOnly}>{t("(제휴 사이트, 새 탭)")}</span>
     </a>
   );
 }
 
 function StoreLinks() {
+  const { t } = useLocale();
   return (
     <div className={styles.storeLinks}>
       <a href={appLinks.ios} target="_blank" rel="noopener noreferrer">
@@ -69,7 +73,7 @@ function StoreLinks() {
           <small>iPhone · iPad</small>App Store
         </span>
         <ArrowUpRight size={17} aria-hidden="true" />
-        <span className={styles.srOnly}>에서 다운로드 (새 탭)</span>
+        <span className={styles.srOnly}>{t("에서 다운로드 (새 탭)")}</span>
       </a>
       <a href={appLinks.android} target="_blank" rel="noopener noreferrer">
         <Play size={21} aria-hidden="true" />
@@ -77,7 +81,7 @@ function StoreLinks() {
           <small>Android</small>Google Play
         </span>
         <ArrowUpRight size={17} aria-hidden="true" />
-        <span className={styles.srOnly}>에서 다운로드 (새 탭)</span>
+        <span className={styles.srOnly}>{t("에서 다운로드 (새 탭)")}</span>
       </a>
     </div>
   );
@@ -105,6 +109,7 @@ const banners = [
 ];
 
 function PartnerBanner() {
+  const { t } = useLocale();
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [interacting, setInteracting] = useState(false);
@@ -121,8 +126,8 @@ function PartnerBanner() {
   return (
     <div
       className={styles.partnerBanner}
-      aria-roledescription="캐러셀"
-      aria-label="여행 제휴 서비스"
+      aria-roledescription={t("캐러셀")}
+      aria-label={t("여행 제휴 서비스")}
       onMouseEnter={() => setInteracting(true)}
       onMouseLeave={() => setInteracting(false)}
       onFocusCapture={() => setInteracting(true)}
@@ -131,14 +136,14 @@ function PartnerBanner() {
           setInteracting(false);
       }}
     >
-      <span className={styles.eyebrow}>TRAVEL PARTNERS</span>
+      <span className={styles.eyebrow}>{t("TRAVEL PARTNERS")}</span>
       <strong>{banner.name}</strong>
-      <p>{banner.text}</p>
-      <PartnerLink href={banner.href}>{banner.label}</PartnerLink>
+      <p>{t(banner.text)}</p>
+      <PartnerLink href={banner.href}>{t(banner.label)}</PartnerLink>
       <div className={styles.carouselControls}>
         <span>{String(index + 1).padStart(2, "0")} / 03</span>
         <button
-          aria-label="이전 제휴 서비스"
+          aria-label={t("이전 제휴 서비스")}
           onClick={() =>
             setIndex((index + banners.length - 1) % banners.length)
           }
@@ -146,14 +151,14 @@ function PartnerBanner() {
           <ChevronLeft size={17} />
         </button>
         <button
-          aria-label="다음 제휴 서비스"
+          aria-label={t("다음 제휴 서비스")}
           onClick={() => setIndex((index + 1) % banners.length)}
         >
           <ChevronRight size={17} />
         </button>
         <button
           aria-label={
-            paused ? "배너 자동 전환 재생" : "배너 자동 전환 일시정지"
+            paused ? t("배너 자동 전환 재생") : t("배너 자동 전환 일시정지")
           }
           aria-pressed={paused}
           onClick={() => setPaused(!paused)}
@@ -165,17 +170,51 @@ function PartnerBanner() {
   );
 }
 
-function ContentExplorer({ articles }: { articles: HomeArticle[] }) {
-  const [category, setCategory] = useState<ContentCategory>("all");
-  const [query, setQuery] = useState("");
-  const [view, setView] = useState<"grid" | "list">("grid");
-  const [page, setPage] = useState(1);
+type ContentSearch = { category: ContentCategory; query: string; view: "grid" | "list"; page: number };
+function readContentSearch(text: string | null): ContentSearch {
+  const empty: ContentSearch = { category: "all", query: "", view: "grid", page: 1 };
+  try {
+    const saved = JSON.parse(text ?? "null") as Partial<ContentSearch> | null;
+    if (!saved || !categories.some(item => item.id === saved.category) || typeof saved.query !== "string" ||
+      (saved.view !== "grid" && saved.view !== "list") || !Number.isInteger(saved.page) || saved.page! < 1) return empty;
+    return saved as ContentSearch;
+  } catch { return empty; }
+}
+function subscribeContentSearch(callback: () => void) {
+  window.addEventListener("storage", callback);
+  return () => window.removeEventListener("storage", callback);
+}
+function contentSearchSnapshot() {
+  try { return sessionStorage.getItem("planme-content-search"); } catch { return null; }
+}
+function SavedContentExplorer({ articles }: { articles: HomeArticle[] }) {
+  const saved = useSyncExternalStore(subscribeContentSearch, contentSearchSnapshot, () => null);
+  return <ContentExplorer key={saved ?? "initial"} articles={articles} initial={readContentSearch(saved)} />;
+}
+function ContentExplorer({ articles, initial }: { articles: HomeArticle[]; initial: ContentSearch }) {
+  const { t, locale } = useLocale();
+  const [category, setCategory] = useState<ContentCategory>(initial.category);
+  const [query, setQuery] = useState(initial.query);
+  const [view, setView] = useState<"grid" | "list">(initial.view);
+  const [page, setPage] = useState(initial.page);
   const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const save = (event: Event) => {
+      try { sessionStorage.setItem("planme-content-search", JSON.stringify({ category, query, view, page })); }
+      catch { event.preventDefault(); }
+    };
+    window.addEventListener("planme:before-language-change", save);
+    window.addEventListener("pagehide", save);
+    return () => {
+      window.removeEventListener("planme:before-language-change", save);
+      window.removeEventListener("pagehide", save);
+    };
+  }, [category, query, view, page]);
   const keyword = query.trim().toLocaleLowerCase();
   const visiblePicks = picks.filter(
     (pick) =>
       (category === "all" || pick.category === category) &&
-      `${pick.title} ${pick.description} ${pick.keywords} ${pick.partner}`
+      `${t(pick.title)} ${t(pick.description)} ${pick.keywords} ${pick.partner}`
         .toLocaleLowerCase()
         .includes(keyword),
   );
@@ -210,11 +249,11 @@ function ContentExplorer({ articles }: { articles: HomeArticle[] }) {
     >
       <div className={styles.sectionHeading}>
         <div>
-          <h2 id="discover-title">PlanME’s Pick</h2>
+          <h2 id="discover-title">{t("PlanME’s Pick")}</h2>
         </div>
         <label className={styles.contentSearch}>
           <Search size={19} aria-hidden="true" />
-          <span className={styles.srOnly}>여행 콘텐츠 검색</span>
+          <span className={styles.srOnly}>{t("여행 콘텐츠 검색")}</span>
           <input
             type="search"
             value={query}
@@ -222,7 +261,7 @@ function ContentExplorer({ articles }: { articles: HomeArticle[] }) {
               setQuery(event.target.value);
               setPage(1);
             }}
-            placeholder="Search"
+            placeholder={t("Search")}
           />
         </label>
       </div>
@@ -230,7 +269,7 @@ function ContentExplorer({ articles }: { articles: HomeArticle[] }) {
         <div
           className={styles.tabs}
           role="tablist"
-          aria-label="여행 콘텐츠 종류"
+          aria-label={t("여행 콘텐츠 종류")}
         >
           {categories.map((item, index) => (
             <button
@@ -268,37 +307,34 @@ function ContentExplorer({ articles }: { articles: HomeArticle[] }) {
                 document.getElementById(`home-tab-${next.id}`)?.focus();
               }}
             >
-              {item.label}
+              {t(item.label)}
             </button>
           ))}
         </div>
         <div
           className={styles.viewToggle}
-          aria-label="콘텐츠 보기 방식"
+          aria-label={t("콘텐츠 보기 방식")}
           role="group"
         >
           <button
-            aria-label="격자 보기"
+            aria-label={t("격자 보기")}
             aria-pressed={view === "grid"}
             onClick={() => setView("grid")}
           >
             <Grid2X2 size={18} />
-            <span>Grid View</span>
+            <span>{t("Grid View")}</span>
           </button>
           <button
-            aria-label="목록 보기"
+            aria-label={t("목록 보기")}
             aria-pressed={view === "list"}
             onClick={() => setView("list")}
           >
             <List size={19} />
-            <span>List View</span>
+            <span>{t("List View")}</span>
           </button>
         </div>
       </div>
-      <p className={styles.contentNotice}>
-        제휴사에서 상품과 예약 가능 여부를 확인해 주세요. 콘텐츠 검색은 위 여행
-        일정 검색과 별도로 동작합니다.
-      </p>
+      <p className={styles.contentNotice}>{t("제휴사에서 상품과 예약 가능 여부를 확인해 주세요. 콘텐츠 검색은 위 여행 일정 검색과 별도로 동작합니다.")}</p>
       <div
         ref={panelRef}
         id="home-content-panel"
@@ -306,9 +342,7 @@ function ContentExplorer({ articles }: { articles: HomeArticle[] }) {
         aria-labelledby={`home-tab-${category}`}
         tabIndex={0}
       >
-        <span className={styles.srOnly} role="status">
-          콘텐츠 {visiblePicks.length + visibleArticles.length}개
-        </span>
+        <span className={styles.srOnly} role="status">{locale === "ko" ? `콘텐츠 ${total}개` : `${total} ${total === 1 ? "item" : "items"}`}</span>
         <div
           className={view === "grid" ? styles.pickGrid : styles.pickList}
           data-count={pagePicks.length + pageArticles.length}
@@ -328,7 +362,7 @@ function ContentExplorer({ articles }: { articles: HomeArticle[] }) {
             >
               <Image
                 src={pick.image}
-                alt={pick.imageAlt}
+                alt={t(pick.imageAlt)}
                 fill
                 sizes={
                   pagePicks.length + pageArticles.length === 1
@@ -353,11 +387,10 @@ function ContentExplorer({ articles }: { articles: HomeArticle[] }) {
                 />
               )}
               <div className={styles.pickCopy}>
-                <h3>{pick.title}</h3>
-                <p>{pick.description}</p>
-                <span>
-                  Learn More <ArrowUpRight size={17} aria-hidden="true" />
-                  <span className={styles.srOnly}> (새 탭)</span>
+                <h3>{t(pick.title)}</h3>
+                <p>{t(pick.description)}</p>
+                <span>{t("Learn More")}<ArrowUpRight size={17} aria-hidden="true" />
+                  <span className={styles.srOnly}>{t("(새 탭)")}</span>
                 </span>
               </div>
             </a>
@@ -370,12 +403,11 @@ function ContentExplorer({ articles }: { articles: HomeArticle[] }) {
               target="_blank"
               rel="noopener noreferrer"
             >
-              <span className={styles.eyebrow}>ROLLER’S DISPATCH</span>
+              <span className={styles.eyebrow}>{t("ROLLER’S DISPATCH")}</span>
               <h3>{article.title}</h3>
               <p>{article.summary}</p>
-              <span>
-                기사 읽기 <ArrowUpRight size={18} aria-hidden="true" />
-                <span className={styles.srOnly}> (새 탭)</span>
+              <span>{t("기사 읽기")}<ArrowUpRight size={18} aria-hidden="true" />
+                <span className={styles.srOnly}>{t("(새 탭)")}</span>
               </span>
             </a>
           ))}
@@ -385,13 +417,13 @@ function ContentExplorer({ articles }: { articles: HomeArticle[] }) {
             <Compass size={32} aria-hidden="true" />
             <h3>
               {category === "magazine"
-                ? "새로운 여행 이야기를 준비하고 있어요"
-                : "검색한 콘텐츠가 없어요"}
+                ? t("새로운 여행 이야기를 준비하고 있어요")
+                : t("검색한 콘텐츠가 없어요")}
             </h3>
             <p>
               {category === "magazine"
-                ? "다른 여행 콘텐츠에서 다음 여행의 영감을 찾아보세요."
-                : "다른 도시 이름이나 여행 스타일로 다시 찾아보세요."}
+                ? t("다른 여행 콘텐츠에서 다음 여행의 영감을 찾아보세요.")
+                : t("다른 도시 이름이나 여행 스타일로 다시 찾아보세요.")}
             </p>
             <button
               onClick={() => {
@@ -399,16 +431,15 @@ function ContentExplorer({ articles }: { articles: HomeArticle[] }) {
                 setCategory("all");
                 setQuery("");
               }}
-            >
-              전체 콘텐츠 보기 <ArrowRight size={17} aria-hidden="true" />
+            >{t("전체 콘텐츠 보기")}<ArrowRight size={17} aria-hidden="true" />
             </button>
           </div>
         )}
       </div>
       {total > 0 && (
-        <nav className={styles.pagination} aria-label="콘텐츠 페이지">
+        <nav className={styles.pagination} aria-label={t("콘텐츠 페이지")}>
           <button
-            aria-label="이전 페이지"
+            aria-label={t("이전 페이지")}
             disabled={currentPage === 1}
             onClick={() => changePage(currentPage - 1)}
           >
@@ -422,7 +453,7 @@ function ContentExplorer({ articles }: { articles: HomeArticle[] }) {
                 </span>
               )}
               <button
-                aria-label={`${number}페이지`}
+                aria-label={t(`${number}페이지`)}
                 aria-current={currentPage === number ? "page" : undefined}
                 onClick={() => changePage(number)}
               >
@@ -431,7 +462,7 @@ function ContentExplorer({ articles }: { articles: HomeArticle[] }) {
             </span>
           ))}
           <button
-            aria-label="다음 페이지"
+            aria-label={t("다음 페이지")}
             disabled={currentPage === pageCount}
             onClick={() => changePage(currentPage + 1)}
           >
@@ -444,11 +475,10 @@ function ContentExplorer({ articles }: { articles: HomeArticle[] }) {
 }
 
 export function PlanmeHome({ children, articles = [] }: PlanmeHomeProps) {
+  const { t, locale } = useLocale();
   return (
     <main className={styles.home}>
-      <a className={styles.skipLink} href="#trip-search">
-        여행 검색으로 바로가기
-      </a>
+      <a className={styles.skipLink} href="#trip-search">{t("여행 검색으로 바로가기")}</a>
       <div className={styles.hero}>
         <Image
           src="/brand/planme-search-background.png"
@@ -459,7 +489,7 @@ export function PlanmeHome({ children, articles = [] }: PlanmeHomeProps) {
           className={styles.heroBackground}
         />
         <header className={styles.header}>
-          <Link href="/" aria-label="PlanME 홈">
+          <Link href={`/${locale}`} aria-label={t("PlanME 홈")}>
             <Image
               src="/brand/planme-logo.png"
               alt="PlanME by GuideME"
@@ -468,30 +498,23 @@ export function PlanmeHome({ children, articles = [] }: PlanmeHomeProps) {
               priority
             />
           </Link>
-          <nav aria-label="홈 메뉴">
-            <a href="#discover">여행 둘러보기</a>
-            <a href="#how-it-works">이용 방법</a>
-            <a className={styles.navApp} href="#app-download">
-              GuideME 앱 <ArrowUpRight size={16} aria-hidden="true" />
+          <nav aria-label={t("홈 메뉴")}>
+            <a href="#discover">{t("여행 둘러보기")}</a>
+            <a href="#how-it-works">{t("이용 방법")}</a>
+            <a className={styles.navApp} href="#app-download">{t("GuideME 앱")}<ArrowUpRight size={16} aria-hidden="true" />
             </a>
           </nav>
+          <LanguageSwitcher />
         </header>
         <div className={styles.heroCopy}>
-          <span className={styles.eyebrow}>DISCOVER YOUR NEXT</span>
-          <h1>
-            For ME,
-            <br />
-            By Human Touch,
-            <br />
-            <span>With GuideME!</span>
+          <span className={styles.eyebrow}>{t("DISCOVER YOUR NEXT")}</span>
+          <h1>{t("For ME,")}{" "}<br />{t("By Human Touch,")}<br />
+            <span>{t("With GuideME!")}</span>
           </h1>
-          <p>
-            Connecting Hearts Across Borders: A Journey for Every You in the
-            World
-          </p>
+          <p>{t("Connecting Hearts Across Borders: A Journey for Every You in the World")}</p>
           <a href="#trip-search" className={styles.heroJump}>
             <ArrowDown size={17} aria-hidden="true" />
-            <span className={styles.srOnly}>여행 검색으로 이동</span>
+            <span className={styles.srOnly}>{t("여행 검색으로 이동")}</span>
           </a>
         </div>
       </div>
@@ -502,20 +525,16 @@ export function PlanmeHome({ children, articles = [] }: PlanmeHomeProps) {
             <CalendarDays size={26} aria-hidden="true" />
           </div>
           <div>
-            <span className={styles.eyebrow}>YOUR TRIP, YOUR WAY</span>
-            <h2 id="trip-title">여행의 시작은, 나만의 일정부터</h2>
-            <p>
-              목적지와 여행 기간을 알려주세요. 추천 장소부터 이동 경로까지 함께
-              준비할게요.
-            </p>
+            <span className={styles.eyebrow}>{t("YOUR TRIP, YOUR WAY")}</span>
+            <h2 id="trip-title">{t("여행의 시작은, 나만의 일정부터")}</h2>
+            <p>{t("목적지와 여행 기간을 알려주세요. 추천 장소부터 이동 경로까지 함께 준비할게요.")}</p>
           </div>
-          <a href="#trip-search">
-            일정 만들기 <ArrowUpRight size={19} aria-hidden="true" />
+          <a href="#trip-search">{t("일정 만들기")}<ArrowUpRight size={19} aria-hidden="true" />
           </a>
         </section>
         <section
           className={styles.mediaSection}
-          aria-label="GuideME 소개와 여행 서비스"
+          aria-label={t("GuideME 소개와 여행 서비스")}
         >
           <div className={styles.mainVideo}>
             <video
@@ -523,20 +542,15 @@ export function PlanmeHome({ children, articles = [] }: PlanmeHomeProps) {
               playsInline
               preload="none"
               poster="/home/guideme-poster.jpg"
-              aria-label="GuideME 소개 영상"
+              aria-label={t("GuideME 소개 영상")}
               src="/home/roller-introduction.mp4"
-            >
-              브라우저가 영상 재생을 지원하지 않습니다.{" "}
-              <a href="/home/roller-introduction.mp4">소개 영상 열기</a>
+            >{t("브라우저가 영상 재생을 지원하지 않습니다.")}{" "}
+              <a href="/home/roller-introduction.mp4">{t("소개 영상 열기")}</a>
             </video>
             <div>
-              <span className={styles.eyebrow}>MEET GUIDEME</span>
-              <h2>
-                여행지에서 만나는
-                <br />
-                새로운 연결
-              </h2>
-              <p>당신의 여행에 사람의 온기를 더합니다.</p>
+              <span className={styles.eyebrow}>{t("MEET GUIDEME")}</span>
+              <h2>{t("여행지에서 만나는")}{" "}<br />{t("새로운 연결")}</h2>
+              <p>{t("당신의 여행에 사람의 온기를 더합니다.")}</p>
             </div>
           </div>
           <div className={styles.mediaAside}>
@@ -547,56 +561,39 @@ export function PlanmeHome({ children, articles = [] }: PlanmeHomeProps) {
                 preload="none"
                 poster="/home/roller-poster.jpg"
                 src="/home/roller-introduction-2.mp4"
-                aria-label="롤러 소개 영상"
-              >
-                브라우저가 영상 재생을 지원하지 않습니다.{" "}
-                <a href="/home/roller-introduction-2.mp4">
-                  롤러 소개 영상 열기
-                </a>
+                aria-label={t("롤러 소개 영상")}
+              >{t("브라우저가 영상 재생을 지원하지 않습니다.")}{" "}
+                <a href="/home/roller-introduction-2.mp4">{t("롤러 소개 영상 열기")}</a>
               </video>
-              <span>
-                Watch Our
-                <br />
-                Profile Video
-              </span>
+              <span>{t("Watch Our")}{" "}<br />{t("Profile Video")}</span>
             </div>
             <PartnerBanner />
           </div>
         </section>
-        <ContentExplorer articles={articles} />
+        {locale === "en" && articles.length > 0 && <p>{t("원문 콘텐츠 안내")}</p>}
+        <SavedContentExplorer articles={articles} />
         <section className={styles.staySection} aria-labelledby="stay-title">
           <div>
             <span className={styles.eyebrow}>RestME</span>
-            <h2 id="stay-title">Only The Best Quality For You</h2>
-            <p>
-              Find your next stay with RestME. Check availability and booking
-              conditions with our partner.
-            </p>
-            <PartnerLink className={styles.blueButton} href={partnerLinks.stay}>
-              Learn More
-            </PartnerLink>
+            <h2 id="stay-title">{t("Only The Best Quality For You")}</h2>
+            <p>{t("Find your next stay with RestME. Check availability and booking conditions with our partner.")}</p>
+            <PartnerLink className={styles.blueButton} href={partnerLinks.stay}>{t("Learn More")}</PartnerLink>
           </div>
           <div className={styles.stayImage}>
             <Image
               src="/home/rest-me-popular-hotel-1.png"
-              alt="초록 식물과 수영장이 있는 숙소의 휴식 공간"
+              alt={t("초록 식물과 수영장이 있는 숙소의 휴식 공간")}
               fill
               sizes="(max-width: 767px) 100vw, 50vw"
             />
           </div>
           <div className={styles.stayNotes}>
             <span>
-              <Check size={20} />
-              나에게 맞는 숙소 탐색
-            </span>
+              <Check size={20} />{t("나에게 맞는 숙소 탐색")}</span>
             <span>
-              <Check size={20} />
-              제휴사에서 예약 조건 확인
-            </span>
+              <Check size={20} />{t("제휴사에서 예약 조건 확인")}</span>
             <span>
-              <Check size={20} />
-              나만의 여행에 쉼 더하기
-            </span>
+              <Check size={20} />{t("나만의 여행에 쉼 더하기")}</span>
           </div>
         </section>
         <section
@@ -604,15 +601,13 @@ export function PlanmeHome({ children, articles = [] }: PlanmeHomeProps) {
           aria-labelledby="flight-title"
         >
           <div>
-            <span className={styles.eyebrow}>BOOK YOUR DREAM VACATION</span>
-            <h2 id="flight-title">TODAY</h2>
-            <p>Find flights for your next journey with Aviasales.</p>
+            <span className={styles.eyebrow}>{t("BOOK YOUR DREAM VACATION")}</span>
+            <h2 id="flight-title">{t("TODAY")}</h2>
+            <p>{t("Find flights for your next journey with Aviasales.")}</p>
             <PartnerLink
               className={styles.blueButton}
               href={partnerLinks.flight}
-            >
-              Book Now
-            </PartnerLink>
+            >{t("Book Now")}</PartnerLink>
           </div>
           <Plane size={126} strokeWidth={1} aria-hidden="true" />
         </section>
@@ -620,8 +615,8 @@ export function PlanmeHome({ children, articles = [] }: PlanmeHomeProps) {
           <section className={styles.section} aria-labelledby="magazine-title">
             <div className={styles.sectionHeading}>
               <div>
-                <span className={styles.eyebrow}>ROLLER’S DISPATCH</span>
-                <h2 id="magazine-title">여행을 읽는 시간</h2>
+                <span className={styles.eyebrow}>{t("ROLLER’S DISPATCH")}</span>
+                <h2 id="magazine-title">{t("여행을 읽는 시간")}</h2>
               </div>
             </div>
             <div className={styles.articleGrid}>
@@ -635,9 +630,8 @@ export function PlanmeHome({ children, articles = [] }: PlanmeHomeProps) {
                 >
                   <h3>{article.title}</h3>
                   <p>{article.summary}</p>
-                  <span>
-                    기사 읽기 <ArrowUpRight size={18} aria-hidden="true" />
-                    <span className={styles.srOnly}> (새 탭)</span>
+                  <span>{t("기사 읽기")}<ArrowUpRight size={18} aria-hidden="true" />
+                    <span className={styles.srOnly}>{t("(새 탭)")}</span>
                   </span>
                 </a>
               ))}
@@ -649,8 +643,8 @@ export function PlanmeHome({ children, articles = [] }: PlanmeHomeProps) {
           className={styles.appCta}
           aria-labelledby="app-title"
         >
-          <h2 id="app-title">READY TO EXPLORE THE WORLD?</h2>
-          <p>Meet local Rollers and discover new experiences with GuideME.</p>
+          <h2 id="app-title">{t("READY TO EXPLORE THE WORLD?")}</h2>
+          <p>{t("Meet local Rollers and discover new experiences with GuideME.")}</p>
           <StoreLinks />
         </section>
       </div>
@@ -661,60 +655,58 @@ export function PlanmeHome({ children, articles = [] }: PlanmeHomeProps) {
             className={styles.process}
             aria-labelledby="process-title"
           >
-            <span className={styles.eyebrow}>HOW IT WORKS</span>
-            <h2 id="process-title">PROCESS</h2>
+            <span className={styles.eyebrow}>{t("HOW IT WORKS")}</span>
+            <h2 id="process-title">{t("PROCESS")}</h2>
             <div className={styles.steps}>
               {[
                 {
                   icon: MapPin,
-                  title: "Trip Planning",
-                  text: "Choose your departure, destination, and travel dates.",
+                  title: t("Trip Planning"),
+                  text: t("Choose your departure, destination, and travel dates."),
                 },
                 {
                   icon: CalendarDays,
-                  title: "Trip Booking",
-                  text: "Explore flights, stays, and activities on our partner sites.",
+                  title: t("Trip Booking"),
+                  text: t("Explore flights, stays, and activities on our partner sites."),
                 },
                 {
                   icon: Compass,
-                  title: "Trip Preparation",
-                  text: "Review your itinerary and prepare for your trip.",
+                  title: t("Trip Preparation"),
+                  text: t("Review your itinerary and prepare for your trip."),
                 },
                 {
                   icon: Sparkles,
-                  title: "Trip Experience",
-                  text: "Meet local Rollers through GuideME.",
+                  title: t("Trip Experience"),
+                  text: t("Meet local Rollers through GuideME."),
                 },
               ].map((step, index) => (
-                <div className={styles.step} key={step.title}>
+                <div className={styles.step} key={t(step.title)}>
                   <span className={styles.stepIcon}>
                     <step.icon size={29} strokeWidth={1.5} aria-hidden="true" />
                   </span>
                   <small>0{index + 1}</small>
-                  <h3>{step.title}</h3>
-                  <p>{step.text}</p>
+                  <h3>{t(step.title)}</h3>
+                  <p>{t(step.text)}</p>
                 </div>
               ))}
             </div>
           </section>
           <section className={styles.faq} aria-labelledby="faq-title">
             <div>
-              <h2 id="faq-title">Frequently Asked Questions</h2>
-              <p>
-                What our clients usually asked about our services and tours.
-              </p>
+              <h2 id="faq-title">{t("Frequently Asked Questions")}</h2>
+              <p>{t("What our clients usually asked about our services and tours.")}</p>
             </div>
             <div className={styles.faqList}>
               {questions.map((item, index) => (
                 <details
-                  key={item.question}
+                  key={t(item.question)}
                   open={index === 0 ? true : undefined}
                 >
                   <summary>
-                    {item.question}
+                    {t(item.question)}
                     <ChevronDown size={20} aria-hidden="true" />
                   </summary>
-                  <p>{item.answer}</p>
+                  <p>{t(item.answer)}</p>
                 </details>
               ))}
             </div>
@@ -729,24 +721,13 @@ export function PlanmeHome({ children, articles = [] }: PlanmeHomeProps) {
             width={250}
             height={35}
           />
-          <p>
-            여행을 계획하는 순간부터
-            <br />
-            새로운 사람을 만나는 순간까지.
-          </p>
-          <a href="#trip-search">
-            나만의 여행 시작하기 <ArrowRight size={18} aria-hidden="true" />
+          <p>{t("여행을 계획하는 순간부터")}{" "}<br />{t("새로운 사람을 만나는 순간까지.")}</p>
+          <a href="#trip-search">{t("나만의 여행 시작하기")}<ArrowRight size={18} aria-hidden="true" />
           </a>
         </div>
         <div className={styles.appFooter}>
-          <span className={styles.eyebrow}>Ready?</span>
-          <h2>
-            Get the app
-            <br />
-            Get the GuideME app
-            <br />
-            on iOS &amp; Android.
-          </h2>
+          <span className={styles.eyebrow}>{t("Ready?")}</span>
+          <h2>{t("Get the app")}{" "}<br />{t("Get the GuideME app")}{" "}<br />{t("on iOS & Android.")}</h2>
           <StoreLinks />
           <p>© {new Date().getFullYear()} GuideME</p>
         </div>

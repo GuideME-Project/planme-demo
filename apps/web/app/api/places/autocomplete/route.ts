@@ -8,7 +8,7 @@ export async function POST(request: Request) {
   if (request.headers.get("origin") !== new URL(request.url).origin) {
     return reply("이 페이지에서 장소를 다시 검색해 주세요.", 403);
   }
-  let body: { query?: string; sessionToken?: string };
+  let body: { query?: string; sessionToken?: string; locale?: string };
   try {
     if (Number(request.headers.get("content-length")) > 4096) return reply("검색어를 확인해 주세요.", 400);
     const text = await request.text();
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
     const limit = await consumePlanmeAutocompleteRateLimit(sessionId);
     if (!limit.allowed) return reply("후보 조회가 많습니다. 직접 입력해 검색하거나 잠시 후 다시 시도해 주세요.", 429);
     stage = "provider";
-    const result = await autocompletePlanmePlaces(body.query.trim(), body.sessionToken, request.signal);
+    const result = await autocompletePlanmePlaces(body.query.trim(), body.sessionToken, request.signal, body.locale === "en" ? "en" : "ko");
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     // Input edits cancel requests normally; only log fixed codes for remaining failures.

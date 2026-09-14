@@ -1,4 +1,6 @@
 "use client";
+import { translateError } from "@/lib/i18n/messages";
+import { useLocale } from "@/components/i18n/LocaleProvider";
 
 import AdjustRoundedIcon from "@mui/icons-material/AdjustRounded";
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
@@ -22,7 +24,7 @@ import {
   ToggleButtonGroup,
   Typography,
 } from "@mui/material";
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { PlanmeGlobalPreparation } from "./PlanmeGlobalPreparation";
 import { PlanmeInlineItinerary } from "./PlanmeInlineItinerary";
 import { PlanmePlaceInput } from "./PlanmePlaceInput";
@@ -30,6 +32,7 @@ import type { PlanmePlaceSelection } from "@/lib/planme-places";
 import {
   type PlanmeSearchActionState,
   startPlanmeSearchAction,
+  loadPlanmeInlineItineraryAction,
 } from "@/app/planme-search-actions";
 
 type PlanmeSearchHomeProps = {
@@ -37,12 +40,17 @@ type PlanmeSearchHomeProps = {
   initialSubmissionId: string;
 };
 
+import { readSearchDraft, saveSearchDraft } from "@/lib/i18n/search-draft";
+
 type TransportMode = "drive" | "transit" | "";
 
 export function PlanmeSearchHome({
   initialDestination,
   initialSubmissionId,
 }: PlanmeSearchHomeProps) {
+  const { t, locale } = useLocale();
+  const [restoredState, setRestoredState] = useState<PlanmeSearchActionState>({});
+  const [restoring, setRestoring] = useState(true);
   const [originSelection, setOriginSelection] = useState<PlanmePlaceSelection | null>(null);
   const [destinationSelection, setDestinationSelection] = useState<PlanmePlaceSelection | null>(null);
   const [consumedTokens, setConsumedTokens] = useState<string[]>([]);
@@ -64,17 +72,65 @@ export function PlanmeSearchHome({
   const [transportMode, setTransportMode] = useState<TransportMode>("");
   const [submissionId, setSubmissionId] = useState(initialSubmissionId);
   const [durationAnchor, setDurationAnchor] = useState<HTMLElement | null>(null);
-  const durationPaperRef = useRef<HTMLDivElement | null>(null);
   const destinationInputRef = useRef<HTMLInputElement | null>(null);
   const submittingRef = useRef(false);
-  const visibleState: PlanmeSearchActionState = !pending && state.submissionId === submissionId ? state : {};
-  const globalPreparation = state.globalPreparation?.submissionId === submissionId
-    ? state.globalPreparation
+  const currentState = state.submissionId ? state : restoredState;
+  const visibleState = useMemo<PlanmeSearchActionState>(() => !pending && currentState.submissionId === submissionId ? currentState : {}, [pending, currentState, submissionId]);
+  const globalPreparation = currentState.globalPreparation?.submissionId === submissionId
+    ? currentState.globalPreparation
     : undefined;
 
   useEffect(() => {
     if (!pending) submittingRef.current = false;
   }, [pending, state]);
+
+  useEffect(() => {
+    let active = true;
+    async function restore() {
+      try {
+        const draft = readSearchDraft(window.sessionStorage, window.location.search);
+        if (!draft) return;
+        const result = draft.state.itineraryResult;
+        if (!active) return;
+        setOrigin(draft.origin);
+        setDestination(draft.destination);
+        setDurationDays(draft.durationDays);
+        setTransportMode(draft.transportMode);
+        setSubmissionId(draft.submissionId);
+        setOriginSelection(draft.originSelection);
+        setDestinationSelection(draft.destinationSelection);
+        setConsumedTokens(draft.consumedTokens);
+        let refreshed = result;
+        try { if (result) refreshed = await loadPlanmeInlineItineraryAction(result.itineraryId) ?? result; }
+        catch { /* Keep the itinerary ID so its result can be retried without regenerating. */ }
+        if (active) setRestoredState({ ...draft.state, itineraryResult: refreshed });
+      } catch {
+        // Storage can be disabled; ordinary searching must remain available.
+      } finally {
+        if (active) setRestoring(false);
+      }
+    }
+    void restore();
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    const save = (event: Event) => {
+      if (pending || restoring || submittingRef.current) { event.preventDefault(); return; }
+      try {
+        saveSearchDraft(window.sessionStorage, {
+          query: window.location.search, origin, destination, durationDays, transportMode,
+          submissionId, originSelection, destinationSelection, consumedTokens, state: visibleState,
+        });
+      } catch { event.preventDefault(); }
+    };
+    window.addEventListener("planme:before-language-change", save);
+    window.addEventListener("pagehide", save);
+    return () => {
+      window.removeEventListener("planme:before-language-change", save);
+      window.removeEventListener("pagehide", save);
+    };
+  }, [pending, restoring, origin, destination, durationDays, transportMode, submissionId, originSelection, destinationSelection, consumedTokens, visibleState]);
 
   const rotateSubmissionId = () => setSubmissionId(crypto.randomUUID());
   const selectedDurationDays = durationDays ? Number(durationDays) : 1;
@@ -91,26 +147,11 @@ export function PlanmeSearchHome({
     rotateSubmissionId();
   };
 
-  const closeDurationOnOutsidePointerDown = (
-    event: React.PointerEvent<HTMLElement>,
-  ) => {
-    const target = event.target as Node;
-
-    if (
-      durationAnchor &&
-      !durationAnchor.contains(target) &&
-      !durationPaperRef.current?.contains(target)
-    ) {
-      setDurationAnchor(null);
-    }
-  };
-
   return (
     <Box
       component="section"
       id="trip-search"
-      aria-label="여행 일정 검색"
-      onPointerDownCapture={closeDurationOnOutsidePointerDown}
+      aria-label={t("여행 일정 검색")}
       sx={{ scrollMarginTop: 24, position: "relative", zIndex: 2 }}
     >
       {globalPreparation ? (
@@ -132,7 +173,7 @@ export function PlanmeSearchHome({
           action={formAction}
           aria-busy={pending}
           onSubmit={(event) => {
-            if (pending || submittingRef.current) {
+            if (pending || restoring || submittingRef.current) {
               event.preventDefault();
               return;
             }
@@ -167,7 +208,7 @@ export function PlanmeSearchHome({
           <input type="hidden" name="destinationSessionToken" value={destinationSelection && !consumedTokens.includes(destinationSelection.sessionToken) ? destinationSelection.sessionToken : ""} />
 
           <SearchField
-            label="Departure"
+            label={t("Departure")}
             labelFor="planme-origin"
             error={visibleState.fieldErrors?.origin}
             icon={<AdjustRoundedIcon />}
@@ -176,9 +217,9 @@ export function PlanmeSearchHome({
             <PlanmePlaceInput
               id="planme-origin"
               name="origin"
-              label="Departure"
+              label={t("Departure")}
               selection={originSelection}
-              disabled={pending}
+              disabled={pending || restoring}
               value={origin}
               onValueChange={(value, selection) => {
                 setOrigin(value);
@@ -189,7 +230,7 @@ export function PlanmeSearchHome({
           </SearchField>
 
           <SearchField
-            label="Destination"
+            label={t("Destination")}
             labelFor="planme-destination"
             error={visibleState.fieldErrors?.destination}
             icon={<LocationOnOutlinedIcon />}
@@ -198,10 +239,10 @@ export function PlanmeSearchHome({
             <PlanmePlaceInput
               id="planme-destination"
               name="destination"
-              label="Destination"
+              label={t("Destination")}
               selection={destinationSelection}
               inputRef={destinationInputRef}
-              disabled={pending}
+              disabled={pending || restoring}
               value={destination}
               onValueChange={(value, selection) => {
                 setDestination(value);
@@ -212,15 +253,15 @@ export function PlanmeSearchHome({
           </SearchField>
 
           <SearchField
-            label="Date"
+            label={t("Date")}
             labelFor="planme-duration"
             error={!durationDays ? visibleState.fieldErrors?.durationDays : undefined}
             divider
           >
             <ButtonBase
               id="planme-duration"
-              disabled={pending}
-              aria-label="여행 기간 선택"
+              disabled={pending || restoring}
+              aria-label={t("여행 기간 선택")}
               aria-haspopup="dialog"
               aria-expanded={Boolean(durationAnchor)}
               onClick={(event) => setDurationAnchor(event.currentTarget)}
@@ -244,7 +285,7 @@ export function PlanmeSearchHome({
                   lineHeight: 1.4,
                 }}
               >
-                {durationDays ? formatDuration(selectedDurationDays) : "Select Dates"}
+                {durationDays ? t(formatDuration(selectedDurationDays)) : t("Select Dates")}
               </Typography>
               <KeyboardArrowDownRoundedIcon sx={{ ml: 0.25, color: "#79859a", fontSize: 22 }} />
             </ButtonBase>
@@ -256,13 +297,8 @@ export function PlanmeSearchHome({
               anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
               transformOrigin={{ vertical: "top", horizontal: "center" }}
               slotProps={{
-                root: {
-                  sx: { pointerEvents: "none" },
-                },
                 paper: {
-                  ref: durationPaperRef,
                   sx: {
-                    pointerEvents: "auto",
                     width: 306,
                     maxWidth: "calc(100vw - 32px)",
                     mt: 1.25,
@@ -277,7 +313,7 @@ export function PlanmeSearchHome({
             >
               <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between" }}>
                 <DurationStepButton
-                  aria-label="여행 기간 하루 줄이기"
+                  aria-label={t("여행 기간 하루 줄이기")}
                   disabled={selectedDurationDays <= 1}
                   onClick={() => selectDuration(selectedDurationDays - 1)}
                 >
@@ -285,14 +321,12 @@ export function PlanmeSearchHome({
                 </DurationStepButton>
                 <Box sx={{ minWidth: 120, textAlign: "center" }}>
                   <Typography sx={{ color: "#17233c", fontSize: 25, fontWeight: 750 }}>
-                    {formatDuration(selectedDurationDays)}
+                    {t(formatDuration(selectedDurationDays))}
                   </Typography>
-                  <Typography sx={{ mt: 0.5, color: "#8993a5", fontSize: 13.5, fontWeight: 600 }}>
-                    최대 13박 14일
-                  </Typography>
+                  <Typography sx={{ mt: 0.5, color: "#8993a5", fontSize: 13.5, fontWeight: 600 }}>{t("최대 13박 14일")}</Typography>
                 </Box>
                 <DurationStepButton
-                  aria-label="여행 기간 하루 늘리기"
+                  aria-label={t("여행 기간 하루 늘리기")}
                   disabled={selectedDurationDays >= 14}
                   onClick={() => selectDuration(selectedDurationDays + 1)}
                 >
@@ -304,18 +338,16 @@ export function PlanmeSearchHome({
                 fullWidth
                 onClick={() => selectDuration(1)}
                 sx={{ color: "#0967e8", fontWeight: 750 }}
-              >
-                당일치기
-              </Button>
+              >{t("당일치기")}</Button>
             </Popover>
           </SearchField>
 
           <SearchField
-            label="이동수단"
+            label={t("이동수단")}
             error={!transportMode ? visibleState.fieldErrors?.transportMode : undefined}
           >
             <ToggleButtonGroup
-              disabled={pending}
+              disabled={pending || restoring}
               exclusive
               value={transportMode}
               onChange={(_event, value: TransportMode | null) => {
@@ -324,7 +356,7 @@ export function PlanmeSearchHome({
                   rotateSubmissionId();
                 }
               }}
-              aria-label="이동수단"
+              aria-label={t("이동수단")}
               sx={{
                 mt: 1.1,
                 width: "100%",
@@ -336,14 +368,10 @@ export function PlanmeSearchHome({
                 },
               }}
             >
-              <TransportButton value="drive" aria-label="자동차">
-                <DirectionsCarRoundedIcon fontSize="small" />
-                자동차
-              </TransportButton>
-              <TransportButton value="transit" aria-label="대중교통">
-                <DirectionsBusRoundedIcon fontSize="small" />
-                대중교통
-              </TransportButton>
+              <TransportButton value="drive" aria-label={t("자동차")}>
+                <DirectionsCarRoundedIcon fontSize="small" />{t("자동차")}</TransportButton>
+              <TransportButton value="transit" aria-label={t("대중교통")}>
+                <DirectionsBusRoundedIcon fontSize="small" />{t("대중교통")}</TransportButton>
             </ToggleButtonGroup>
           </SearchField>
 
@@ -351,7 +379,7 @@ export function PlanmeSearchHome({
             <Button
               type="submit"
               variant="contained"
-              disabled={pending}
+              disabled={pending || restoring}
               startIcon={
                 pending ? <CircularProgress size={20} color="inherit" /> : <SearchRoundedIcon />
               }
@@ -371,7 +399,7 @@ export function PlanmeSearchHome({
                 },
               }}
             >
-              {pending ? "여행지 확인 중" : "Search"}
+              {pending ? t("여행지 확인 중") : t("Search")}
             </Button>
           </Box>
 
@@ -381,7 +409,7 @@ export function PlanmeSearchHome({
               color="error"
               sx={{ gridColumn: "1 / -1", mt: 1.5, px: 1, fontSize: 14 }}
             >
-              {visibleState.error}
+              {translateError(locale, visibleState.error)}
             </Typography>
           ) : null}
         </Box>
@@ -401,6 +429,7 @@ type SearchFieldProps = {
 };
 
 function SearchField({ label, labelFor, error, icon, divider, children }: SearchFieldProps) {
+  const { t, locale } = useLocale();
   return (
     <Box
       sx={{
@@ -416,13 +445,13 @@ function SearchField({ label, labelFor, error, icon, divider, children }: Search
         htmlFor={labelFor}
         sx={{ display: "block", color: "#0967e8", fontSize: 16, fontWeight: 750 }}
       >
-        {label}
+        {t(label)}
       </Typography>
       <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
         <Box sx={{ minWidth: 0, flex: 1 }}>{children}</Box>
         {icon ? <Box sx={{ color: "#a0a9ba", display: "flex" }}>{icon}</Box> : null}
       </Stack>
-      {error ? <FormHelperText error sx={{ mt: 1, lineHeight: 1.5 }}>{error}</FormHelperText> : null}
+      {error ? <FormHelperText error sx={{ mt: 1, lineHeight: 1.5 }}>{translateError(locale, error)}</FormHelperText> : null}
     </Box>
   );
 }

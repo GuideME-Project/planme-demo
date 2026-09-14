@@ -12,7 +12,8 @@ export const contentType = "image/png";
  */
 export function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const title = searchParams.get("title") ?? "부산 BTS 공연 1박 2일 추천 일정";
+  const english = searchParams.get("locale") === "en";
+  const title = searchParams.get("title") ?? (english ? "Start your own journey" : "나만의 여행을 시작하세요");
 
   return new ImageResponse(
     (
@@ -37,13 +38,13 @@ export function GET(request: Request) {
         </div>
         <div style={{ display: "flex", flexDirection: "column" }}>
           <div style={{ color: "#16a34a", fontSize: 30, fontWeight: 800 }}>
-            Standard / CarryME 동선 비교
+            {english ? "Your trip, your way" : "나만의 방식으로 떠나는 여행"}
           </div>
           <div style={{ fontSize: 68, fontWeight: 900, lineHeight: 1.12, marginTop: 20 }}>
             {title}
           </div>
           <div style={{ color: "#5b667a", fontSize: 32, marginTop: 24 }}>
-            상세 일정과 지도는 PlanME 웹에서 확인하세요.
+            {english ? "Plan your trip with PlanME." : "PlanME에서 여행 일정을 만들어보세요."}
           </div>
         </div>
         <div
@@ -60,7 +61,7 @@ export function GET(request: Request) {
             width: "auto",
           }}
         >
-          planme-demo.vercel.app/itinerary/busan-bts-1d1n
+          {`www.planme.kr/${english ? "en" : "ko"}`}
         </div>
       </div>
     ),

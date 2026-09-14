@@ -1,3 +1,5 @@
+import { headers } from "next/headers";
+import { translate } from "@/lib/i18n/messages";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ItineraryDashboard } from "@/components/itinerary/ItineraryDashboard";
@@ -69,6 +71,7 @@ export async function generateMetadata({
  */
 export default async function ItineraryPage({ params }: ItineraryPageProps) {
   const { id } = await params;
+  const locale = (await headers()).get("x-planme-locale") === "en" ? "en" : "ko";
 
   if (id.startsWith("planme-v3-")) {
     const snapshot = await getPlanmeV3Storage().jobStore.getJob(id);
@@ -88,7 +91,7 @@ export default async function ItineraryPage({ params }: ItineraryPageProps) {
       }
       return (
         <main className="min-h-screen px-5 py-8 lg:px-8">
-          <p>여행 일정을 준비하고 있습니다.</p>
+          <p>{translate(locale, "여행 일정을 준비하고 있습니다.")}</p>
         </main>
       );
     }

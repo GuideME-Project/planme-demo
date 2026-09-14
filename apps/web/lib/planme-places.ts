@@ -28,7 +28,7 @@ export function isPlanmePlaceId(value: string) {
   return /^[A-Za-z0-9_-]{1,255}$/.test(value);
 }
 
-export async function autocompletePlanmePlaces(query: string, sessionToken: string, signal?: AbortSignal): Promise<PlanmePlaceSuggestionsResponse> {
+export async function autocompletePlanmePlaces(query: string, sessionToken: string, signal?: AbortSignal, locale: "ko" | "en" = "ko"): Promise<PlanmePlaceSuggestionsResponse> {
   const key = process.env.PLANME_GOOGLE_MAPS_API_KEY?.trim();
   if (!key) throw new PlanmePlacesError("CONFIGURATION_MISSING");
   const response = await fetch(`${PLACES_URL}:autocomplete`, {
@@ -39,7 +39,7 @@ export async function autocompletePlanmePlaces(query: string, sessionToken: stri
       "X-Goog-FieldMask": "suggestions.placePrediction.placeId,suggestions.placePrediction.structuredFormat",
     },
     body: JSON.stringify({
-      input: query, languageCode: "ko", regionCode: "kr", sessionToken,
+      input: query, languageCode: locale, regionCode: "kr", sessionToken,
       // Explicit worldwide viewport avoids implicit server-IP proximity bias.
       locationBias: { rectangle: { low: { latitude: -90, longitude: -180 }, high: { latitude: 90, longitude: 180 } } },
     }),

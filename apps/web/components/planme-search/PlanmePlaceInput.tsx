@@ -1,4 +1,6 @@
 "use client";
+import { translateError } from "@/lib/i18n/messages";
+import { useLocale } from "@/components/i18n/LocaleProvider";
 
 import { Autocomplete, Box, Paper, TextField, Typography, type PaperProps } from "@mui/material";
 import { useEffect, useRef, useState, type Ref } from "react";
@@ -16,6 +18,7 @@ type PlanmePlaceInputProps = {
 };
 
 export function PlanmePlaceInput({ id, name, label, value, selection, disabled, inputRef, onValueChange }: PlanmePlaceInputProps) {
+  const { t, locale } = useLocale();
   const [opened, setOpened] = useState(false);
   const [suggestions, setSuggestions] = useState<PlanmePlaceSuggestion[]>([]);
   const [message, setMessage] = useState("");
@@ -41,7 +44,7 @@ export function PlanmePlaceInput({ id, name, label, value, selection, disabled, 
         const response = await fetch("/api/places/autocomplete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: value.trim(), sessionToken: tokenRef.current }),
+          body: JSON.stringify({ query: value.trim(), sessionToken: tokenRef.current, locale }),
           signal: controller.signal,
         });
         const payload = await response.json() as PlanmePlaceSuggestionsResponse;
@@ -57,7 +60,7 @@ export function PlanmePlaceInput({ id, name, label, value, selection, disabled, 
       }
     }, 300);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [open, value]);
+  }, [open, value, locale]);
 
   return (
     <Box sx={{ minWidth: 0 }}>
@@ -107,8 +110,8 @@ export function PlanmePlaceInput({ id, name, label, value, selection, disabled, 
           onValueChange(selected.name, chosen);
         }}
         loading={!loaded}
-        loadingText="장소 후보를 찾고 있어요…"
-        noOptionsText={message || "후보가 없습니다. 직접 입력해 검색할 수 있어요."}
+        loadingText={t("장소 후보를 찾고 있어요…")}
+        noOptionsText={(message ? translateError(locale, message) : "") || t("후보가 없습니다. 직접 입력해 검색할 수 있어요.")}
         slots={{ paper: SuggestionsPaper }}
         slotProps={{
           popper: { placement: "bottom-start", sx: { zIndex: 1301, minWidth: { md: 320 }, maxWidth: "calc(100vw - 32px)" } },
@@ -138,7 +141,7 @@ export function PlanmePlaceInput({ id, name, label, value, selection, disabled, 
           "& input::placeholder": { color: "#8993a5", opacity: 1 },
         }}
       />
-      {open && suggestions.length === 0 ? <Typography role="status" sx={{ mt: 1, color: "#52627a", fontSize: 12, lineHeight: 1.5 }}>{!loaded ? "장소 후보를 찾고 있어요…" : message || "후보가 없습니다. 직접 입력해 검색할 수 있어요."}</Typography> : null}
+      {open && suggestions.length === 0 ? <Typography role="status" sx={{ mt: 1, color: "#52627a", fontSize: 12, lineHeight: 1.5 }}>{!loaded ? t("장소 후보를 찾고 있어요…") : (message ? translateError(locale, message) : "") || t("후보가 없습니다. 직접 입력해 검색할 수 있어요.")}</Typography> : null}
       {selection?.address ? <Typography sx={{ mt: 1, color: "#52627a", fontSize: 12, lineHeight: 1.5, overflowWrap: "anywhere" }}>{selection.address} · <Box component="span" translate="no" sx={{ fontFamily: "Arial, sans-serif", color: "#5e5e5e" }}>Google Maps</Box></Typography> : null}
     </Box>
   );

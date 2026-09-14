@@ -1,4 +1,6 @@
 "use client";
+import { translateError } from "@/lib/i18n/messages";
+import { useLocale } from "@/components/i18n/LocaleProvider";
 
 import AccessTimeRoundedIcon from "@mui/icons-material/AccessTimeRounded";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
@@ -35,6 +37,7 @@ export function PlanmeGenerationProgress({
   embedded = false,
   onReady,
 }: PlanmeGenerationProgressProps) {
+  const { t } = useLocale();
   const router = useRouter();
   const [phase, setPhase] = useState(initialPhase);
   const [retryAfterMs, setRetryAfterMs] = useState(300);
@@ -143,19 +146,15 @@ export function PlanmeGenerationProgress({
           ) : (
             <>
               <Box sx={{ textAlign: "center" }}>
-                <Typography sx={{ color: "#0b66e4", fontSize: 14, fontWeight: 800, letterSpacing: "0.04em" }}>
-                  AI 여행 일정 생성 중
-                </Typography>
-                <Typography component={embedded ? "h2" : "h1"} sx={{ mt: 1.25, color: "#17233c", fontSize: { xs: 27, sm: 34 }, fontWeight: 800, letterSpacing: "-0.035em" }}>
-                  가벼운 여행을 준비하고 있어요
-                </Typography>
-                <Typography sx={{ mt: 1.25, color: "#6f7c91", fontSize: { xs: 15, sm: 17 }, lineHeight: 1.65 }}>
-                  {embedded ? "장소와 이동 경로를 확인한 뒤 이곳에 일정을 표시합니다." : "장소와 이동 경로를 확인한 뒤 일정 화면으로 자동 이동합니다."}
+                <Typography sx={{ color: "#0b66e4", fontSize: 14, fontWeight: 800, letterSpacing: "0.04em" }}>{t("AI 여행 일정 생성 중")}</Typography>
+                <Typography component={embedded ? "h2" : "h1"} sx={{ mt: 1.25, color: "#124b97", fontSize: { xs: 27, sm: 34 }, fontWeight: 800, letterSpacing: "-0.035em" }}>{t("가벼운 여행을 준비하고 있어요")}</Typography>
+                <Typography sx={{ mt: 1.25, color: "#62738c", fontSize: { xs: 15, sm: 17 }, lineHeight: 1.65 }}>
+                  {embedded ? t("장소와 이동 경로를 확인한 뒤 이곳에 일정을 표시합니다.") : t("장소와 이동 경로를 확인한 뒤 일정 화면으로 자동 이동합니다.")}
                 </Typography>
               </Box>
 
               <LinearProgress
-                aria-label="일정 생성 진행 중"
+                aria-label={t("일정 생성 진행 중")}
                 sx={{
                   mt: 4,
                   height: 6,
@@ -179,7 +178,7 @@ export function PlanmeGenerationProgress({
               <Stack direction="row" spacing={0.75} sx={{ mt: 3.5, alignItems: "center", justifyContent: "center", color: "#7b879a" }}>
                 <AccessTimeRoundedIcon sx={{ fontSize: 18 }} />
                 <Typography sx={{ fontSize: 14, fontWeight: 650 }}>
-                  {formatElapsed(elapsedSeconds)} 경과{isPending ? " · 현재 단계를 처리하고 있어요" : ""}
+                  {t(formatElapsed(elapsedSeconds))} {t("경과")}{isPending ? ` ${t("· 현재 단계를 처리하고 있어요")}` : ""}
                 </Typography>
               </Stack>
             </>
@@ -199,6 +198,7 @@ function ProgressStep({
   caption: string;
   state: "done" | "active" | "waiting";
 }) {
+  const { t } = useLocale();
   const Icon = state === "done"
     ? CheckCircleRoundedIcon
     : state === "active"
@@ -219,12 +219,12 @@ function ProgressStep({
     >
       <Icon sx={{ color: state === "waiting" ? "#c0c8d5" : state === "done" ? "#27a26a" : "#1660df", fontSize: 25 }} />
       <Box sx={{ minWidth: 0 }}>
-        <Typography sx={{ color: state === "waiting" ? "#8b96a8" : "#17233c", fontSize: 16, fontWeight: state === "active" ? 800 : 700 }}>
-          {label}
+        <Typography sx={{ color: state === "waiting" ? "#8b96a8" : "#124b97", fontSize: 16, fontWeight: state === "active" ? 800 : 700 }}>
+          {t(label)}
         </Typography>
         {state === "active" ? (
           <Typography sx={{ mt: 0.25, color: "#66758c", fontSize: 13.5 }}>
-            {caption}
+            {t(caption)}
           </Typography>
         ) : null}
       </Box>
@@ -233,17 +233,14 @@ function ProgressStep({
 }
 
 function FailureState({ message }: { message: string }) {
+  const { t, locale } = useLocale();
   return (
     <Box sx={{ py: 3, textAlign: "center" }}>
-      <Typography component="h1" sx={{ color: "#17233c", fontSize: 28, fontWeight: 800 }}>
-        일정을 완성하지 못했어요
+      <Typography component="h1" sx={{ color: "#124b97", fontSize: 28, fontWeight: 800 }}>{t("일정을 완성하지 못했어요")}</Typography>
+      <Typography sx={{ mt: 1.5, color: "#62738c", lineHeight: 1.65 }}>
+        {translateError(locale, message)}
       </Typography>
-      <Typography sx={{ mt: 1.5, color: "#6f7c91", lineHeight: 1.65 }}>
-        {message}
-      </Typography>
-      <Button href="/" variant="contained" sx={{ mt: 3, minWidth: 150, bgcolor: "#1660df", boxShadow: "none" }}>
-        조건 수정하기
-      </Button>
+      <Button href={`/${locale}`} variant="contained" sx={{ mt: 3, minWidth: 150, bgcolor: "#1660df", boxShadow: "none" }}>{t("조건 수정하기")}</Button>
     </Box>
   );
 }

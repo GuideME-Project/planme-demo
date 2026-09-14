@@ -1,3 +1,5 @@
+
+import { useLocale } from "@/components/i18n/LocaleProvider";
 import AttractionsRoundedIcon from "@mui/icons-material/AttractionsRounded";
 import FlightTakeoffRoundedIcon from "@mui/icons-material/FlightTakeoffRounded";
 import HotelRoundedIcon from "@mui/icons-material/HotelRounded";
@@ -320,6 +322,7 @@ function NaverRouteMap({
   standardColor,
   standardRoute,
 }: NaverRouteMapProps) {
+  const { t } = useLocale();
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const markers = useMemo(
     () => standardRoute.stops.filter((stop) => Boolean(stop.coordinate)),
@@ -465,7 +468,7 @@ function NaverRouteMap({
           bounds.extend(markerPosition);
           hasBounds = true;
           new maps.Marker({
-            ...createNaverTransitMarkerIcon({ marker, maps }),
+            ...createNaverTransitMarkerIcon({ marker, maps, t }),
             map,
             position: markerPosition,
             title: marker.label,
@@ -502,6 +505,7 @@ function NaverRouteMap({
     standardRoute,
     standardRoute.geoSegments,
     transitMarkers,
+    t,
   ]);
 
   return (
@@ -529,8 +533,8 @@ function NaverRouteMap({
           zIndex: 2,
         }}
       >
-        <LegendRow color={standardColor} label="Standard 경로" />
-        <LegendRow color={carrymeColor} label="짐 없이 바로 이동하는 경로" />
+        <LegendRow color={standardColor} label={t("Standard 경로")} />
+        <LegendRow color={carrymeColor} label={t("짐 없이 바로 이동하는 경로")} />
       </Stack>
     </Box>
   );
@@ -582,9 +586,11 @@ function createNaverMarkerIcon({
  * Builds a compact boarding/alighting marker for provider partial transit routes.
  */
 function createNaverTransitMarkerIcon({
+  t,
   marker,
   maps,
 }: {
+  t: (text: string) => string;
   marker: RouteTransitMarker;
   maps: NaverMapsNamespace;
 }): {
@@ -596,7 +602,7 @@ function createNaverTransitMarkerIcon({
   zIndex: number;
 } {
   const tone = marker.role === "boarding" ? "#2563eb" : "#0f9f4a";
-  const shortLabel = marker.role === "boarding" ? "탑승" : "하차";
+  const shortLabel = t(marker.role === "boarding" ? "탑승" : "하차");
   const content = `
     <div data-testid="transit-marker-${marker.role}" style="position:relative;width:190px;height:66px;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;pointer-events:none;">
       <div style="position:absolute;left:73px;top:0;display:grid;place-items:center;width:44px;height:28px;border-radius:999px;background:${tone};border:2px solid #fff;box-shadow:0 10px 24px rgba(15,23,42,.22);color:#fff;font-size:11px;font-weight:900;">
@@ -665,6 +671,7 @@ function RollerGuidance({
   isDark: boolean;
   show: boolean;
 }) {
+  const { t } = useLocale();
   if (!show) {
     return null;
   }
@@ -712,7 +719,7 @@ function RollerGuidance({
           }}
         >
           <Typography sx={{ fontSize: 14, fontWeight: 900, lineHeight: 1.35 }}>
-            {content.headline}
+            {t(content.headline)}
           </Typography>
         </Box>
         <RollerBadge isDark={isDark} />
@@ -748,7 +755,7 @@ function RollerGuidance({
           <Typography
             sx={{ fontSize: 13, fontWeight: 900, lineHeight: 1.35, overflowWrap: "break-word" }}
           >
-            {content.headline}
+            {t(content.headline)}
           </Typography>
         </Box>
       </Stack>
@@ -769,6 +776,7 @@ export function RouteMap({
   showCarryme,
   themeMode,
 }: RouteMapProps) {
+  const { t } = useLocale();
   const theme = useTheme();
   const [naverFailure, setNaverFailure] = useState<NaverMapFailure | null>(null);
   const handleNaverLoadFailed = useCallback(
@@ -812,14 +820,12 @@ export function RouteMap({
           severity="warning"
           data-testid="route-map-error"
           action={
-            <Button color="inherit" size="small" onClick={() => setNaverFailure(null)}>
-              다시 시도
-            </Button>
+            <Button color="inherit" size="small" onClick={() => setNaverFailure(null)}>{t("다시 시도")}</Button>
           }
         >
           {naverFailure === "authentication"
-            ? "네이버 지도 인증을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요."
-            : "네이버 지도를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."}
+            ? t("네이버 지도 인증을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.")
+            : t("네이버 지도를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.")}
         </Alert>
       ) : null}
       <Box
@@ -847,6 +853,7 @@ export function RouteMap({
             />
           ) : (
             <>
+      <Typography sx={{ position: "absolute", top: 8, left: 12, right: 12, zIndex: 30, fontSize: 12, color: "text.secondary" }}>{t("지도 예시 · 실제 경로가 아닙니다.")}</Typography>
       <Box
         sx={{
           backgroundImage: isDark
@@ -965,11 +972,11 @@ export function RouteMap({
             }}
           >
             <Typography sx={{ fontSize: 12, fontWeight: 800 }}>
-              {marker.label}
+              {t(marker.label)}
             </Typography>
             {"caption" in marker ? (
               <Typography color="text.secondary" sx={{ fontSize: 11 }}>
-                {marker.caption}
+                {t(marker.caption)}
               </Typography>
             ) : null}
           </Box>
@@ -1004,7 +1011,7 @@ export function RouteMap({
               py: 0.6,
             }}
           >
-            {marker.role === "boarding" ? "탑승" : "하차"}
+            {marker.role === "boarding" ? t("탑승") : t("하차")}
           </Box>
           <Box
             sx={{
@@ -1022,7 +1029,7 @@ export function RouteMap({
             }}
           >
             <Typography sx={{ fontSize: 12, fontWeight: 800 }}>
-              {marker.label}
+              {t(marker.label)}
             </Typography>
           </Box>
         </Stack>
@@ -1042,8 +1049,8 @@ export function RouteMap({
           zIndex: 2,
         }}
       >
-        <LegendRow color={standardColor} label="Standard 경로" />
-        <LegendRow color={carrymeColor} label="짐 없이 바로 이동하는 경로" />
+        <LegendRow color={standardColor} label={t("Standard 경로")} />
+        <LegendRow color={carrymeColor} label={t("짐 없이 바로 이동하는 경로")} />
       </Stack>
             </>
           )}
@@ -1075,7 +1082,7 @@ export function RouteMap({
           color="primary"
           sx={{ fontSize: 13, fontWeight: 700, lineHeight: 1.35, minWidth: 0, overflowWrap: "break-word" }}
         >
-          {rollerMapNotice}
+          {t(rollerMapNotice)}
         </Typography>
       </Stack>
     </Box>
@@ -1092,6 +1099,7 @@ type LegendRowProps = {
  * Renders a compact route legend row inside the mock map.
  */
 function LegendRow({ color, dashed = false, label }: LegendRowProps) {
+  const { t } = useLocale();
   return (
     <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
       <Box
@@ -1101,7 +1109,7 @@ function LegendRow({ color, dashed = false, label }: LegendRowProps) {
           width: 28,
         }}
       />
-      <Typography sx={{ fontSize: 12, fontWeight: 700 }}>{label}</Typography>
+      <Typography sx={{ fontSize: 12, fontWeight: 700 }}>{t(label)}</Typography>
     </Stack>
   );
 }

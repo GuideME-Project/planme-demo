@@ -1,4 +1,6 @@
 "use client";
+import { PlanmeResultTheme } from "./PlanmeResultTheme";
+import { useLocale } from "@/components/i18n/LocaleProvider";
 
 import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
 import FlightTakeoffRoundedIcon from "@mui/icons-material/FlightTakeoffRounded";
@@ -30,6 +32,7 @@ type PlanmeGlobalPreparationProps = {
 };
 
 export function PlanmeGlobalPreparation({ origin, destination, attributions = [], onSearchAgain }: PlanmeGlobalPreparationProps) {
+  const { t, locale } = useLocale();
   const headingRef = useRef<HTMLHeadingElement | null>(null);
 
   useEffect(() => {
@@ -38,58 +41,51 @@ export function PlanmeGlobalPreparation({ origin, destination, attributions = []
   }, []);
 
   return (
-    <Box sx={{ maxWidth: 1120, mx: "auto", px: { xs: 2.5, sm: 4 }, pt: { xs: 2.5, md: 4 }, pb: { xs: 5, md: 7 } }}>
-      <Button onClick={onSearchAgain} startIcon={<ArrowBackRoundedIcon />} sx={{ px: 0.5, mb: 3, color: "#53657d", fontWeight: 650 }}>
-        다른 여행지 검색
-      </Button>
+    <PlanmeResultTheme>
+    <Box sx={{ maxWidth: 1400, mx: "auto", px: 0, pt: { xs: 2.5, md: 4 }, pb: { xs: 5, md: 7 } }}>
+      <Button onClick={onSearchAgain} startIcon={<ArrowBackRoundedIcon />} sx={{ px: 0.5, mb: 3, color: "#62738c", fontWeight: 650 }}>{t("다른 여행지 검색")}</Button>
 
-      <Box component="section" aria-labelledby="global-preparation-heading" sx={{ p: { xs: 2.5, sm: 4, md: 5 }, borderRadius: 4, border: "1px solid #dce5f1", borderTop: "4px solid #326bd6", bgcolor: "#fff", boxShadow: "0 8px 30px rgba(35,65,109,0.04)" }}>
+      <Box component="section" aria-labelledby="global-preparation-heading" sx={{ p: { xs: 2.5, sm: 4, md: 5 }, borderRadius: 4, border: "1px solid #dce7f5", borderTop: "4px solid #185ac0", bgcolor: "#f5f9ff", boxShadow: "none" }}>
         <Stack direction="row" sx={{ gap: { xs: 1.5, sm: 2 }, alignItems: "flex-start", mb: { xs: 3, sm: 3.5 } }}>
-          <Box sx={{ flexShrink: 0, width: { xs: 40, sm: 52 }, height: { xs: 40, sm: 52 }, mt: 0.5, borderRadius: 2, bgcolor: "#eaf1ff", color: "#326bd6", display: "grid", placeItems: "center" }}>
+          <Box sx={{ flexShrink: 0, width: { xs: 40, sm: 52 }, height: { xs: 40, sm: 52 }, mt: 0.5, borderRadius: 2, bgcolor: "#eaf1ff", color: "#185ac0", display: "grid", placeItems: "center" }}>
             <FlightTakeoffRoundedIcon aria-hidden="true" sx={{ fontSize: { xs: 25, sm: 30 } }} />
           </Box>
-          <Typography id="global-preparation-heading" component="h1" ref={headingRef} tabIndex={-1} sx={{ minWidth: 0, color: "#172f51", fontSize: { xs: 32, sm: 40, md: 44 }, lineHeight: 1.3, fontWeight: 800, letterSpacing: "-0.04em", wordBreak: "keep-all", overflowWrap: "anywhere", "&:focus-visible": { outline: "2px solid #1660df", outlineOffset: 6 } }}>
-            이 여행은 준비 중이에요
-          </Typography>
+          <Typography id="global-preparation-heading" component="h1" ref={headingRef} tabIndex={-1} sx={{ minWidth: 0, color: "#124b97", fontSize: { xs: 32, sm: 40, md: 44 }, lineHeight: 1.3, fontWeight: 800, letterSpacing: "-0.04em", wordBreak: "keep-all", overflowWrap: "anywhere", "&:focus-visible": { outline: "2px solid #1660df", outlineOffset: 6 } }}>{t("이 여행은 준비 중이에요")}</Typography>
         </Stack>
-        <Box aria-label={`출발 ${origin}, 목적지 ${destination}`} sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto minmax(0, 1fr)", alignItems: "center", gap: { xs: 1.25, sm: 3 }, px: { xs: 2, sm: 3 }, py: { xs: 2.5, sm: 3 }, borderRadius: 2.5, bgcolor: "#f2f6fc" }}>
-          <Typography sx={{ minWidth: 0, color: "#284c79", fontSize: { xs: 25, sm: 32, md: 36 }, fontWeight: 750, lineHeight: 1.4, wordBreak: "keep-all", overflowWrap: "anywhere" }}>{origin}</Typography>
+        <Box aria-label={t(`출발 ${origin}, 목적지 ${destination}`)} sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto minmax(0, 1fr)", alignItems: "center", gap: { xs: 1.25, sm: 3 }, px: { xs: 2, sm: 3 }, py: { xs: 2.5, sm: 3 }, borderRadius: 2.5, bgcolor: "#edf5ff" }}>
+          <Typography sx={{ minWidth: 0, color: "#31577d", fontSize: { xs: 25, sm: 32, md: 36 }, fontWeight: 750, lineHeight: 1.4, wordBreak: "keep-all", overflowWrap: "anywhere" }}>{origin}</Typography>
           <Typography aria-hidden="true" sx={{ color: "#7595c2", fontSize: { xs: 26, sm: 34 } }}>→</Typography>
-          <Typography sx={{ minWidth: 0, color: "#1d4fab", fontSize: { xs: 25, sm: 32, md: 36 }, fontWeight: 750, lineHeight: 1.4, wordBreak: "keep-all", overflowWrap: "anywhere" }}>{destination}</Typography>
+          <Typography sx={{ minWidth: 0, color: "#185ac0", fontSize: { xs: 25, sm: 32, md: 36 }, fontWeight: 750, lineHeight: 1.4, wordBreak: "keep-all", overflowWrap: "anywhere" }}>{destination}</Typography>
         </Box>
         <Stack direction="row" useFlexGap sx={{ gap: 1.5, flexWrap: "wrap", mt: 1, px: { xs: 2, sm: 3 } }}>
           <Typography translate="no" sx={{ color: "#5e5e5e", fontSize: 12, fontFamily: "Arial, sans-serif", fontWeight: 400, letterSpacing: "normal", whiteSpace: "nowrap" }}>Google Maps</Typography>
           {attributions.map((item) => <Typography key={`${item.provider}-${item.providerUri ?? ""}`} sx={{ fontSize: 12, color: "#5e5e5e", overflowWrap: "anywhere" }}>{item.providerUri ? <a href={item.providerUri} target="_blank" rel="noopener noreferrer">{item.provider}</a> : item.provider}</Typography>)}
         </Stack>
-        <Typography sx={{ mt: { xs: 2.5, sm: 3 }, color: "#53657d", fontSize: { xs: 17, sm: 19 }, lineHeight: 1.7, wordBreak: "keep-all" }}>
-          먼저 여행에 필요한 준비물을 살펴보세요.
-        </Typography>
+        <Typography sx={{ mt: { xs: 2.5, sm: 3 }, color: "#62738c", fontSize: { xs: 17, sm: 19 }, lineHeight: 1.7, wordBreak: "keep-all" }}>{t("먼저 여행에 필요한 준비물을 살펴보세요.")}</Typography>
       </Box>
 
+      {locale === "en" && <Typography sx={{ mt: 2, color: "text.secondary", fontSize: 13 }}>{t("원문 안내")}</Typography>}
       <Box component="section" aria-labelledby="global-cards-heading" sx={{ mt: { xs: 4, md: 5 } }}>
-        <Typography id="global-cards-heading" component="h2" sx={{ color: "#1a2e4b", fontSize: { xs: 22, md: 26 }, fontWeight: 800, letterSpacing: "-0.035em" }}>
-          플랜미 추천 글로벌 여행 준비
-        </Typography>
-        <Typography sx={{ mt: 1, mb: 2.5, color: "#64748b", fontSize: 14, lineHeight: 1.7 }}>
-          여행 전 챙길 여섯 가지. 예약과 서비스 연결은 차근차근 준비하고 있어요.
-        </Typography>
+        <Typography id="global-cards-heading" component="h2" sx={{ color: "#124b97", fontSize: { xs: 22, md: 26 }, fontWeight: 800, letterSpacing: "-0.035em" }}>{t("플랜미 추천 글로벌 여행 준비")}</Typography>
+        <Typography sx={{ mt: 1, mb: 2.5, color: "#62738c", fontSize: 14, lineHeight: 1.7 }}>{t("여행 전 챙길 여섯 가지. 예약과 서비스 연결은 차근차근 준비하고 있어요.")}</Typography>
         <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))", md: "repeat(3, minmax(0, 1fr))" }, gap: { xs: 1.5, md: 2 } }}>
-          {PREPARATION_CARDS.map(({ title, caption, description, Icon, color, background }) => (
-            <Box key={title} component="article" sx={{ bgcolor: "#fff", border: "1px solid #e2e9f2", borderRadius: 3, p: { xs: 2.5, md: 3 }, boxShadow: "0 4px 16px rgba(35, 65, 109, 0.025)" }}>
+          {PREPARATION_CARDS.map(({ title, caption, description, Icon }) => (
+            <Box key={t(title)} component="article" sx={{ bgcolor: "#f5f9ff", border: "1px solid #dce7f5", borderRadius: 3, p: { xs: 2.5, md: 3 }, boxShadow: "none" }}>
               <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between", mb: 2.5 }}>
-                <Box sx={{ width: 48, height: 48, borderRadius: 2.5, bgcolor: background, color, display: "grid", placeItems: "center" }}><Icon sx={{ fontSize: 26 }} /></Box>
-                <Typography sx={{ color: "#65758a", fontSize: 12, fontWeight: 650, borderRadius: 1.5, bgcolor: "#f3f6fa", px: 1.25, py: 0.6 }}>연결 준비 중</Typography>
+                <Box sx={{ width: 48, height: 48, borderRadius: 2.5, bgcolor: "#e4efff", color: "#185ac0", display: "grid", placeItems: "center" }}><Icon sx={{ fontSize: 26 }} /></Box>
+                <Typography sx={{ color: "#62738c", fontSize: 12, fontWeight: 650, borderRadius: 1.5, bgcolor: "#eaf1fb", px: 1.25, py: 0.6 }}>{t("연결 준비 중")}</Typography>
               </Stack>
-              <Typography sx={{ color, fontSize: 12, fontWeight: 650, mb: 0.5 }}>{caption}</Typography>
-              <Typography component="h3" sx={{ color: "#223550", fontSize: 21, fontWeight: 750 }}>{title}</Typography>
-              <Typography sx={{ mt: 1, color: "#65748a", fontSize: 14, lineHeight: 1.75 }}>{description}</Typography>
+              <Typography sx={{ color: "#62738c", fontSize: 12, fontWeight: 650, mb: 0.5 }}>{t(caption)}</Typography>
+              <Typography component="h3" sx={{ color: "#124b97", fontSize: 21, fontWeight: 750 }}>{t(title)}</Typography>
+              <Typography sx={{ mt: 1, color: "#62738c", fontSize: 14, lineHeight: 1.75 }}>{t(description)}</Typography>
             </Box>
           ))}
         </Box>
       </Box>
       <Box sx={{ mt: 4, display: "flex", justifyContent: "center" }}>
-        <Button onClick={onSearchAgain} variant="outlined" startIcon={<ArrowBackRoundedIcon />} sx={{ minHeight: 48, px: 3, borderColor: "#c5d5eb", borderRadius: 2, fontWeight: 700 }}>다른 여행지 검색</Button>
+        <Button onClick={onSearchAgain} variant="outlined" startIcon={<ArrowBackRoundedIcon />} sx={{ minHeight: 48, px: 3, borderColor: "#c5d5eb", borderRadius: 2, fontWeight: 700 }}>{t("다른 여행지 검색")}</Button>
       </Box>
     </Box>
+    </PlanmeResultTheme>
   );
 }

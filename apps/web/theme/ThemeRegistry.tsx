@@ -1,6 +1,9 @@
 "use client";
 
 import { AppRouterCacheProvider } from "@mui/material-nextjs/v15-appRouter";
+import { createTheme } from "@mui/material/styles";
+import { koKR, enUS } from "@mui/material/locale";
+import { useLocale } from "@/components/i18n/LocaleProvider";
 import CssBaseline from "@mui/material/CssBaseline";
 import { ThemeProvider } from "@mui/material/styles";
 import {
@@ -45,6 +48,7 @@ export function usePlanmeColorMode(): PlanmeColorModeContextValue {
  * Wires MUI's cache provider and PlanME theme into the Next.js App Router tree.
  */
 export function ThemeRegistry({ children }: ThemeRegistryProps) {
+  const { locale } = useLocale();
   const [mode, setMode] = useState<PlanmeThemeMode>("light");
 
   useEffect(() => {
@@ -52,7 +56,7 @@ export function ThemeRegistry({ children }: ThemeRegistryProps) {
     document.documentElement.dataset.planmeTheme = mode;
   }, [mode]);
 
-  const theme = useMemo(() => createPlanmeTheme(mode), [mode]);
+  const theme = useMemo(() => createTheme(createPlanmeTheme(mode), locale === "ko" ? koKR : enUS), [mode, locale]);
 
   const colorModeValue = useMemo<PlanmeColorModeContextValue>(
     () => ({
