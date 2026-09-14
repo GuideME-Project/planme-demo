@@ -55,4 +55,4 @@ npm --workspace @planme/web run start -- --port 3104
 PLANME_BASE_URL=http://localhost:3104 node apps/web/scripts/check-planme-magazine.mjs
 ```
 
-이번 작업은 로컬 구현·검증이며 운영 환경 설정·PR 배포·운영 화면 검증은 별도 완료가 필요합니다.
+2026-09-15 Vercel planme-demo 프로젝트의 Production 및 Preview에 GUIDEME_MAGAZINE_API_KEY를 Secret으로 등록했습니다. PR #122의 신규 배포와 운영 브라우저 검증을 진행합니다. 기존 로컬 검증 기록과 운영 검증은 구분합니다.
