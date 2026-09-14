@@ -38,18 +38,10 @@ export function parseMagazinePage(text: string, countryCode: string): MagazinePa
       article.countryCode === countryCode && typeof article.title === "string" && article.title.trim() &&
       (article.summary === null || typeof article.summary === "string") &&
       (article.thumbnailUrl === null || (typeof article.thumbnailUrl === "string" && isHttpUrl(article.thumbnailUrl))) &&
-      article.articleUrl === `https://guidemetrip.co.kr/post/detail/${article.articleNo}` &&
+      (article.articleUrl === `https://guidemetrip.co.kr/post/detail/${article.articleNo}` ||
+       article.articleUrl === `https://guideme.co.kr/detail.php?number=${article.articleNo}`) &&
       ["ko", "en", "ja", "zh"].includes(article.contentLanguage))) {
     throw new Error("Invalid magazine response");
   }
   return page;
-}
-
-export async function fetchMagazinePage(countryCode: string, language: "ko" | "en", skip = 0): Promise<MagazinePage> {
-  const url = new URL(MAGAZINE_API_URL);
-  url.search = new URLSearchParams({ countryCode, language, skip: String(skip), take: String(MAGAZINE_PAGE_SIZE) }).toString();
-  // Allow the upstream's connection and query deadlines, bounded to 8 seconds in total.
-  const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(8_000) });
-  if (!response.ok) throw new MagazineHttpError(response.status);
-  return parseMagazinePage(await response.text(), countryCode);
 }

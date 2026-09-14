@@ -30,7 +30,7 @@ export function useMagazine() {
         const page = parseMagazinePage(await response.text(), countryCode!);
         if (controller.signal.aborted) return;
         const articles = page.list.map(article => ({
-          id: String(article.articleNo), title: article.title, summary: article.summary ?? "",
+          id: article.articleUrl, title: article.title, summary: article.summary ?? "",
           href: article.articleUrl, image: article.thumbnailUrl, language: article.contentLanguage,
         }));
         setResult(previous => {
