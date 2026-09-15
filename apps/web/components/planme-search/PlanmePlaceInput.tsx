@@ -10,6 +10,7 @@ type PlanmePlaceInputProps = {
   id: string;
   name: "origin" | "destination";
   label: string;
+  placeholder: string;
   value: string;
   selection: PlanmePlaceSelection | null;
   disabled: boolean;
@@ -17,7 +18,7 @@ type PlanmePlaceInputProps = {
   onValueChange: (value: string, selection: PlanmePlaceSelection | null) => void;
 };
 
-export function PlanmePlaceInput({ id, name, label, value, selection, disabled, inputRef, onValueChange }: PlanmePlaceInputProps) {
+export function PlanmePlaceInput({ id, name, label, placeholder, value, selection, disabled, inputRef, onValueChange }: PlanmePlaceInputProps) {
   const { t, locale } = useLocale();
   const [opened, setOpened] = useState(false);
   const [suggestions, setSuggestions] = useState<PlanmePlaceSuggestion[]>([]);
@@ -128,17 +129,17 @@ export function PlanmePlaceInput({ id, name, label, value, selection, disabled, 
             {...params}
             inputRef={inputRef}
             name={name}
-            placeholder={label}
+            placeholder={placeholder}
             variant="standard"
             slotProps={{ ...params.slotProps, htmlInput: { ...params.slotProps.htmlInput, "aria-label": label, maxLength: 100 } }}
           />
         )}
         sx={{ width: "100%", mt: 0.5,
-          "& .MuiInputBase-root": { color: "#17233c", fontSize: 20, fontWeight: 650 },
+          "& .MuiInputBase-root": { color: "#17233c", fontSize: 18, fontWeight: 650 },
           "& .MuiInput-root::before, & .MuiInput-root::after, & .MuiInput-root:hover:not(.Mui-disabled)::before": { borderBottom: "none" },
-          "& .MuiInputBase-input": { boxSizing: "border-box", height: 44, lineHeight: "28px", padding: "8px 4px", minWidth: 0 },
+          "& .MuiInputBase-input": { boxSizing: "border-box", height: 40, lineHeight: "24px", padding: "8px 0", minWidth: 0 },
           "& .MuiInputBase-input:focus-visible": { outline: "2px solid #126cde", outlineOffset: 0, borderRadius: 1 },
-          "& input::placeholder": { color: "#8993a5", opacity: 1 },
+          "& input::placeholder": { color: "#68778e", opacity: 1, fontSize: 15, fontWeight: 400 },
         }}
       />
       {open && suggestions.length === 0 ? <Typography role="status" sx={{ mt: 1, color: "#52627a", fontSize: 12, lineHeight: 1.5 }}>{!loaded ? t("장소 후보를 찾고 있어요…") : (message ? translateError(locale, message) : "") || t("후보가 없습니다. 직접 입력해 검색할 수 있어요.")}</Typography> : null}

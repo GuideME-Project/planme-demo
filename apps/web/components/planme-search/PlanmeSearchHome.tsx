@@ -200,7 +200,7 @@ export function PlanmeSearchHome({
               xl: "1.08fr 1fr minmax(150px, 0.85fr) 1.12fr auto",
             },
             alignItems: "stretch",
-            p: { xs: 2.25, sm: 3, xl: 2.25 },
+            p: { xs: 1.5, sm: 2, xl: 1.75 },
             bgcolor: "rgba(255, 255, 255, 0.96)",
             border: "1px solid rgba(153, 168, 193, 0.55)",
             borderRadius: { xs: 3, xl: 2.25 },
@@ -225,6 +225,7 @@ export function PlanmeSearchHome({
             <PlanmePlaceInput
               id="planme-origin"
               name="origin"
+              placeholder={t("어디에서 출발하세요?")}
               label={t("Departure")}
               selection={originSelection}
               disabled={pending || restoring}
@@ -247,6 +248,7 @@ export function PlanmeSearchHome({
             <PlanmePlaceInput
               id="planme-destination"
               name="destination"
+              placeholder={t("어느 도시로 떠나세요?")}
               label={t("Destination")}
               selection={destinationSelection}
               inputRef={destinationInputRef}
@@ -275,7 +277,7 @@ export function PlanmeSearchHome({
               onClick={(event) => setDurationAnchor(event.currentTarget)}
               sx={{
                 width: "100%",
-                minHeight: 42,
+                minHeight: 40,
                 mt: 0.5,
                 justifyContent: "flex-start",
                 borderRadius: 1,
@@ -286,14 +288,14 @@ export function PlanmeSearchHome({
                 sx={{
                   minWidth: 0,
                   flex: 1,
-                  color: durationDays ? "#17233c" : "#8993a5",
-                  fontSize: { xs: 18, xl: 20 },
-                  fontWeight: 650,
+                  color: durationDays ? "#17233c" : "#68778e",
+                  fontSize: durationDays ? 18 : 15,
+                  fontWeight: durationDays ? 650 : 400,
                   whiteSpace: "nowrap",
                   lineHeight: 1.4,
                 }}
               >
-                {durationDays ? t(formatDuration(selectedDurationDays)) : t("Select Dates")}
+                {durationDays ? t(formatDuration(selectedDurationDays)) : t("얼마나 여행하세요?")}
               </Typography>
               <KeyboardArrowDownRoundedIcon sx={{ ml: 0.25, color: "#79859a", fontSize: 22 }} />
             </ButtonBase>
@@ -443,7 +445,7 @@ function SearchField({ label, labelFor, error, icon, divider, children }: Search
       sx={{
         minWidth: 0,
         px: { xs: 1, xl: 2.75 },
-        py: { xs: 2, xl: 0.5 },
+        py: { xs: 1.5, xl: 0.5 },
         borderBottom: { xs: divider ? "1px solid #e3e7ee" : "none", xl: "none" },
         borderRight: { xs: "none", xl: divider ? "1px solid #cfd6e2" : "none" },
       }}

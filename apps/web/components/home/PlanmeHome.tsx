@@ -535,12 +535,12 @@ export function PlanmeHome({ children, articles: initialArticles = [] }: PlanmeH
           </nav>
           <LanguageSwitcher />
         </header>
-        <div className={styles.heroCopy}>
-          <span className={styles.eyebrow}>{t("DISCOVER YOUR NEXT")}</span>
-          <h1>{t("For ME,")}{" "}<br />{t("By Human Touch,")}<br />
-            <span>{t("With GuideME!")}</span>
+        <div className={styles.heroCopy} lang="en">
+          <span className={styles.eyebrow}>DISCOVER YOUR NEXT</span>
+          <h1>For ME,{" "}<br />By Human Touch,<br />
+            <span>With GuideME!</span>
           </h1>
-          <p>{t("Connecting Hearts Across Borders: A Journey for Every You in the World")}</p>
+          <p>Connecting Hearts Across Borders: A Journey for Every You in the World</p>
           <a href="#trip-search" className={styles.heroJump}>
             <ArrowDown size={17} aria-hidden="true" />
             <span className={styles.srOnly}>{t("여행 검색으로 이동")}</span>
