@@ -7,19 +7,20 @@ import FlightTakeoffRoundedIcon from "@mui/icons-material/FlightTakeoffRounded";
 import HotelRoundedIcon from "@mui/icons-material/HotelRounded";
 import ConfirmationNumberRoundedIcon from "@mui/icons-material/ConfirmationNumberRounded";
 import SimCardRoundedIcon from "@mui/icons-material/SimCardRounded";
-import CurrencyExchangeRoundedIcon from "@mui/icons-material/CurrencyExchangeRounded";
+import OpenInNewRoundedIcon from "@mui/icons-material/OpenInNewRounded";
+import { visuallyHidden } from "@mui/utils";
+import { partnerLinks } from "@/components/home/home-content";
 import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
 import { Box, Button, Stack, Typography } from "@mui/material";
 import { useEffect, useRef } from "react";
 import type { PlanmePlaceAttribution } from "@/lib/planme-places";
 
 const PREPARATION_CARDS = [
-  { title: "항공", caption: "여행의 시작", description: "출발 시간과 수하물 조건을 살펴보세요.", Icon: FlightTakeoffRoundedIcon, color: "#2364d8", background: "#eaf2ff" },
-  { title: "숙박", caption: "편안한 머무름", description: "여행 동선에 맞는 숙소 위치를 생각해 보세요.", Icon: HotelRoundedIcon, color: "#7c50bc", background: "#f2edfc" },
-  { title: "체험 · 티켓", caption: "기억에 남을 순간", description: "꼭 해보고 싶은 체험과 방문지를 골라보세요.", Icon: ConfirmationNumberRoundedIcon, color: "#b55e27", background: "#fff2e6" },
-  { title: "eSIM", caption: "도착하자마자 연결", description: "사용할 데이터와 휴대폰 호환 여부를 확인해 보세요.", Icon: SimCardRoundedIcon, color: "#187b77", background: "#e7f6f3" },
-  { title: "환전", caption: "현지에서 가볍게", description: "현지 통화와 결제 수단을 미리 확인해 보세요.", Icon: CurrencyExchangeRoundedIcon, color: "#927016", background: "#fcf5dd" },
-  { title: "여행자 보험", caption: "마음까지 든든하게", description: "여행 기간과 필요한 보장 내용을 살펴보세요.", Icon: VerifiedUserOutlinedIcon, color: "#587086", background: "#edf2f7" },
+  { title: "항공", href: partnerLinks.flight, action: "Aviasales로 이동", caption: "여행의 시작", description: "출발 시간과 수하물 조건을 살펴보세요.", Icon: FlightTakeoffRoundedIcon, color: "#2364d8", background: "#eaf2ff" },
+  { title: "숙박", href: partnerLinks.stay, action: "KKday로 이동", caption: "편안한 머무름", description: "여행 동선에 맞는 숙소 위치를 생각해 보세요.", Icon: HotelRoundedIcon, color: "#7c50bc", background: "#f2edfc" },
+  { title: "체험 · 티켓", href: partnerLinks.tour, action: "Tiqets로 이동", caption: "기억에 남을 순간", description: "꼭 해보고 싶은 체험과 방문지를 골라보세요.", Icon: ConfirmationNumberRoundedIcon, color: "#b55e27", background: "#fff2e6" },
+  { title: "eSIM", href: partnerLinks.esim, action: "Yesim으로 이동", caption: "도착하자마자 연결", description: "사용할 데이터와 휴대폰 호환 여부를 확인해 보세요.", Icon: SimCardRoundedIcon, color: "#187b77", background: "#e7f6f3" },
+  { title: "여행자 보험", href: partnerLinks.insurance, action: "EKTA로 이동", caption: "마음까지 든든하게", description: "여행 기간과 필요한 보장 내용을 살펴보세요.", Icon: VerifiedUserOutlinedIcon, color: "#587086", background: "#edf2f7" },
 ];
 
 type PlanmeGlobalPreparationProps = {
@@ -67,17 +68,22 @@ export function PlanmeGlobalPreparation({ origin, destination, attributions = []
       {locale === "en" && <Typography sx={{ mt: 2, color: "text.secondary", fontSize: 13 }}>{t("원문 안내")}</Typography>}
       <Box component="section" aria-labelledby="global-cards-heading" sx={{ mt: { xs: 4, md: 5 } }}>
         <Typography id="global-cards-heading" component="h2" sx={{ color: "#124b97", fontSize: { xs: 22, md: 26 }, fontWeight: 800, letterSpacing: "-0.035em" }}>{t("플랜미 추천 글로벌 여행 준비")}</Typography>
-        <Typography sx={{ mt: 1, mb: 2.5, color: "#62738c", fontSize: 14, lineHeight: 1.7 }}>{t("여행 전 챙길 여섯 가지. 예약과 서비스 연결은 차근차근 준비하고 있어요.")}</Typography>
+        <Typography sx={{ mt: 1, mb: 2.5, color: "#62738c", fontSize: 14, lineHeight: 1.7 }}>{t("여행 전 챙길 다섯 가지. 제휴 사이트에서 상품과 이용 조건을 확인해 보세요.")}</Typography>
         <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))", md: "repeat(3, minmax(0, 1fr))" }, gap: { xs: 1.5, md: 2 } }}>
-          {PREPARATION_CARDS.map(({ title, caption, description, Icon }) => (
-            <Box key={t(title)} component="article" sx={{ bgcolor: "#f5f9ff", border: "1px solid #dce7f5", borderRadius: 3, p: { xs: 2.5, md: 3 }, boxShadow: "none" }}>
+          {PREPARATION_CARDS.map(({ title, caption, description, Icon, href, action }) => (
+            <Box key={t(title)} component="article" sx={{ bgcolor: "#f5f9ff", border: "1px solid #dce7f5", borderRadius: 3, p: { xs: 2.5, md: 3 }, boxShadow: "none", display: "flex", flexDirection: "column" }}>
               <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between", mb: 2.5 }}>
                 <Box sx={{ width: 48, height: 48, borderRadius: 2.5, bgcolor: "#e4efff", color: "#185ac0", display: "grid", placeItems: "center" }}><Icon sx={{ fontSize: 26 }} /></Box>
-                <Typography sx={{ color: "#62738c", fontSize: 12, fontWeight: 650, borderRadius: 1.5, bgcolor: "#eaf1fb", px: 1.25, py: 0.6 }}>{t("연결 준비 중")}</Typography>
               </Stack>
               <Typography sx={{ color: "#62738c", fontSize: 12, fontWeight: 650, mb: 0.5 }}>{t(caption)}</Typography>
               <Typography component="h3" sx={{ color: "#124b97", fontSize: 21, fontWeight: 750 }}>{t(title)}</Typography>
               <Typography sx={{ mt: 1, color: "#62738c", fontSize: 14, lineHeight: 1.75 }}>{t(description)}</Typography>
+              <Box sx={{ mt: "auto", pt: 2.5 }}>
+                <Button href={href} target="_blank" rel="sponsored noopener noreferrer" variant="outlined" endIcon={<OpenInNewRoundedIcon aria-hidden="true" />} sx={{ minHeight: 48, borderRadius: 2, fontWeight: 700, "&:focus-visible": { outline: "2px solid #1660df", outlineOffset: 3 } }}>
+                  {t(action)}
+                  <Box component="span" sx={visuallyHidden}>{t("(제휴 사이트, 새 탭)")}</Box>
+                </Button>
+              </Box>
             </Box>
           ))}
         </Box>

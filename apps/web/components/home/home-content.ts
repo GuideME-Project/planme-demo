@@ -3,6 +3,8 @@ export const partnerLinks = {
   flight: "https://aviasales.tpx.lt/Ryx717iT",
   stay: "https://kkday.tpx.lt/AkJifRE2",
   tour: "https://tiqets.tpx.lt/fGBupMu9",
+  esim: "https://yesim.tpx.lt/mM4SQ1TQ",
+  insurance: "https://ektatraveling.tpx.lt/lt7O4KpT",
 } as const;
 
 // Official store listings verified on 2026-09-09.
