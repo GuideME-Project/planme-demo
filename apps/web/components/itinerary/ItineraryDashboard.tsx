@@ -54,11 +54,14 @@ import type {
   TimelineEvent,
 } from "@planme/core";
 import { RouteMap } from "@/components/itinerary/RouteMap";
+import { TripFlights } from "./TripFlights";
+import type { TripFlightContext } from "@/lib/flights/contracts";
 import { TimelinePanel } from "@/components/itinerary/TimelinePanel";
 import { usePlanmeColorMode } from "@/theme/ThemeRegistry";
 
 type ItineraryDashboardProps = {
   itinerary: PlanmeItinerary;
+  flightContext?: TripFlightContext;
   compact: boolean;
   embedded?: boolean;
   editingEnabled?: boolean;
@@ -2088,6 +2091,7 @@ function createPendingRoute(route: RoutePlan, durationLabel: string): RoutePlan 
  */
 export function ItineraryDashboard({
   itinerary,
+  flightContext,
   compact,
   embedded = false,
   editingEnabled = true,
@@ -2460,6 +2464,7 @@ export function ItineraryDashboard({
     >
       <Stack spacing={3}>
         {!embedded && <TopBar />}
+        <TripFlights context={flightContext} />
 
         <Box
           sx={{

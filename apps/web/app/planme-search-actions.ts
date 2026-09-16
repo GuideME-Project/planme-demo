@@ -1,6 +1,7 @@
 "use server";
 
 import { createV3DashboardItinerary, type PlanmeItinerary } from "@planme/core";
+import type { TripFlightContext } from "@/lib/flights/contracts";
 import type { ItineraryPhase } from "@/lib/planme-v3/job-store";
 import { cookies } from "next/headers";
 import {
@@ -99,6 +100,9 @@ export async function startPlanmeSearchAction(
   if (destinationPlaceId && !selectedDestination) fieldErrors.destination = "선택한 목적지를 확인하지 못했습니다. 다시 선택하거나 직접 입력해 주세요.";
   if (Object.keys(fieldErrors).length) return { submissionId, fieldErrors };
   const globalPreparation = await resolvePlanmeGlobalTrip({ origin, destination, selectedOrigin, selectedDestination });
+  // 글로벌 2단계 연결 지점: 해외 일정 생성 분기에서 검증된 여행 날짜·IATA 코드로 prepareTripFlights를 호출합니다.
+  // 결과를 AI의 참고 항공편 문맥과 일정 flightContext에 전달·저장한 뒤 PLANME_GLOBAL_FLIGHTS_ENABLED=1로 활성화합니다.
+  // 현재는 해외 일정 준비 안내를 유지합니다. 설정만 켜서 이 조기 반환을 우회하지 않습니다.
   if (globalPreparation) {
     return {
       submissionId,
@@ -181,6 +185,7 @@ function readText(formData: FormData, field: string) {
 }
 
 export type PlanmeInlineItineraryResult = {
+  flightContext?: TripFlightContext;
   itineraryId: string;
   phase: ItineraryPhase;
   itinerary: PlanmeItinerary | null;

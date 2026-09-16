@@ -71,6 +71,7 @@ export function PlanmeInlineItinerary({
         <ItineraryDashboard
           key={result.itineraryId}
           itinerary={result.itinerary}
+          flightContext={result.flightContext}
           compact
           embedded
           editingEnabled={false}
