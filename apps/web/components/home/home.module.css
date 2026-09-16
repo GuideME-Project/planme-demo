@@ -143,6 +143,7 @@
   gap: 24px;
 }
 .mainVideo {
+  align-self: start;
   border-radius: 24px;
   background: #f0f5fb;
   overflow: hidden;
@@ -272,6 +273,7 @@
   opacity: 1;
 }
 .explorerToolbar {
+  margin-bottom: 24px;
   display: flex;
   justify-content: space-between;
   align-items: center;
