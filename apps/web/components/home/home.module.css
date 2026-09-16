@@ -136,49 +136,8 @@
   position: relative;
   margin-top: -75px;
 }
-.tripIntro {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  margin: 60px 0 68px;
-  padding: 30px 34px;
-  border: 1px solid #dce7f2;
-  border-radius: 14px;
-  background: #f7faff;
-}
-.tripIntro .eyebrow {
-  font-size: 10px;
-}
-.tripIntro h2 {
-  font-size: 23px;
-  letter-spacing: -0.035em;
-  margin: 5px 0 8px;
-}
-.tripIntro p {
-  font-size: 14px;
-  color: var(--muted);
-}
-.tripIntro > a {
-  margin-left: auto;
-  white-space: nowrap;
-  display: inline-flex;
-  gap: 15px;
-  align-items: center;
-  color: var(--blue);
-  font-weight: 650;
-  font-size: 14px;
-}
-.tripIcon {
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  width: 62px;
-  height: 62px;
-  border-radius: 18px;
-  background: #e4efff;
-  color: var(--blue);
-}
 .mediaSection {
+  margin-top: 60px;
   display: grid;
   grid-template-columns: 2.2fr 1fr;
   gap: 24px;
@@ -196,18 +155,8 @@
   object-fit: contain;
   background: #122a47;
 }
-.mainVideo > div {
-  padding: 30px 36px;
-}
-.mainVideo h2 {
-  font-size: 32px;
-  margin-top: 8px;
-}
-.mainVideo p {
-  margin-top: 12px;
-  font-size: 14px;
-  color: var(--muted);
-}
+
+
 .mediaAside {
   display: flex;
   flex-direction: column;
@@ -361,11 +310,6 @@
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-}
-.contentNotice {
-  font-size: 12px;
-  color: #657791;
-  margin: 18px 0 24px !important;
 }
 .pickGrid {
   display: grid;
@@ -580,25 +524,6 @@
 }
 .stayImage img {
   object-fit: cover;
-}
-.stayNotes {
-  grid-column: 1/-1;
-  display: flex;
-  justify-content: space-around;
-  gap: 18px;
-  border-top: 1px solid #dde6ef;
-  padding-top: 25px;
-  color: #607892;
-  font-size: 13px;
-}
-.stayNotes span {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.stayNotes svg {
-  color: #3881bf;
-  flex-shrink: 0;
 }
 .flightSection {
   display: flex;
@@ -893,21 +818,7 @@
   .header nav {
     gap: 20px;
   }
-  .tripIntro {
-    padding: 24px;
-  }
-  .tripIntro h2 {
-    font-size: 21px;
-  }
-  .tripIcon {
-    display: none;
-  }
-  .mainVideo > div {
-    padding: 25px;
-  }
-  .mainVideo h2 {
-    font-size: 29px;
-  }
+
   .partnerBanner {
     padding: 20px;
   }
@@ -940,9 +851,7 @@
     display: flex;
     flex-direction: column;
   }
-  .mainVideo > div {
-    margin-block: auto;
-  }
+
   .pickGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -972,20 +881,8 @@
   .tabs button {
     padding: 10px 12px;
   }
-  .tripIntro {
-    align-items: start;
-    flex-direction: column;
-    gap: 18px;
-  }
-  .tripIntro > a {
-    margin-left: 0;
-  }
   .staySection {
     grid-template-columns: 1fr 1fr;
-  }
-  .stayNotes {
-    justify-content: start;
-    flex-wrap: wrap;
   }
   .steps {
     gap: 20px;
@@ -1043,12 +940,6 @@
   .searchDock {
     margin-top: -60px;
   }
-  .tripIntro {
-    margin: 35px 0 48px;
-  }
-  .tripIntro h2 {
-    font-size: 22px;
-  }
   .mediaSection {
     grid-template-columns: 1fr;
   }
@@ -1060,12 +951,7 @@
   .smallVideo {
     align-self: start;
   }
-  .mainVideo h2 br {
-    display: none;
-  }
-  .mainVideo h2 {
-    font-size: 26px;
-  }
+
   .partnerBanner strong {
     font-size: 27px;
   }
@@ -1133,10 +1019,6 @@
   }
   .stayImage {
     aspect-ratio: 1.5;
-  }
-  .stayNotes {
-    flex-direction: column;
-    gap: 14px;
   }
   .flightSection {
     margin-top: 55px;
@@ -1215,12 +1097,6 @@
   .heroCopy p {
     font-size: 13px;
   }
-  .tripIntro {
-    padding: 24px 20px;
-  }
-  .tripIntro h2 {
-    font-size: 20px;
-  }
   .mediaAside {
     grid-template-columns: 1fr;
   }
@@ -1285,9 +1161,6 @@
   .step p {
     font-size: 12px;
   }
-  .contentNotice {
-    font-size: 11px;
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   .pickCard img {
@@ -1351,8 +1224,6 @@
     grid-row: 1;
   }
 }
-
-.home:has([id="trip-result"]) .tripIntro { display: none; }
 
 .header { flex-wrap: wrap; gap: 16px; height: auto; min-height: 100px; }
 @media (max-width: 767px) {
