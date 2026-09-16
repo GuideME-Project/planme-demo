@@ -10,7 +10,6 @@ import {
   ArrowRight,
   ArrowUpRight,
   CalendarDays,
-  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -206,15 +205,14 @@ function MagazineNotice({ magazine }: { magazine: MagazineState }) {
   const { t, locale } = useLocale();
   const name = magazine.countryCode
     ? new Intl.DisplayNames([locale], { type: "region" }).of(magazine.countryCode) : null;
+  if (!magazine.countryCode) return null;
   return <div className={styles.magazineNotice} aria-busy={magazine.loading}>
     {name && <strong>{name} · {t("Roller’s Dispatch")}</strong>}
-    <p role={magazine.failed ? "alert" : "status"}>
-      {!magazine.countryCode ? t("여행지를 검색하면 해당 국가의 매거진 기사를 보여드려요.")
-        : magazine.loading ? t("매거진 기사를 불러오고 있어요.")
+    {(magazine.loading || magazine.failed || !magazine.articles.length) && <p role={magazine.failed ? "alert" : "status"}>
+      {magazine.loading ? t("매거진 기사를 불러오고 있어요.")
         : magazine.failed ? t("매거진 기사를 불러오지 못했어요. 다시 시도해 주세요.")
-        : !magazine.articles.length ? t("이 국가에 등록된 매거진 기사가 아직 없어요.")
-        : t("검색한 국가의 여행 이야기를 만나보세요.")}
-    </p>
+        : t("이 국가에 등록된 매거진 기사가 아직 없어요.")}
+    </p>}
     {magazine.failed && <button type="button" onClick={magazine.retry}>{t("다시 시도")}</button>}
     {magazine.hasMore && <button type="button" disabled={magazine.loading} onClick={magazine.loadMore}>{t("기사 더 보기")}</button>}
   </div>;
@@ -363,7 +361,6 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
           </button>
         </div>
       </div>
-      <p className={styles.contentNotice}>{t("제휴사에서 상품과 예약 가능 여부를 확인해 주세요. 콘텐츠 검색은 위 여행 일정 검색과 별도로 동작합니다.")}</p>
       {(category === "all" || category === "magazine") && <MagazineNotice magazine={magazine} />}
       <div
         ref={panelRef}
@@ -549,18 +546,6 @@ export function PlanmeHome({ children, articles: initialArticles = [] }: PlanmeH
       </div>
       <div className={styles.container}>
         <div className={styles.searchDock}>{children}</div>
-        <section className={styles.tripIntro} aria-labelledby="trip-title">
-          <div className={styles.tripIcon}>
-            <CalendarDays size={26} aria-hidden="true" />
-          </div>
-          <div>
-            <span className={styles.eyebrow}>{t("YOUR TRIP, YOUR WAY")}</span>
-            <h2 id="trip-title">{t("여행의 시작은, 나만의 일정부터")}</h2>
-            <p>{t("목적지와 여행 기간을 알려주세요. 추천 장소부터 이동 경로까지 함께 준비할게요.")}</p>
-          </div>
-          <a href="#trip-search">{t("일정 만들기")}<ArrowUpRight size={19} aria-hidden="true" />
-          </a>
-        </section>
         <section
           className={styles.mediaSection}
           aria-label={t("GuideME 소개와 여행 서비스")}
@@ -576,11 +561,6 @@ export function PlanmeHome({ children, articles: initialArticles = [] }: PlanmeH
             >{t("브라우저가 영상 재생을 지원하지 않습니다.")}{" "}
               <a href="/home/roller-introduction.mp4">{t("소개 영상 열기")}</a>
             </video>
-            <div>
-              <span className={styles.eyebrow}>{t("MEET GUIDEME")}</span>
-              <h2>{t("여행지에서 만나는")}{" "}<br />{t("새로운 연결")}</h2>
-              <p>{t("당신의 여행에 사람의 온기를 더합니다.")}</p>
-            </div>
           </div>
           <div className={styles.mediaAside}>
             <div className={styles.smallVideo}>
@@ -599,7 +579,6 @@ export function PlanmeHome({ children, articles: initialArticles = [] }: PlanmeH
             <PartnerBanner />
           </div>
         </section>
-        {locale === "en" && articles.some(article => article.language !== "en") && <p>{t("원문 콘텐츠 안내")}</p>}
         <SavedContentExplorer articles={articles} magazine={magazine} />
         <section className={styles.staySection} aria-labelledby="stay-title">
           <div>
@@ -615,14 +594,6 @@ export function PlanmeHome({ children, articles: initialArticles = [] }: PlanmeH
               fill
               sizes="(max-width: 767px) 100vw, 50vw"
             />
-          </div>
-          <div className={styles.stayNotes}>
-            <span>
-              <Check size={20} />{t("나에게 맞는 숙소 탐색")}</span>
-            <span>
-              <Check size={20} />{t("제휴사에서 예약 조건 확인")}</span>
-            <span>
-              <Check size={20} />{t("나만의 여행에 쉼 더하기")}</span>
           </div>
         </section>
         <section
