@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { LocaleProvider } from "@/components/i18n/LocaleProvider";
 import { isLocale } from "@/lib/i18n/routing";
+import { planmeOpenGraphImage } from "@/lib/brand-metadata";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
@@ -26,7 +27,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "PlanME Demo",
     description: "GuideME 스타일의 여정으로 안내하는 PlanME 일정 데모입니다.",
-    images: ["/og"],
+    images: [planmeOpenGraphImage],
     type: "website",
   },
 };

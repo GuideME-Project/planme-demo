@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { planmeOpenGraphImage } from "@/lib/brand-metadata";
 import type { Locale } from "./routing";
 
 // planme.kr currently redirects to this canonical host.
@@ -22,7 +23,7 @@ export function localizedMetadata(locale: Locale, path: string, title: string): 
       type: "website",
       locale: locale === "ko" ? "ko_KR" : "en_US",
       alternateLocale: locale === "ko" ? "en_US" : "ko_KR",
-      images: [{ url: `/og?locale=${locale}`, width: 1200, height: 630, alt: title }],
+      images: [planmeOpenGraphImage],
     },
   };
 }

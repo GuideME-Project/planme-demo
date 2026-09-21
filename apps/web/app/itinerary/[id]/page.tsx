@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { translate } from "@/lib/i18n/messages";
+import { planmeOpenGraphImage } from "@/lib/brand-metadata";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ItineraryDashboard } from "@/components/itinerary/ItineraryDashboard";
@@ -42,7 +43,7 @@ export async function generateMetadata({
       openGraph: {
         title,
         description,
-        images: [`/og?title=${encodeURIComponent(title)}`],
+        images: [planmeOpenGraphImage],
       },
     };
   }
@@ -61,7 +62,7 @@ export async function generateMetadata({
     openGraph: {
       title: itinerary.title,
       description: itinerary.summary,
-      images: [`/og?title=${encodeURIComponent(itinerary.title)}`],
+      images: [planmeOpenGraphImage],
     },
   };
 }
