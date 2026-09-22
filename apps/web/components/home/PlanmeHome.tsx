@@ -52,13 +52,13 @@ function PartnerLink({
   return (
     <a
       href={href}
-      target="_blank"
+      target="_parent"
       rel="sponsored noopener noreferrer"
       className={className}
     >
       {children}
       <ArrowUpRight size={18} aria-hidden="true" />
-      <span className={styles.srOnly}>{t("(제휴 사이트, 새 탭)")}</span>
+      <span className={styles.srOnly}>{t("(제휴 사이트)")}</span>
     </a>
   );
 }
@@ -67,21 +67,21 @@ function StoreLinks() {
   const { t } = useLocale();
   return (
     <div className={styles.storeLinks}>
-      <a href={appLinks.ios} target="_blank" rel="noopener noreferrer">
+      <a href={appLinks.ios} target="_parent" rel="noopener noreferrer">
         <Smartphone size={22} aria-hidden="true" />
         <span>
           <small>iPhone · iPad</small>App Store
         </span>
         <ArrowUpRight size={17} aria-hidden="true" />
-        <span className={styles.srOnly}>{t("에서 다운로드 (새 탭)")}</span>
+        <span className={styles.srOnly}>{t("에서 다운로드")}</span>
       </a>
-      <a href={appLinks.android} target="_blank" rel="noopener noreferrer">
+      <a href={appLinks.android} target="_parent" rel="noopener noreferrer">
         <Play size={21} aria-hidden="true" />
         <span>
           <small>Android</small>Google Play
         </span>
         <ArrowUpRight size={17} aria-hidden="true" />
-        <span className={styles.srOnly}>{t("에서 다운로드 (새 탭)")}</span>
+        <span className={styles.srOnly}>{t("에서 다운로드")}</span>
       </a>
     </div>
   );
@@ -384,7 +384,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
               key={pick.id}
               className={`${styles.pickCard} ${pick.category === "flight" ? styles.flightCard : ""}`}
               href={pick.href}
-              target="_blank"
+              target="_parent"
               rel="sponsored noopener noreferrer"
             >
               <Image
@@ -417,7 +417,6 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
                 <h3>{t(pick.title)}</h3>
                 <p>{t(pick.description)}</p>
                 <span>{t("Learn More")}<ArrowUpRight size={17} aria-hidden="true" />
-                  <span className={styles.srOnly}>{t("(새 탭)")}</span>
                 </span>
               </div>
             </a>
@@ -427,7 +426,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
               className={styles.articleCard}
               key={article.id}
               href={article.href}
-              target="_blank"
+              target="_parent"
               rel="noopener noreferrer"
             >
               <ArticleImage article={article} />
@@ -435,7 +434,6 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
               <h3 lang={article.language}>{article.title}</h3>
               <p lang={article.language}>{article.summary}</p>
               <span>{t("기사 읽기")}<ArrowUpRight size={18} aria-hidden="true" />
-                <span className={styles.srOnly}>{t("(새 탭)")}</span>
               </span>
             </a>
           ))}
@@ -625,14 +623,13 @@ export function PlanmeHome({ children, articles: initialArticles = [] }: PlanmeH
                   key={article.id}
                   href={article.href}
                   className={styles.articleCard}
-                  target="_blank"
+                  target="_parent"
                   rel="noopener noreferrer"
                 >
                   <ArticleImage article={article} />
                   <h3 lang={article.language}>{article.title}</h3>
                   <p lang={article.language}>{article.summary}</p>
                   <span>{t("기사 읽기")}<ArrowUpRight size={18} aria-hidden="true" />
-                    <span className={styles.srOnly}>{t("(새 탭)")}</span>
                   </span>
                 </a>
               ))}

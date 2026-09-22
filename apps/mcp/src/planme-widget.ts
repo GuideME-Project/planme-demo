@@ -46,7 +46,7 @@ export function createPlanmeWidgetHtml(): string {
       </section>
       <section class="days" data-days></section>
       <div class="excluded" data-excluded hidden></div>
-      <a data-link href="#" target="_blank" rel="noreferrer" hidden>상세 일정 열기</a>
+      <a data-link href="#" target="_blank" rel="noopener noreferrer" hidden>상세 일정 열기</a>
     </main>
     <script>
       const startedAt = Date.now();
@@ -56,6 +56,13 @@ export function createPlanmeWidgetHtml(): string {
       let pendingTimer = null;
       let currentJob = null;
       let terminal = false;
+
+      document.querySelector("[data-link]")?.addEventListener("click", (event) => {
+        if (typeof window.openai?.openExternal === "function") {
+          event.preventDefault();
+          window.openai.openExternal({ href: event.currentTarget.href });
+        }
+      });
 
       function text(selector, value) {
         const element = document.querySelector(selector);
