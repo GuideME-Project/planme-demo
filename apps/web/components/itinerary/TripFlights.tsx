@@ -18,7 +18,7 @@ export function TripFlights({ context }: { context?: TripFlightContext }) {
       <Typography>{en ? "Departure" : "출발"} <time dateTime={flight.departureAt}>{flight.departureAt.slice(0,16).replace("T", " ")}</time> (UTC{flight.departureAt.endsWith("Z") ? "+00:00" : flight.departureAt.slice(-6)})</Typography>
       <Typography>{en ? "Stops" : "경유"} {flight.transfers}{flight.durationMinutes !== null && ` · ${flight.durationMinutes}${en ? " min" : "분"}`}</Typography>
       <Typography>{en ? "Reference fare" : "참고 가격"} {new Intl.NumberFormat(locale, { style: "currency", currency: flight.currency, currencyDisplay: "code" }).format(flight.referencePrice)}</Typography>
-      <Button href={flight.searchUrl} target="_blank" rel="noopener noreferrer">{en ? "Check flight on Aviasales (new tab)" : "Aviasales에서 항공편 확인 (새 탭)"}</Button>
+      <Button href={flight.searchUrl} target="_parent" rel="noopener noreferrer">{en ? "Check flight on Aviasales" : "Aviasales에서 항공편 확인"}</Button>
     </Box>)}
   </Stack>;
 }

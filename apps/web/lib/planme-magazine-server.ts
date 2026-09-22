@@ -2,6 +2,7 @@ import "server-only";
 
 import { MAGAZINE_API_URL, MAGAZINE_PAGE_SIZE, MagazineHttpError, parseMagazinePage } from "./planme-magazine";
 import type { MagazineArticle, MagazinePage } from "./planme-magazine";
+import { localizeMagazinePage } from "./planme-magazine-translation";
 
 const NEW_MAGAZINE_API_URL = "https://guideme.co.kr/planme-api/articles.php";
 type NewMagazinePage = {
@@ -38,10 +39,10 @@ export async function fetchMagazinePage(countryCode: string, language: "ko" | "e
       articleUrl: article.articleUrl, contentLanguage: article.contentLanguage })),
   } }), countryCode);
   // A page past the end still belongs to the new feed; only an empty country falls back.
-  if (normalized.count > 0) return normalized;
+  if (normalized.count > 0) return localizeMagazinePage(normalized, language);
 
   const oldQuery = new URLSearchParams({ countryCode, language, skip: String(skip), take: String(MAGAZINE_PAGE_SIZE) });
   const legacy = await fetch(`${MAGAZINE_API_URL}?${oldQuery}`, { cache: "no-store", signal });
   if (!legacy.ok) throw new MagazineHttpError(legacy.status);
-  return parseMagazinePage(await legacy.text(), countryCode);
+  return localizeMagazinePage(parseMagazinePage(await legacy.text(), countryCode), language);
 }

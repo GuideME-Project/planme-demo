@@ -7,7 +7,7 @@ import FlightTakeoffRoundedIcon from "@mui/icons-material/FlightTakeoffRounded";
 import HotelRoundedIcon from "@mui/icons-material/HotelRounded";
 import ConfirmationNumberRoundedIcon from "@mui/icons-material/ConfirmationNumberRounded";
 import SimCardRoundedIcon from "@mui/icons-material/SimCardRounded";
-import OpenInNewRoundedIcon from "@mui/icons-material/OpenInNewRounded";
+import ArrowForwardRoundedIcon from "@mui/icons-material/ArrowForwardRounded";
 import { visuallyHidden } from "@mui/utils";
 import { partnerLinks } from "@/components/home/home-content";
 import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
@@ -60,7 +60,7 @@ export function PlanmeGlobalPreparation({ origin, destination, attributions = []
         </Box>
         <Stack direction="row" useFlexGap sx={{ gap: 1.5, flexWrap: "wrap", mt: 1, px: { xs: 2, sm: 3 } }}>
           <Typography translate="no" sx={{ color: "#5e5e5e", fontSize: 12, fontFamily: "Arial, sans-serif", fontWeight: 400, letterSpacing: "normal", whiteSpace: "nowrap" }}>Google Maps</Typography>
-          {attributions.map((item) => <Typography key={`${item.provider}-${item.providerUri ?? ""}`} sx={{ fontSize: 12, color: "#5e5e5e", overflowWrap: "anywhere" }}>{item.providerUri ? <a href={item.providerUri} target="_blank" rel="noopener noreferrer">{item.provider}</a> : item.provider}</Typography>)}
+          {attributions.map((item) => <Typography key={`${item.provider}-${item.providerUri ?? ""}`} sx={{ fontSize: 12, color: "#5e5e5e", overflowWrap: "anywhere" }}>{item.providerUri ? <a href={item.providerUri} target="_parent" rel="noopener noreferrer">{item.provider}</a> : item.provider}</Typography>)}
         </Stack>
         <Typography sx={{ mt: { xs: 2.5, sm: 3 }, color: "#62738c", fontSize: { xs: 17, sm: 19 }, lineHeight: 1.7, wordBreak: "keep-all" }}>{t("먼저 여행에 필요한 준비물을 살펴보세요.")}</Typography>
       </Box>
@@ -79,9 +79,9 @@ export function PlanmeGlobalPreparation({ origin, destination, attributions = []
               <Typography component="h3" sx={{ color: "#124b97", fontSize: 21, fontWeight: 750 }}>{t(title)}</Typography>
               <Typography sx={{ mt: 1, color: "#62738c", fontSize: 14, lineHeight: 1.75 }}>{t(description)}</Typography>
               <Box sx={{ mt: "auto", pt: 2.5 }}>
-                <Button href={href} target="_blank" rel="sponsored noopener noreferrer" variant="outlined" endIcon={<OpenInNewRoundedIcon aria-hidden="true" />} sx={{ minHeight: 48, borderRadius: 2, fontWeight: 700, "&:focus-visible": { outline: "2px solid #1660df", outlineOffset: 3 } }}>
+                <Button href={href} target="_parent" rel="sponsored noopener noreferrer" variant="outlined" endIcon={<ArrowForwardRoundedIcon aria-hidden="true" />} sx={{ minHeight: 48, borderRadius: 2, fontWeight: 700, "&:focus-visible": { outline: "2px solid #1660df", outlineOffset: 3 } }}>
                   {t(action)}
-                  <Box component="span" sx={visuallyHidden}>{t("(제휴 사이트, 새 탭)")}</Box>
+                  <Box component="span" sx={visuallyHidden}>{t("(제휴 사이트)")}</Box>
                 </Button>
               </Box>
             </Box>
