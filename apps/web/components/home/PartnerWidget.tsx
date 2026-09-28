@@ -9,20 +9,21 @@ import styles from "./partner-widget.module.css";
 
 function WidgetFrame({ kind, city, locale }: { kind: "flight" | "tour"; city: string; locale: string }) {
   const frame = useRef<HTMLIFrameElement>(null);
-  const [height, setHeight] = useState(kind === "flight" ? 660 : 480);
+  const [height, setHeight] = useState(kind === "flight" ? 260 : 480);
+  const [expanded, setExpanded] = useState(false);
   useEffect(() => {
-    // Flight details use viewport-fixed dialogs; keep their viewport bounded.
-    if (kind === "flight") return;
     const resize = (event: MessageEvent) => {
       if (event.origin !== window.location.origin || event.source !== frame.current?.contentWindow) return;
       const data = event.data;
       if (data?.type !== "planme-partner-height" || typeof data.height !== "number" || !Number.isFinite(data.height)) return;
       setHeight(Math.max(80, Math.min(20000, data.height)));
+      setExpanded(data.expanded === true);
     };
     window.addEventListener("message", resize);
     return () => window.removeEventListener("message", resize);
   }, [kind]);
-  return <iframe ref={frame} className={styles.frame} style={{ height: kind === "flight" ? "clamp(620px, 75vh, 900px)" : height }}
+  // Keep a bounded viewport for the provider's fixed dialogs and ticket results.
+  return <iframe ref={frame} className={styles.frame} style={{ height: kind === "flight" && expanded ? "clamp(620px, 75vh, 900px)" : height }}
     title={kind === "flight" ? "FlyME flight search" : "PlayME tours and tickets"}
     src={`/partner-widgets/${kind}?city=${encodeURIComponent(city)}&lang=${locale}`}
     sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation" />;

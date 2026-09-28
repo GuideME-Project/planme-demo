@@ -18,7 +18,9 @@ export async function GET(request: Request, context: { params: Promise<{ kind: s
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow"><title>${kind === "flight" ? "FlyME" : "PlayME"}</title>
 <style>html,body{margin:0;padding:0;background:#fff;font-family:Arial,sans-serif}*{box-sizing:border-box}
-#widget{min-height:${kind === "flight" ? "600" : "280"}px;padding:8px;${kind === "tour" ? "visibility:hidden" : ""}}#status{padding:20px;color:#566777;font-size:14px}
+#widget{min-height:${kind === "flight" ? "0" : "280"}px;padding:8px;${kind === "tour" ? "visibility:hidden" : ""}}#status{padding:20px;color:#566777;font-size:14px}
+#tpwl-search{display:block;padding:16px;background:#f2f6fc;border:1px solid #d5e1ef;border-radius:16px}
+@media(max-width:600px){#tpwl-search{padding:12px 8px}}
 #widget[data-failed]{min-height:0;height:0;overflow:hidden;padding:0}
 #failure{margin:0;padding:20px;color:#566777}iframe{max-width:100%}</style></head><body>
 <p id="status" role="status">${ko ? "검색 도구를 불러오고 있습니다…" : "Loading travel search…"}</p>
@@ -29,6 +31,41 @@ export async function GET(request: Request, context: { params: Promise<{ kind: s
 const widget = document.getElementById('widget');
 let scheduled = false;
 let tourReady = false;
+const observedRoots = new WeakSet();
+function styleFlightSearch() {
+  const host = document.getElementById('tpwl-search');
+  const root = host?.shadowRoot;
+  if (!root) return;
+  // Keep provider-specific CSS isolated here; stable input names identify fields.
+  if (!root.getElementById('planme-search-style')) {
+    const style = document.createElement('style');
+    style.id = 'planme-search-style';
+    style.textContent = \`
+      [data-planme-field]{position:relative;background:#fff!important;border:1px solid #9fb5cf!important;border-radius:10px!important;min-height:68px;padding:0!important}
+      [data-planme-field]::before{content:attr(data-planme-field);position:absolute;top:9px;left:16px;font-size:11px;font-weight:600;line-height:14px;color:#45617f;pointer-events:none}
+      [data-planme-field]>input{height:68px;box-sizing:border-box;padding:28px 38px 10px 16px!important;color:#193858!important}
+      [data-planme-field]>input::placeholder{color:#61758c!important;opacity:1}
+      [data-planme-field]:focus-within{box-shadow:inset 0 0 0 2px #1955a5,0 0 0 3px #1955a51a!important}
+      [data-planme-field]:has(>input[name="passengers"])>input{height:45px;padding-bottom:0!important;padding-right:0!important}
+      [data-planme-field]:has(>input[name="passengers"])>div[class*="subvalue"]{padding:0 16px 8px;font-size:11px;color:#61758c}
+    \`;
+    root.appendChild(style);
+  }
+  const labels = {origin:'From',destination:'To','from-date':'Departure date','to-date':'Return date',passengers:'Travelers'};
+  for (const [name, label] of Object.entries(labels)) {
+    const input = root.querySelector('input[name="' + name + '"]');
+    if (input) {
+      input.parentElement.dataset.planmeField = label;
+      input.setAttribute('aria-label', label);
+    }
+  }
+  for (const element of [host, document.getElementById('tpwl-tickets'), document.getElementById('tpwl-modals')]) {
+    if (!element?.shadowRoot || observedRoots.has(element.shadowRoot)) continue;
+    observedRoots.add(element.shadowRoot);
+    new MutationObserver(update).observe(element.shadowRoot,{childList:true,subtree:true,attributes:true,attributeFilter:['class']});
+    new ResizeObserver(update).observe(element);
+  }
+}
 // Tiqets' official loader uses this message after rendering its contents.
 window.addEventListener('message', (event) => {
   const frame = widget.querySelector('iframe');
@@ -46,6 +83,7 @@ function update() {
   scheduled = true;
   requestAnimationFrame(() => {
     scheduled = false;
+    styleFlightSearch();
     const loaded = ${kind === "flight" ? "!!document.getElementById('tpwl-search').shadowRoot?.querySelector('input')" : "tourReady"};
     if (loaded) {
       document.getElementById('status').hidden = true;
@@ -54,11 +92,14 @@ function update() {
       widget.removeAttribute('data-failed');
     }
     const height = Math.ceil(document.body.getBoundingClientRect().height);
-    parent.postMessage({type:'planme-partner-height',height}, location.origin);
+    const searchRoot = document.getElementById('tpwl-modals')?.shadowRoot;
+    const hasPopup = [...(searchRoot?.querySelectorAll('[class*="Modal-module__root"],[class*="Popover-module__visible"]') || [])].some(el => el.getBoundingClientRect().height > 0);
+    const hasResults = (document.getElementById('tpwl-tickets')?.getBoundingClientRect().height || 0) > 0;
+    parent.postMessage({type:'planme-partner-height',height,expanded:hasPopup || hasResults}, location.origin);
   });
 }
 new ResizeObserver(update).observe(document.body);
-new MutationObserver(update).observe(widget,{childList:true,subtree:true});
+new MutationObserver(update).observe(document.body,{childList:true,subtree:true});
 window.addEventListener('load',update);
 const readiness = setInterval(() => {
   update();
