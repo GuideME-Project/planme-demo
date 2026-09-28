@@ -39,41 +39,31 @@ type PlanmeHomeProps = { children: ReactNode; articles?: HomeArticle[] };
 const banners = [
   {
     name: "Meet the Rollers",
-    nameKo: "롤러를 만나보세요",
-    text: "Discover people who make every journey more personal.",
-    textKo: "여행에 사람의 온기를 더하는 롤러를 만나보세요.",
+    nameKo: "누구나 될 수 있는 롤러!",
     href: "#rollers",
     artwork: "banner-rollers",
   },
   {
     name: "Unbeatable Roller Perks",
-    nameKo: "롤러만의 특별한 혜택",
-    text: "Explore places through a local perspective.",
-    textKo: "현지의 시선으로 새로운 장소를 살펴보세요.",
+    nameKo: "롤러만의 시크릿 혜택은?",
     href: "#discover",
     artwork: "banner-perks",
   },
   {
     name: "What are you waiting for?",
-    nameKo: "무엇을 기다리고 계신가요?",
-    text: "Start with a place you want to visit.",
-    textKo: "가고 싶은 장소에서 여행을 시작하세요.",
+    nameKo: "망설일 이유가 없죠!",
     href: "#trip-search",
     artwork: "banner-waiting",
   },
   {
     name: "Apply Right Now!",
-    nameKo: "지금 바로 함께하세요!",
-    text: "Meet GuideME and the Roller community.",
-    textKo: "GuideME와 롤러 커뮤니티를 만나보세요.",
+    nameKo: "지금 당장 신청하기",
     href: "#rollers",
     artwork: "banner-apply",
   },
   {
     name: "Get the Free App",
-    nameKo: "무료 앱 다운로드",
-    text: "Take GuideME with you wherever you go.",
-    textKo: "어디서든 GuideME와 함께하세요.",
+    nameKo: "무료로 앱 다운",
     href: "#app-download",
     artwork: "banner-download",
   },
@@ -114,10 +104,10 @@ function PartnerBanner() {
           setInteracting(false);
       }}
     >
-      <BannerArtwork name={banner.artwork} paused={paused || interacting} />
-      <strong>{locale === "ko" ? banner.nameKo : banner.name}</strong>
-      <p>{locale === "ko" ? banner.textKo : banner.text}</p>
-      <a href={banner.href}>{locale === "ko" ? "자세히 보기" : "Explore"}<ArrowUpRight size={16} aria-hidden="true" /></a>
+      <a href={banner.href} className={styles.bannerLink} lang={locale}>
+        <BannerArtwork name={banner.artwork} paused={paused || interacting} />
+        <strong>{locale === "ko" ? banner.nameKo : banner.name}</strong>
+      </a>
       <div className={styles.carouselControls}>
         <span>{String(index + 1).padStart(2, "0")} / 05</span>
         <button
@@ -183,9 +173,14 @@ function MagazineNotice({ magazine }: { magazine: MagazineState }) {
   const { t, locale } = useLocale();
   const name = magazine.countryCode
     ? new Intl.DisplayNames([locale], { type: "region" }).of(magazine.countryCode) : null;
-  if (!magazine.countryCode) return null;
+  if (!magazine.countryCode) return <div className={styles.magazineNotice}>
+    <p role="status">{locale === "ko"
+      ? "상단에서 여행 일정을 검색하면 해당 국가의 매거진 기사를 보여드립니다."
+      : "Search for a trip above to see magazine articles about your destination country."}</p>
+    <a href="#trip-search">{t("여행 검색으로 이동")}</a>
+  </div>;
   return <div className={styles.magazineNotice} aria-busy={magazine.loading}>
-    {name && <strong>{name} · {t("Roller’s Dispatch")}</strong>}
+    {name && <strong>{name} · Roller’s Dispatch</strong>}
     {(magazine.loading || magazine.failed || !magazine.articles.length) && <p role={magazine.failed ? "alert" : "status"}>
       {magazine.loading ? t("매거진 기사를 불러오고 있어요.")
         : magazine.failed ? t("매거진 기사를 불러오지 못했어요. 다시 시도해 주세요.")
@@ -228,7 +223,7 @@ function ServicePromotions() {
       <a href={service.href} target="_parent" rel="noopener noreferrer">
         <BannerArtwork name={service.artwork} />
         <strong>{service.name}</strong>
-        <span>{index === 2 ? (ko ? "앱 다운로드" : "Get the app") : (ko ? "서비스 둘러보기" : `Explore ${service.name}`)}<ArrowUpRight size={16} /></span>
+        <span>Learn More<ArrowUpRight size={16} /></span>
       </a>
       <div className={styles.promoControls}>
         {services.map((item, itemIndex) => <button key={item.name} type="button" aria-label={item.name} aria-pressed={index === itemIndex} onClick={() => setIndex(itemIndex)} />)}
@@ -297,7 +292,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
     >
       <div className={styles.sectionHeading}>
         <div>
-          <h2 id="discover-title">{t("PlanME’s Pick")}</h2>
+          <h2 id="discover-title">PlanME’s Pick</h2>
         </div>
         {!isWidgetTab && <label className={styles.contentSearch}>
           <Search size={19} aria-hidden="true" />
@@ -309,7 +304,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
               setQuery(event.target.value);
               setPage(1);
             }}
-            placeholder={t("Search")}
+            placeholder="Search"
           />
         </label>}
       </div>
@@ -355,7 +350,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
                 document.getElementById(`home-tab-${next.id}`)?.focus();
               }}
             >
-              {t(item.label)}
+              {item.label}
             </button>
           ))}
         </div>
@@ -370,7 +365,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
             onClick={() => setView("grid")}
           >
             <Grid2X2 size={18} />
-            <span>{t("Grid View")}</span>
+            <span>Grid View</span>
           </button>
           <button
             aria-label={t("목록 보기")}
@@ -378,7 +373,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
             onClick={() => setView("list")}
           >
             <List size={19} />
-            <span>{t("List View")}</span>
+            <span>List View</span>
           </button>
         </div>}
       </div>
@@ -438,7 +433,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
               <div className={styles.pickCopy}>
                 <h3>{t(pick.title)}</h3>
                 <p>{t(pick.description)}</p>
-                <span>{t("Learn More")}<ArrowUpRight size={17} aria-hidden="true" />
+                <span>Learn More<ArrowUpRight size={17} aria-hidden="true" />
                 </span>
               </div>
             </a>
@@ -452,7 +447,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
               rel="noopener noreferrer"
             >
               <ArticleImage article={article} />
-              <span className={styles.eyebrow}>{t("ROLLER’S DISPATCH")}</span>
+              <span className={styles.eyebrow}>ROLLER’S DISPATCH</span>
               <h3 lang={article.language}>{article.title}</h3>
               <p lang={article.language}>{article.summary}</p>
               <span>{t("기사 읽기")}<ArrowUpRight size={18} aria-hidden="true" />
@@ -607,8 +602,8 @@ export function PlanmeHome({ children, articles: initialArticles = [] }: PlanmeH
           aria-labelledby="app-title"
         >
           <h2 id="app-title">Your journey begins here.</h2>
-          <p>{locale === "ko" ? "GuideME 앱에서 여행을 계속하세요." : "Continue your journey with the GuideME app."}</p>
-          <a href="#guide-app" className={styles.blueButton}>{locale === "ko" ? "GuideME 앱 다운로드" : "Get the GuideME app"}<ArrowRight size={18} aria-hidden="true" /></a>
+          <p>{locale === "ko" ? "준비는 모두 끝났어요. 앱에서 당신의 여정을 시작해 보세요!" : "Continue your journey with the GuideME app."}</p>
+          <a href="#guide-app" className={styles.blueButton}>Start Now<ArrowRight size={18} aria-hidden="true" /></a>
         </section>
       </div>
       <HomeClosingSections />

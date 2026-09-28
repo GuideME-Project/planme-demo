@@ -100,6 +100,7 @@
   line-height: 1.6;
   text-wrap: balance;
   word-break: keep-all;
+  white-space: pre-line;
 }
 
 .faq {
@@ -123,6 +124,7 @@
 }
 
 .faqList summary {
+  word-break: keep-all;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -167,6 +169,7 @@
 }
 
 .faqList details > p {
+  word-break: keep-all;
   margin: 23px 48px 4px 0;
   color: #6195c8;
   font-size: 16px;
