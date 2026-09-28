@@ -30,6 +30,7 @@ import {
 import styles from "./home.module.css";
 import { HomeClosingSections } from "./HomeClosingSections";
 import { RollerCards } from "./RollerCards";
+import { PartnerWidget } from "./PartnerWidget";
 import { getContentPage } from "./content-pagination";
 import { useMagazine } from "./use-magazine";
 
@@ -272,6 +273,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
         )
       : [];
   const isBannerTab = category === "deal" || category === "stay";
+  const isWidgetTab = category === "flight" || category === "tour";
   const total = isBannerTab ? 1 : visiblePicks.length + visibleArticles.length;
   const { pageCount, currentPage, offset, end, pageNumbers } = getContentPage(
     total,
@@ -297,7 +299,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
         <div>
           <h2 id="discover-title">{t("PlanME’s Pick")}</h2>
         </div>
-        <label className={styles.contentSearch}>
+        {!isWidgetTab && <label className={styles.contentSearch}>
           <Search size={19} aria-hidden="true" />
           <span className={styles.srOnly}>{t("여행 콘텐츠 검색")}</span>
           <input
@@ -309,7 +311,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
             }}
             placeholder={t("Search")}
           />
-        </label>
+        </label>}
       </div>
       <div className={styles.explorerToolbar}>
         <div
@@ -357,7 +359,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
             </button>
           ))}
         </div>
-        <div
+        {!isWidgetTab && <div
           className={styles.viewToggle}
           aria-label={t("콘텐츠 보기 방식")}
           role="group"
@@ -378,7 +380,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
             <List size={19} />
             <span>{t("List View")}</span>
           </button>
-        </div>
+        </div>}
       </div>
       {(category === "all" || category === "magazine") && <MagazineNotice magazine={magazine} />}
       <div
@@ -388,8 +390,8 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
         aria-labelledby={`home-tab-${category}`}
         tabIndex={0}
       >
-        <span className={styles.srOnly} role="status">{locale === "ko" ? `콘텐츠 ${total}개` : `${total} ${total === 1 ? "item" : "items"}`}</span>
-        {category === "deal" ? <ServiceBanner kind="deal" /> : category === "stay" ? <ServiceBanner kind="stay" /> : <div
+        {!isWidgetTab && <span className={styles.srOnly} role="status">{locale === "ko" ? `콘텐츠 ${total}개` : `${total} ${total === 1 ? "item" : "items"}`}</span>}
+        {category === "flight" || category === "tour" ? <PartnerWidget key={category} kind={category} /> : category === "deal" ? <ServiceBanner kind="deal" /> : category === "stay" ? <ServiceBanner kind="stay" /> : <div
           className={view === "grid" ? styles.pickGrid : styles.pickList}
           data-count={pagePicks.length + pageArticles.length}
           data-layout={
@@ -460,7 +462,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
           {category === "all" && <ServicePromotions />}
         </div>}
         {category === "all" && <><div className={styles.inlineServiceBanners}><ServiceBanner kind="deal" /><ServiceBanner kind="stay" /></div></>}
-        {!isBannerTab && !visiblePicks.length && !visibleArticles.length && (category !== "magazine" || (!magazine.loading && !magazine.failed && !!magazine.countryCode && articles.length > 0)) && (
+        {!isWidgetTab && !isBannerTab && !visiblePicks.length && !visibleArticles.length && (category !== "magazine" || (!magazine.loading && !magazine.failed && !!magazine.countryCode && articles.length > 0)) && (
           <div className={styles.emptyState}>
             <Compass size={32} aria-hidden="true" />
             <h3>
@@ -480,7 +482,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
           </div>
         )}
       </div>
-      {total > 0 && !isBannerTab && (
+      {total > 0 && !isBannerTab && !isWidgetTab && (
         <nav className={styles.pagination} aria-label={t("콘텐츠 페이지")}>
           <button
             aria-label={t("이전 페이지")}

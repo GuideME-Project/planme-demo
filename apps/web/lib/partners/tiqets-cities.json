@@ -1,0 +1,1678 @@
+[
+  {
+    "id": "65338",
+    "name": "Aarhus"
+  },
+  {
+    "id": "60013",
+    "name": "Abu Dhabi"
+  },
+  {
+    "id": "71389",
+    "name": "Akureyri"
+  },
+  {
+    "id": "76558",
+    "name": "Albufeira"
+  },
+  {
+    "id": "66088",
+    "name": "Alicante"
+  },
+  {
+    "id": "75064",
+    "name": "Alphen aan den Rijn"
+  },
+  {
+    "id": "97582",
+    "name": "Amboise"
+  },
+  {
+    "id": "97579",
+    "name": "Amnéville"
+  },
+  {
+    "id": "75061",
+    "name": "Amsterdam"
+  },
+  {
+    "id": "67158",
+    "name": "Angers"
+  },
+  {
+    "id": "78987",
+    "name": "Antalya"
+  },
+  {
+    "id": "68016",
+    "name": "Antigua Guatemala"
+  },
+  {
+    "id": "60863",
+    "name": "Antwerp"
+  },
+  {
+    "id": "72022",
+    "name": "Aosta"
+  },
+  {
+    "id": "75059",
+    "name": "Apeldoorn"
+  },
+  {
+    "id": "75334",
+    "name": "Arequipa"
+  },
+  {
+    "id": "75058",
+    "name": "Arnhem"
+  },
+  {
+    "id": "95315",
+    "name": "Astorga"
+  },
+  {
+    "id": "99239",
+    "name": "Athens"
+  },
+  {
+    "id": "79980",
+    "name": "Atlanta"
+  },
+  {
+    "id": "80986",
+    "name": "Auburn Hills"
+  },
+  {
+    "id": "184100",
+    "name": "Avignon"
+  },
+  {
+    "id": "78545",
+    "name": "Ayutthaya"
+  },
+  {
+    "id": "186855",
+    "name": "Bakewell"
+  },
+  {
+    "id": "85333",
+    "name": "Balchik"
+  },
+  {
+    "id": "80176",
+    "name": "Baltimore"
+  },
+  {
+    "id": "87579",
+    "name": "Banff"
+  },
+  {
+    "id": "78586",
+    "name": "Bangkok"
+  },
+  {
+    "id": "66342",
+    "name": "Barcelona"
+  },
+  {
+    "id": "210005",
+    "name": "Bari"
+  },
+  {
+    "id": "60331",
+    "name": "Bariloche"
+  },
+  {
+    "id": "67623",
+    "name": "Bath"
+  },
+  {
+    "id": "67614",
+    "name": "Belfast"
+  },
+  {
+    "id": "66061",
+    "name": "Benalmádena"
+  },
+  {
+    "id": "66059",
+    "name": "Benidorm"
+  },
+  {
+    "id": "71991",
+    "name": "Bergamo"
+  },
+  {
+    "id": "65144",
+    "name": "Berlin"
+  },
+  {
+    "id": "76477",
+    "name": "Bethlehem"
+  },
+  {
+    "id": "66335",
+    "name": "Bilbao"
+  },
+  {
+    "id": "67597",
+    "name": "Birmingham"
+  },
+  {
+    "id": "67591",
+    "name": "Blackpool"
+  },
+  {
+    "id": "60852",
+    "name": "Blankenberge"
+  },
+  {
+    "id": "78967",
+    "name": "Bodrum"
+  },
+  {
+    "id": "81",
+    "name": "Bogotá"
+  },
+  {
+    "id": "71986",
+    "name": "Bologna"
+  },
+  {
+    "id": "67101",
+    "name": "Bordeaux"
+  },
+  {
+    "id": "80874",
+    "name": "Boston"
+  },
+  {
+    "id": "67098",
+    "name": "Boulogne-sur-Mer"
+  },
+  {
+    "id": "67582",
+    "name": "Bournemouth"
+  },
+  {
+    "id": "76598",
+    "name": "Braga"
+  },
+  {
+    "id": "98490",
+    "name": "Brampton"
+  },
+  {
+    "id": "115866",
+    "name": "Bran"
+  },
+  {
+    "id": "260938",
+    "name": "Brașov"
+  },
+  {
+    "id": "71978",
+    "name": "Brescia"
+  },
+  {
+    "id": "67570",
+    "name": "Brighton"
+  },
+  {
+    "id": "60844",
+    "name": "Bruges"
+  },
+  {
+    "id": "60843",
+    "name": "Brussels"
+  },
+  {
+    "id": "76753",
+    "name": "Bucharest"
+  },
+  {
+    "id": "68199",
+    "name": "Budapest"
+  },
+  {
+    "id": "60189",
+    "name": "Buenos Aires"
+  },
+  {
+    "id": "60950",
+    "name": "Burgas"
+  },
+  {
+    "id": "67081",
+    "name": "Caen"
+  },
+  {
+    "id": "71473",
+    "name": "Cagliari"
+  },
+  {
+    "id": "60466",
+    "name": "Cairns"
+  },
+  {
+    "id": "62338",
+    "name": "Calgary"
+  },
+  {
+    "id": "67548",
+    "name": "Cambridge"
+  },
+  {
+    "id": "80879",
+    "name": "Cambridge"
+  },
+  {
+    "id": "183",
+    "name": "Çanakkale"
+  },
+  {
+    "id": "24",
+    "name": "Cancún"
+  },
+  {
+    "id": "105984",
+    "name": "Capri"
+  },
+  {
+    "id": "67073",
+    "name": "Carcassonne"
+  },
+  {
+    "id": "67545",
+    "name": "Cardiff"
+  },
+  {
+    "id": "105064",
+    "name": "Caserta"
+  },
+  {
+    "id": "106390",
+    "name": "Castel di Lama"
+  },
+  {
+    "id": "71461",
+    "name": "Catania"
+  },
+  {
+    "id": "90598",
+    "name": "Český Krumlov"
+  },
+  {
+    "id": "97278",
+    "name": "Chamonix-Mont-Blanc"
+  },
+  {
+    "id": "67054",
+    "name": "Champs-sur-Marne"
+  },
+  {
+    "id": "97268",
+    "name": "Chantilly"
+  },
+  {
+    "id": "80045",
+    "name": "Charleston"
+  },
+  {
+    "id": "80353",
+    "name": "Charlotte"
+  },
+  {
+    "id": "182857",
+    "name": "Chaumont-sur-Loire"
+  },
+  {
+    "id": "67038",
+    "name": "Cherbourg-en-Cotentin"
+  },
+  {
+    "id": "80816",
+    "name": "Chicago"
+  },
+  {
+    "id": "74049",
+    "name": "Chichén Itzá"
+  },
+  {
+    "id": "97220",
+    "name": "Chinon"
+  },
+  {
+    "id": "79784",
+    "name": "Clermont"
+  },
+  {
+    "id": "182711",
+    "name": "Cluny"
+  },
+  {
+    "id": "111536",
+    "name": "Coevorden"
+  },
+  {
+    "id": "76595",
+    "name": "Coimbra"
+  },
+  {
+    "id": "64765",
+    "name": "Cologne"
+  },
+  {
+    "id": "71894",
+    "name": "Como"
+  },
+  {
+    "id": "260939",
+    "name": "Constanța"
+  },
+  {
+    "id": "113",
+    "name": "Copenhagen"
+  },
+  {
+    "id": "27",
+    "name": "Córdoba"
+  },
+  {
+    "id": "1841",
+    "name": "Cork"
+  },
+  {
+    "id": "370",
+    "name": "Cozumel"
+  },
+  {
+    "id": "75323",
+    "name": "Cusco"
+  },
+  {
+    "id": "65070",
+    "name": "Dachau"
+  },
+  {
+    "id": "80608",
+    "name": "Dallas"
+  },
+  {
+    "id": "85055",
+    "name": "De Panne"
+  },
+  {
+    "id": "75020",
+    "name": "Delft"
+  },
+  {
+    "id": "70505",
+    "name": "Delhi"
+  },
+  {
+    "id": "68506",
+    "name": "Denpasar"
+  },
+  {
+    "id": "120725",
+    "name": "Derinkuyu"
+  },
+  {
+    "id": "199867",
+    "name": "Derry"
+  },
+  {
+    "id": "105708",
+    "name": "Dorgali"
+  },
+  {
+    "id": "65045",
+    "name": "Dortmund"
+  },
+  {
+    "id": "65042",
+    "name": "Dresden"
+  },
+  {
+    "id": "60005",
+    "name": "Dubai"
+  },
+  {
+    "id": "68616",
+    "name": "Dublin"
+  },
+  {
+    "id": "126",
+    "name": "Durham"
+  },
+  {
+    "id": "65037",
+    "name": "Düsseldorf"
+  },
+  {
+    "id": "21",
+    "name": "Edinburgh"
+  },
+  {
+    "id": "75003",
+    "name": "Eindhoven"
+  },
+  {
+    "id": "83806",
+    "name": "Eisenstadt"
+  },
+  {
+    "id": "83553",
+    "name": "El Calafate"
+  },
+  {
+    "id": "74999",
+    "name": "Emmen"
+  },
+  {
+    "id": "74998",
+    "name": "Enkhuizen"
+  },
+  {
+    "id": "64998",
+    "name": "Essen"
+  },
+  {
+    "id": "82344",
+    "name": "Fairbanks"
+  },
+  {
+    "id": "114807",
+    "name": "Fátima"
+  },
+  {
+    "id": "97034",
+    "name": "Ferney-Voltaire"
+  },
+  {
+    "id": "66292",
+    "name": "Figueres"
+  },
+  {
+    "id": "71854",
+    "name": "Florence"
+  },
+  {
+    "id": "67993",
+    "name": "Flores"
+  },
+  {
+    "id": "261005",
+    "name": "Flúðir"
+  },
+  {
+    "id": "79817",
+    "name": "Fort Lauderdale"
+  },
+  {
+    "id": "64980",
+    "name": "Frankfurt"
+  },
+  {
+    "id": "76533",
+    "name": "Funchal"
+  },
+  {
+    "id": "60815",
+    "name": "Genk"
+  },
+  {
+    "id": "71831",
+    "name": "Genoa"
+  },
+  {
+    "id": "60814",
+    "name": "Ghent"
+  },
+  {
+    "id": "66285",
+    "name": "Girona"
+  },
+  {
+    "id": "276",
+    "name": "Giverny"
+  },
+  {
+    "id": "5",
+    "name": "Glasgow"
+  },
+  {
+    "id": "120668",
+    "name": "Göreme"
+  },
+  {
+    "id": "78108",
+    "name": "Gothenburg"
+  },
+  {
+    "id": "66003",
+    "name": "Granada"
+  },
+  {
+    "id": "60360",
+    "name": "Graz"
+  },
+  {
+    "id": "203923",
+    "name": "Grindavík"
+  },
+  {
+    "id": "71818",
+    "name": "Grosseto"
+  },
+  {
+    "id": "74270",
+    "name": "Guadalajara"
+  },
+  {
+    "id": "68006",
+    "name": "Guatemala City"
+  },
+  {
+    "id": "70285",
+    "name": "Gurgaon"
+  },
+  {
+    "id": "74982",
+    "name": "Haarlem"
+  },
+  {
+    "id": "258507",
+    "name": "Haines"
+  },
+  {
+    "id": "64886",
+    "name": "Hamburg"
+  },
+  {
+    "id": "74980",
+    "name": "Harderwijk"
+  },
+  {
+    "id": "60807",
+    "name": "Hasselt"
+  },
+  {
+    "id": "64872",
+    "name": "Haßloch"
+  },
+  {
+    "id": "258629",
+    "name": "Healy"
+  },
+  {
+    "id": "66544",
+    "name": "Helsinki"
+  },
+  {
+    "id": "203903",
+    "name": "Höfn"
+  },
+  {
+    "id": "34",
+    "name": "Hong Kong"
+  },
+  {
+    "id": "82342",
+    "name": "Honolulu"
+  },
+  {
+    "id": "80638",
+    "name": "Houston"
+  },
+  {
+    "id": "65996",
+    "name": "Huelva"
+  },
+  {
+    "id": "260972",
+    "name": "Húsafell"
+  },
+  {
+    "id": "203902",
+    "name": "Húsavík"
+  },
+  {
+    "id": "60358",
+    "name": "Innsbruck"
+  },
+  {
+    "id": "88270",
+    "name": "Interlaken"
+  },
+  {
+    "id": "29",
+    "name": "Inverness"
+  },
+  {
+    "id": "79079",
+    "name": "Istanbul"
+  },
+  {
+    "id": "1343",
+    "name": "Izmir"
+  },
+  {
+    "id": "322",
+    "name": "Jasper"
+  },
+  {
+    "id": "68627",
+    "name": "Jerusalem"
+  },
+  {
+    "id": "952",
+    "name": "Kaatsheuvel"
+  },
+  {
+    "id": "82330",
+    "name": "Kahului"
+  },
+  {
+    "id": "80090",
+    "name": "Kansas City"
+  },
+  {
+    "id": "60435",
+    "name": "Katoomba"
+  },
+  {
+    "id": "1246",
+    "name": "Kauai (Island)"
+  },
+  {
+    "id": "125517",
+    "name": "Kayenta"
+  },
+  {
+    "id": "81190",
+    "name": "Kearny"
+  },
+  {
+    "id": "79844",
+    "name": "Key West"
+  },
+  {
+    "id": "64775",
+    "name": "Kiel"
+  },
+  {
+    "id": "79846",
+    "name": "Kissimmee"
+  },
+  {
+    "id": "73367",
+    "name": "Klaipeda"
+  },
+  {
+    "id": "78483",
+    "name": "Ko Samui"
+  },
+  {
+    "id": "83755",
+    "name": "Köflach"
+  },
+  {
+    "id": "46",
+    "name": "Krakow"
+  },
+  {
+    "id": "74416",
+    "name": "Kuala Lumpur"
+  },
+  {
+    "id": "78863",
+    "name": "Kuşadası"
+  },
+  {
+    "id": "64187",
+    "name": "Kutná Hora"
+  },
+  {
+    "id": "72420",
+    "name": "Kyoto"
+  },
+  {
+    "id": "66907",
+    "name": "La Flèche"
+  },
+  {
+    "id": "66897",
+    "name": "La Rochelle"
+  },
+  {
+    "id": "772",
+    "name": "Langkawi"
+  },
+  {
+    "id": "111406",
+    "name": "Laren"
+  },
+  {
+    "id": "82073",
+    "name": "Las Vegas"
+  },
+  {
+    "id": "62666",
+    "name": "Lausanne"
+  },
+  {
+    "id": "137907",
+    "name": "Lauterbrunnen"
+  },
+  {
+    "id": "260936",
+    "name": "Le Mont-Saint-Michel"
+  },
+  {
+    "id": "74943",
+    "name": "Leeuwarden"
+  },
+  {
+    "id": "74942",
+    "name": "Leiden"
+  },
+  {
+    "id": "64715",
+    "name": "Leipzig"
+  },
+  {
+    "id": "74940",
+    "name": "Lelystad"
+  },
+  {
+    "id": "261269",
+    "name": "Les Diablerets"
+  },
+  {
+    "id": "180481",
+    "name": "Les Epesses"
+  },
+  {
+    "id": "66864",
+    "name": "Les Sables-d'Olonne"
+  },
+  {
+    "id": "63843",
+    "name": "Leticia"
+  },
+  {
+    "id": "63976",
+    "name": "Liberia"
+  },
+  {
+    "id": "71809",
+    "name": "Lido di Jesolo"
+  },
+  {
+    "id": "66858",
+    "name": "Lille"
+  },
+  {
+    "id": "75306",
+    "name": "Lima"
+  },
+  {
+    "id": "76528",
+    "name": "Lisbon"
+  },
+  {
+    "id": "260931",
+    "name": "Lisse"
+  },
+  {
+    "id": "67463",
+    "name": "Liverpool"
+  },
+  {
+    "id": "71786",
+    "name": "Livorno"
+  },
+  {
+    "id": "78133",
+    "name": "Ljubljana"
+  },
+  {
+    "id": "67458",
+    "name": "London"
+  },
+  {
+    "id": "81810",
+    "name": "Los Angeles"
+  },
+  {
+    "id": "248469",
+    "name": "Loxahatchee"
+  },
+  {
+    "id": "71784",
+    "name": "Lucca"
+  },
+  {
+    "id": "66838",
+    "name": "Lyon"
+  },
+  {
+    "id": "74931",
+    "name": "Maastricht"
+  },
+  {
+    "id": "47",
+    "name": "Macau"
+  },
+  {
+    "id": "66254",
+    "name": "Madrid"
+  },
+  {
+    "id": "32",
+    "name": "Málaga"
+  },
+  {
+    "id": "471",
+    "name": "Mallorca"
+  },
+  {
+    "id": "67441",
+    "name": "Manchester"
+  },
+  {
+    "id": "207794",
+    "name": "Manta"
+  },
+  {
+    "id": "78854",
+    "name": "Marmaris"
+  },
+  {
+    "id": "66825",
+    "name": "Marseille"
+  },
+  {
+    "id": "71760",
+    "name": "Matera"
+  },
+  {
+    "id": "60769",
+    "name": "Mechelen"
+  },
+  {
+    "id": "63829",
+    "name": "Medellín"
+  },
+  {
+    "id": "74395",
+    "name": "Melaka"
+  },
+  {
+    "id": "60426",
+    "name": "Melbourne"
+  },
+  {
+    "id": "80554",
+    "name": "Memphis"
+  },
+  {
+    "id": "66814",
+    "name": "Metz"
+  },
+  {
+    "id": "74040",
+    "name": "Mexico City"
+  },
+  {
+    "id": "79868",
+    "name": "Miami"
+  },
+  {
+    "id": "71749",
+    "name": "Milan"
+  },
+  {
+    "id": "81094",
+    "name": "Minneapolis"
+  },
+  {
+    "id": "71744",
+    "name": "Modena"
+  },
+  {
+    "id": "73505",
+    "name": "Monaco"
+  },
+  {
+    "id": "207409",
+    "name": "Monterosso al Mare"
+  },
+  {
+    "id": "96478",
+    "name": "Monteux"
+  },
+  {
+    "id": "82413",
+    "name": "Montevideo"
+  },
+  {
+    "id": "66788",
+    "name": "Montpellier"
+  },
+  {
+    "id": "25",
+    "name": "Montreal"
+  },
+  {
+    "id": "77231",
+    "name": "Moscow"
+  },
+  {
+    "id": "31",
+    "name": "Munich"
+  },
+  {
+    "id": "75189",
+    "name": "Muscat"
+  },
+  {
+    "id": "80512",
+    "name": "Myrtle Beach"
+  },
+  {
+    "id": "95595",
+    "name": "Naantali"
+  },
+  {
+    "id": "66776",
+    "name": "Nantes"
+  },
+  {
+    "id": "71720",
+    "name": "Naples"
+  },
+  {
+    "id": "72353",
+    "name": "Nara"
+  },
+  {
+    "id": "82353",
+    "name": "Nashville"
+  },
+  {
+    "id": "65926",
+    "name": "Nerja"
+  },
+  {
+    "id": "78844",
+    "name": "Nevşehir"
+  },
+  {
+    "id": "80162",
+    "name": "New Orleans"
+  },
+  {
+    "id": "260932",
+    "name": "New York"
+  },
+  {
+    "id": "185710",
+    "name": "Newcastle"
+  },
+  {
+    "id": "62419",
+    "name": "Niagara Falls"
+  },
+  {
+    "id": "81337",
+    "name": "Niagara Falls"
+  },
+  {
+    "id": "982",
+    "name": "Niagara-On-The-Lake"
+  },
+  {
+    "id": "66770",
+    "name": "Nice"
+  },
+  {
+    "id": "74919",
+    "name": "Nijmegen"
+  },
+  {
+    "id": "74916",
+    "name": "Nuenen"
+  },
+  {
+    "id": "194489",
+    "name": "Nusajaya"
+  },
+  {
+    "id": "106481",
+    "name": "Ocho Rios"
+  },
+  {
+    "id": "245910",
+    "name": "Ölüdeniz"
+  },
+  {
+    "id": "60750",
+    "name": "Oostende"
+  },
+  {
+    "id": "79889",
+    "name": "Orlando"
+  },
+  {
+    "id": "71696",
+    "name": "Orvieto"
+  },
+  {
+    "id": "28",
+    "name": "Osaka"
+  },
+  {
+    "id": "75084",
+    "name": "Oslo"
+  },
+  {
+    "id": "62431",
+    "name": "Ottawa"
+  },
+  {
+    "id": "67381",
+    "name": "Oxford"
+  },
+  {
+    "id": "138",
+    "name": "Padua"
+  },
+  {
+    "id": "105173",
+    "name": "Padula"
+  },
+  {
+    "id": "71428",
+    "name": "Palermo"
+  },
+  {
+    "id": "79898",
+    "name": "Palm Springs"
+  },
+  {
+    "id": "71684",
+    "name": "Parabiago"
+  },
+  {
+    "id": "66746",
+    "name": "Paris"
+  },
+  {
+    "id": "48",
+    "name": "Pattaya"
+  },
+  {
+    "id": "179024",
+    "name": "Peaugres"
+  },
+  {
+    "id": "71679",
+    "name": "Perugia"
+  },
+  {
+    "id": "80492",
+    "name": "Philadelphia"
+  },
+  {
+    "id": "81637",
+    "name": "Phoenix"
+  },
+  {
+    "id": "124347",
+    "name": "Pigeon Forge"
+  },
+  {
+    "id": "260935",
+    "name": "Pisa"
+  },
+  {
+    "id": "73927",
+    "name": "Playa del Carmen"
+  },
+  {
+    "id": "66735",
+    "name": "Poitiers"
+  },
+  {
+    "id": "67363",
+    "name": "Poole"
+  },
+  {
+    "id": "80975",
+    "name": "Portland"
+  },
+  {
+    "id": "177169",
+    "name": "Porto"
+  },
+  {
+    "id": "76573",
+    "name": "Porto"
+  },
+  {
+    "id": "67358",
+    "name": "Portsmouth"
+  },
+  {
+    "id": "64529",
+    "name": "Potsdam"
+  },
+  {
+    "id": "206622",
+    "name": "Pozza di Fassa"
+  },
+  {
+    "id": "64162",
+    "name": "Prague"
+  },
+  {
+    "id": "30",
+    "name": "Puerto Iguazú"
+  },
+  {
+    "id": "74201",
+    "name": "Puerto Vallarta"
+  },
+  {
+    "id": "75296",
+    "name": "Puno"
+  },
+  {
+    "id": "63796",
+    "name": "Quimbaya"
+  },
+  {
+    "id": "65652",
+    "name": "Quito"
+  },
+  {
+    "id": "1320",
+    "name": "Reykholt"
+  },
+  {
+    "id": "22",
+    "name": "Reykjavík"
+  },
+  {
+    "id": "73383",
+    "name": "Riga"
+  },
+  {
+    "id": "71634",
+    "name": "Rimini"
+  },
+  {
+    "id": "61535",
+    "name": "Rio de Janeiro"
+  },
+  {
+    "id": "71631",
+    "name": "Rome"
+  },
+  {
+    "id": "65896",
+    "name": "Ronda"
+  },
+  {
+    "id": "74895",
+    "name": "Rotterdam"
+  },
+  {
+    "id": "66502",
+    "name": "Rovaniemi"
+  },
+  {
+    "id": "74887",
+    "name": "s-Hertogenbosch"
+  },
+  {
+    "id": "122690",
+    "name": "Saint Augustine"
+  },
+  {
+    "id": "77061",
+    "name": "Saint Petersburg"
+  },
+  {
+    "id": "177951",
+    "name": "Saint-Émilion"
+  },
+  {
+    "id": "177952",
+    "name": "Sainte Mère l'Eglise"
+  },
+  {
+    "id": "67309",
+    "name": "Salisbury"
+  },
+  {
+    "id": "60240",
+    "name": "Salta"
+  },
+  {
+    "id": "60346",
+    "name": "Salzburg"
+  },
+  {
+    "id": "78528",
+    "name": "Samut Songkhram"
+  },
+  {
+    "id": "248671",
+    "name": "San Antonio"
+  },
+  {
+    "id": "83245",
+    "name": "San Clemente del Tuyú"
+  },
+  {
+    "id": "81920",
+    "name": "San Diego"
+  },
+  {
+    "id": "1772",
+    "name": "San Francisco"
+  },
+  {
+    "id": "71409",
+    "name": "San Giovanni la Punta"
+  },
+  {
+    "id": "81926",
+    "name": "San Jose"
+  },
+  {
+    "id": "66172",
+    "name": "San Sebastián"
+  },
+  {
+    "id": "898",
+    "name": "Santa Cruz"
+  },
+  {
+    "id": "66168",
+    "name": "Santander"
+  },
+  {
+    "id": "232513",
+    "name": "Săpânţa"
+  },
+  {
+    "id": "104177",
+    "name": "Sauðárkrókur"
+  },
+  {
+    "id": "80026",
+    "name": "Savannah"
+  },
+  {
+    "id": "82304",
+    "name": "Seattle"
+  },
+  {
+    "id": "66160",
+    "name": "Segovia"
+  },
+  {
+    "id": "73067",
+    "name": "Seoul"
+  },
+  {
+    "id": "784",
+    "name": "Sevenum"
+  },
+  {
+    "id": "65870",
+    "name": "Seville"
+  },
+  {
+    "id": "119195",
+    "name": "Sežana"
+  },
+  {
+    "id": "60007",
+    "name": "Sharjah"
+  },
+  {
+    "id": "72961",
+    "name": "Siem Reap"
+  },
+  {
+    "id": "71558",
+    "name": "Siena"
+  },
+  {
+    "id": "76778",
+    "name": "Sighișoara"
+  },
+  {
+    "id": "115342",
+    "name": "Sinaia"
+  },
+  {
+    "id": "78125",
+    "name": "Singapore"
+  },
+  {
+    "id": "76496",
+    "name": "Sintra"
+  },
+  {
+    "id": "71400",
+    "name": "Siracusa"
+  },
+  {
+    "id": "292",
+    "name": "Skagway"
+  },
+  {
+    "id": "839",
+    "name": "Slagharen"
+  },
+  {
+    "id": "108895",
+    "name": "Sliema"
+  },
+  {
+    "id": "60916",
+    "name": "Sliven"
+  },
+  {
+    "id": "60914",
+    "name": "Sofia"
+  },
+  {
+    "id": "261071",
+    "name": "Somersby"
+  },
+  {
+    "id": "126046",
+    "name": "Sonoma"
+  },
+  {
+    "id": "71552",
+    "name": "Sorrento"
+  },
+  {
+    "id": "261236",
+    "name": "South Kuta"
+  },
+  {
+    "id": "68069",
+    "name": "Split"
+  },
+  {
+    "id": "301",
+    "name": "Squamish"
+  },
+  {
+    "id": "84775",
+    "name": "Stavelot"
+  },
+  {
+    "id": "1638",
+    "name": "Stockholm"
+  },
+  {
+    "id": "67269",
+    "name": "Stoke-on-Trent"
+  },
+  {
+    "id": "97844",
+    "name": "Stratford-upon-Avon"
+  },
+  {
+    "id": "60400",
+    "name": "Sydney"
+  },
+  {
+    "id": "79181",
+    "name": "Taipei"
+  },
+  {
+    "id": "65702",
+    "name": "Tallinn"
+  },
+  {
+    "id": "79946",
+    "name": "Tampa"
+  },
+  {
+    "id": "66154",
+    "name": "Tarragona"
+  },
+  {
+    "id": "68635",
+    "name": "Tel Aviv"
+  },
+  {
+    "id": "66150",
+    "name": "Teruel"
+  },
+  {
+    "id": "74889",
+    "name": "The Hague"
+  },
+  {
+    "id": "74872",
+    "name": "Tilburg"
+  },
+  {
+    "id": "71537",
+    "name": "Tivoli"
+  },
+  {
+    "id": "72181",
+    "name": "Tokyo"
+  },
+  {
+    "id": "170113",
+    "name": "Toledo"
+  },
+  {
+    "id": "62492",
+    "name": "Toronto"
+  },
+  {
+    "id": "83942",
+    "name": "Torquay"
+  },
+  {
+    "id": "66619",
+    "name": "Toulouse"
+  },
+  {
+    "id": "66615",
+    "name": "Tours"
+  },
+  {
+    "id": "205342",
+    "name": "Tredozio"
+  },
+  {
+    "id": "71524",
+    "name": "Treviso"
+  },
+  {
+    "id": "109113",
+    "name": "Tulum"
+  },
+  {
+    "id": "71534",
+    "name": "Turin"
+  },
+  {
+    "id": "68270",
+    "name": "Ubud"
+  },
+  {
+    "id": "176560",
+    "name": "Ungersheim"
+  },
+  {
+    "id": "71518",
+    "name": "Urbino"
+  },
+  {
+    "id": "60210",
+    "name": "Ushuaia"
+  },
+  {
+    "id": "74866",
+    "name": "Utrecht"
+  },
+  {
+    "id": "65847",
+    "name": "Valencia"
+  },
+  {
+    "id": "73787",
+    "name": "Valletta"
+  },
+  {
+    "id": "62496",
+    "name": "Vancouver"
+  },
+  {
+    "id": "66489",
+    "name": "Vantaa"
+  },
+  {
+    "id": "205179",
+    "name": "Varenna"
+  },
+  {
+    "id": "71514",
+    "name": "Varese"
+  },
+  {
+    "id": "60906",
+    "name": "Varna"
+  },
+  {
+    "id": "71510",
+    "name": "Venice"
+  },
+  {
+    "id": "73840",
+    "name": "Veracruz"
+  },
+  {
+    "id": "72048",
+    "name": "Verbania"
+  },
+  {
+    "id": "71506",
+    "name": "Verona"
+  },
+  {
+    "id": "62501",
+    "name": "Victoria"
+  },
+  {
+    "id": "60335",
+    "name": "Vienna"
+  },
+  {
+    "id": "71390",
+    "name": "Vík"
+  },
+  {
+    "id": "73352",
+    "name": "Vilnius"
+  },
+  {
+    "id": "71494",
+    "name": "Viterbo"
+  },
+  {
+    "id": "74851",
+    "name": "Volendam"
+  },
+  {
+    "id": "82338",
+    "name": "Wailuku"
+  },
+  {
+    "id": "1036",
+    "name": "Waimanalo"
+  },
+  {
+    "id": "261137",
+    "name": "Wangetti"
+  },
+  {
+    "id": "485",
+    "name": "Warsaw"
+  },
+  {
+    "id": "79751",
+    "name": "Washington, D.C."
+  },
+  {
+    "id": "68596",
+    "name": "Waterford"
+  },
+  {
+    "id": "83662",
+    "name": "Wattens"
+  },
+  {
+    "id": "67236",
+    "name": "Weymouth"
+  },
+  {
+    "id": "260937",
+    "name": "Williamsburg"
+  },
+  {
+    "id": "97691",
+    "name": "Windermere"
+  },
+  {
+    "id": "67223",
+    "name": "Windsor"
+  },
+  {
+    "id": "64249",
+    "name": "Wolfsburg"
+  },
+  {
+    "id": "81390",
+    "name": "Yonkers"
+  },
+  {
+    "id": "82014",
+    "name": "Yorba Linda"
+  },
+  {
+    "id": "67204",
+    "name": "York"
+  },
+  {
+    "id": "74827",
+    "name": "Zaandam"
+  },
+  {
+    "id": "228605",
+    "name": "Zator"
+  },
+  {
+    "id": "74819",
+    "name": "Zundert"
+  }
+]
