@@ -1,6 +1,6 @@
 export const planmeOpenGraphImage = {
-  url: "/brand/planme-opengraph.png",
-  width: 1200,
-  height: 628,
-  alt: "Gifting myself the world",
+  url: "https://s3.ap-northeast-2.amazonaws.com/planme.kr/home/planme-og-20260923.png",
+  width: 2500,
+  height: 1313,
+  alt: "PlanME by GuideME — autumn travel",
 };

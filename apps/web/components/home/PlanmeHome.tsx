@@ -1,4 +1,5 @@
 "use client";
+import { homeMediaUrl } from "./home-media";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 
 import { LanguageSwitcher } from "@/components/i18n/LanguageSwitcher";
@@ -6,110 +7,87 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import {
-  ArrowDown,
   ArrowRight,
   ArrowUpRight,
-  CalendarDays,
-  ChevronDown,
+  CircleHelp,
   ChevronLeft,
   ChevronRight,
   Compass,
   Grid2X2,
   List,
-  MapPin,
   Pause,
   Plane,
   Play,
   Search,
-  Smartphone,
-  Sparkles,
 } from "lucide-react";
 import {
-  appLinks,
   categories,
   partnerLinks,
   picks,
-  questions,
   type ContentCategory,
   type HomeArticle,
 } from "./home-content";
 import styles from "./home.module.css";
+import { HomeClosingSections } from "./HomeClosingSections";
+import { RollerCards } from "./RollerCards";
+import { PartnerWidget } from "./PartnerWidget";
 import { getContentPage } from "./content-pagination";
 import { useMagazine } from "./use-magazine";
 
 type PlanmeHomeProps = { children: ReactNode; articles?: HomeArticle[] };
 
-function PartnerLink({
-  href,
-  children,
-  className,
-}: {
-  href: string;
-  children: ReactNode;
-  className?: string;
-}) {
-  const { t } = useLocale();
-  return (
-    <a
-      href={href}
-      target="_parent"
-      rel="sponsored noopener noreferrer"
-      className={className}
-    >
-      {children}
-      <ArrowUpRight size={18} aria-hidden="true" />
-      <span className={styles.srOnly}>{t("(제휴 사이트)")}</span>
-    </a>
-  );
-}
-
-function StoreLinks() {
-  const { t } = useLocale();
-  return (
-    <div className={styles.storeLinks}>
-      <a href={appLinks.ios} target="_parent" rel="noopener noreferrer">
-        <Smartphone size={22} aria-hidden="true" />
-        <span>
-          <small>iPhone · iPad</small>App Store
-        </span>
-        <ArrowUpRight size={17} aria-hidden="true" />
-        <span className={styles.srOnly}>{t("에서 다운로드")}</span>
-      </a>
-      <a href={appLinks.android} target="_parent" rel="noopener noreferrer">
-        <Play size={21} aria-hidden="true" />
-        <span>
-          <small>Android</small>Google Play
-        </span>
-        <ArrowUpRight size={17} aria-hidden="true" />
-        <span className={styles.srOnly}>{t("에서 다운로드")}</span>
-      </a>
-    </div>
-  );
-}
-
 const banners = [
   {
-    name: "FlyME",
-    text: "여행의 시작, 항공권부터",
-    label: "항공권 검색하기",
-    href: partnerLinks.flight,
+    name: "Meet the Rollers",
+    nameKo: "롤러를 만나보세요",
+    text: "Discover people who make every journey more personal.",
+    textKo: "여행에 사람의 온기를 더하는 롤러를 만나보세요.",
+    href: "#rollers",
+    artwork: "banner-rollers",
   },
   {
-    name: "RestME",
-    text: "여행지에서의 편안한 쉼",
-    label: "숙소 찾아보기",
-    href: partnerLinks.stay,
+    name: "Unbeatable Roller Perks",
+    nameKo: "롤러만의 특별한 혜택",
+    text: "Explore places through a local perspective.",
+    textKo: "현지의 시선으로 새로운 장소를 살펴보세요.",
+    href: "#discover",
+    artwork: "banner-perks",
   },
   {
-    name: "PlayME",
-    text: "오래 기억될 경험을 찾아",
-    label: "투어·체험 둘러보기",
-    href: partnerLinks.tour,
+    name: "What are you waiting for?",
+    nameKo: "무엇을 기다리고 계신가요?",
+    text: "Start with a place you want to visit.",
+    textKo: "가고 싶은 장소에서 여행을 시작하세요.",
+    href: "#trip-search",
+    artwork: "banner-waiting",
+  },
+  {
+    name: "Apply Right Now!",
+    nameKo: "지금 바로 함께하세요!",
+    text: "Meet GuideME and the Roller community.",
+    textKo: "GuideME와 롤러 커뮤니티를 만나보세요.",
+    href: "#rollers",
+    artwork: "banner-apply",
+  },
+  {
+    name: "Get the Free App",
+    nameKo: "무료 앱 다운로드",
+    text: "Take GuideME with you wherever you go.",
+    textKo: "어디서든 GuideME와 함께하세요.",
+    href: "#app-download",
+    artwork: "banner-download",
   },
 ];
 
+function BannerArtwork({ name, paused = false }: { name: string; paused?: boolean }) {
+  return <picture className={styles.bannerArtwork}>
+    <source media="(prefers-reduced-motion: reduce)" srcSet={homeMediaUrl(`${name}.png`)} />
+    <Image unoptimized src={homeMediaUrl(`${name}.${paused ? "png" : "gif"}`)} alt="" width={500} height={500} />
+  </picture>;
+}
+
 function PartnerBanner() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [interacting, setInteracting] = useState(false);
@@ -119,7 +97,7 @@ function PartnerBanner() {
     const timer = window.setInterval(() => {
       if (!document.hidden && !motion.matches)
         setIndex((value) => (value + 1) % banners.length);
-    }, 6000);
+    }, 3000);
     return () => window.clearInterval(timer);
   }, [paused, interacting]);
   const banner = banners[index];
@@ -127,7 +105,7 @@ function PartnerBanner() {
     <div
       className={styles.partnerBanner}
       aria-roledescription={t("캐러셀")}
-      aria-label={t("여행 제휴 서비스")}
+      aria-label={locale === "ko" ? "GuideME 안내 배너" : "GuideME highlights"}
       onMouseEnter={() => setInteracting(true)}
       onMouseLeave={() => setInteracting(false)}
       onFocusCapture={() => setInteracting(true)}
@@ -136,14 +114,14 @@ function PartnerBanner() {
           setInteracting(false);
       }}
     >
-      <span className={styles.eyebrow}>{t("TRAVEL PARTNERS")}</span>
-      <strong>{banner.name}</strong>
-      <p>{t(banner.text)}</p>
-      <PartnerLink href={banner.href}>{t(banner.label)}</PartnerLink>
+      <BannerArtwork name={banner.artwork} paused={paused || interacting} />
+      <strong>{locale === "ko" ? banner.nameKo : banner.name}</strong>
+      <p>{locale === "ko" ? banner.textKo : banner.text}</p>
+      <a href={banner.href}>{locale === "ko" ? "자세히 보기" : "Explore"}<ArrowUpRight size={16} aria-hidden="true" /></a>
       <div className={styles.carouselControls}>
-        <span>{String(index + 1).padStart(2, "0")} / 03</span>
+        <span>{String(index + 1).padStart(2, "0")} / 05</span>
         <button
-          aria-label={t("이전 제휴 서비스")}
+          aria-label={locale === "ko" ? "이전 배너" : "Previous banner"}
           onClick={() =>
             setIndex((index + banners.length - 1) % banners.length)
           }
@@ -151,7 +129,7 @@ function PartnerBanner() {
           <ChevronLeft size={17} />
         </button>
         <button
-          aria-label={t("다음 제휴 서비스")}
+          aria-label={locale === "ko" ? "다음 배너" : "Next banner"}
           onClick={() => setIndex((index + 1) % banners.length)}
         >
           <ChevronRight size={17} />
@@ -218,6 +196,47 @@ function MagazineNotice({ magazine }: { magazine: MagazineState }) {
   </div>;
 }
 
+function ServiceBanner({ kind }: { kind: "deal" | "stay" }) {
+  const { locale } = useLocale();
+  const isDeal = kind === "deal";
+  return (
+    <div id={isDeal ? "deal-promo" : "stay-promo"} className={styles.serviceBanner}>
+      <Image
+        unoptimized
+        src={isDeal ? homeMediaUrl(`dealme-${locale}.jpg`) : homeMediaUrl("restme-banner.jpg")}
+        alt={isDeal ? (locale === "ko" ? "DealME 웰컴 쿠폰팩 — Coming Soon" : "DealME Welcome Coupon Pack — Coming Soon") : "Stay with Roller — Your home in Korea for a month or more. Service starts October 15th."}
+        fill
+        sizes="(max-width: 767px) 100vw, 1200px"
+      />
+
+    </div>
+  );
+}
+
+function ServicePromotions() {
+  const { locale } = useLocale();
+  const ko = locale === "ko";
+  const [index, setIndex] = useState(0);
+  const services = [
+    { name: "WinkME", href: partnerLinks.wink, artwork: "service-wink" },
+    { name: "GiftME", href: partnerLinks.gift, artwork: "service-gift" },
+    { name: "CarryME", href: "#app-download", artwork: "service-carry" },
+  ];
+  const service = services[index];
+  return (
+    <div className={styles.servicePromotions} aria-label={ko ? "GuideME 서비스" : "GuideME services"}>
+      <a href={service.href} target="_parent" rel="noopener noreferrer">
+        <BannerArtwork name={service.artwork} />
+        <strong>{service.name}</strong>
+        <span>{index === 2 ? (ko ? "앱 다운로드" : "Get the app") : (ko ? "서비스 둘러보기" : `Explore ${service.name}`)}<ArrowUpRight size={16} /></span>
+      </a>
+      <div className={styles.promoControls}>
+        {services.map((item, itemIndex) => <button key={item.name} type="button" aria-label={item.name} aria-pressed={index === itemIndex} onClick={() => setIndex(itemIndex)} />)}
+      </div>
+    </div>
+  );
+}
+
 function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticle[]; initial: ContentSearch; magazine: MagazineState }) {
   const { t, locale } = useLocale();
   const [category, setCategory] = useState<ContentCategory>(initial.category);
@@ -253,7 +272,9 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
             .includes(keyword),
         )
       : [];
-  const total = visiblePicks.length + visibleArticles.length;
+  const isBannerTab = category === "deal" || category === "stay";
+  const isWidgetTab = category === "flight" || category === "tour";
+  const total = isBannerTab ? 1 : visiblePicks.length + visibleArticles.length;
   const { pageCount, currentPage, offset, end, pageNumbers } = getContentPage(
     total,
     page,
@@ -278,7 +299,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
         <div>
           <h2 id="discover-title">{t("PlanME’s Pick")}</h2>
         </div>
-        <label className={styles.contentSearch}>
+        {!isWidgetTab && <label className={styles.contentSearch}>
           <Search size={19} aria-hidden="true" />
           <span className={styles.srOnly}>{t("여행 콘텐츠 검색")}</span>
           <input
@@ -290,7 +311,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
             }}
             placeholder={t("Search")}
           />
-        </label>
+        </label>}
       </div>
       <div className={styles.explorerToolbar}>
         <div
@@ -338,7 +359,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
             </button>
           ))}
         </div>
-        <div
+        {!isWidgetTab && <div
           className={styles.viewToggle}
           aria-label={t("콘텐츠 보기 방식")}
           role="group"
@@ -359,7 +380,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
             <List size={19} />
             <span>{t("List View")}</span>
           </button>
-        </div>
+        </div>}
       </div>
       {(category === "all" || category === "magazine") && <MagazineNotice magazine={magazine} />}
       <div
@@ -369,12 +390,12 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
         aria-labelledby={`home-tab-${category}`}
         tabIndex={0}
       >
-        <span className={styles.srOnly} role="status">{locale === "ko" ? `콘텐츠 ${total}개` : `${total} ${total === 1 ? "item" : "items"}`}</span>
-        <div
+        {!isWidgetTab && <span className={styles.srOnly} role="status">{locale === "ko" ? `콘텐츠 ${total}개` : `${total} ${total === 1 ? "item" : "items"}`}</span>}
+        {category === "flight" || category === "tour" ? <PartnerWidget key={category} kind={category} /> : category === "deal" ? <ServiceBanner kind="deal" /> : category === "stay" ? <ServiceBanner kind="stay" /> : <div
           className={view === "grid" ? styles.pickGrid : styles.pickList}
           data-count={pagePicks.length + pageArticles.length}
           data-layout={
-            pagePicks.length === 6 && !pageArticles.length
+            category === "all" && pagePicks.length + pageArticles.length >= 6
               ? "mosaic"
               : "balanced"
           }
@@ -385,9 +406,10 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
               className={`${styles.pickCard} ${pick.category === "flight" ? styles.flightCard : ""}`}
               href={pick.href}
               target="_parent"
-              rel="sponsored noopener noreferrer"
+              rel={pick.category === "stay" ? undefined : "sponsored noopener noreferrer"}
             >
               <Image
+                unoptimized
                 src={pick.image}
                 alt={t(pick.imageAlt)}
                 fill
@@ -437,8 +459,10 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
               </span>
             </a>
           ))}
-        </div>
-        {!visiblePicks.length && !visibleArticles.length && (category !== "magazine" || (!magazine.loading && !magazine.failed && !!magazine.countryCode && articles.length > 0)) && (
+          {category === "all" && <ServicePromotions />}
+        </div>}
+        {category === "all" && <><div className={styles.inlineServiceBanners}><ServiceBanner kind="deal" /><ServiceBanner kind="stay" /></div></>}
+        {!isWidgetTab && !isBannerTab && !visiblePicks.length && !visibleArticles.length && (category !== "magazine" || (!magazine.loading && !magazine.failed && !!magazine.countryCode && articles.length > 0)) && (
           <div className={styles.emptyState}>
             <Compass size={32} aria-hidden="true" />
             <h3>
@@ -458,7 +482,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
           </div>
         )}
       </div>
-      {total > 0 && (
+      {total > 0 && !isBannerTab && !isWidgetTab && (
         <nav className={styles.pagination} aria-label={t("콘텐츠 페이지")}>
           <button
             aria-label={t("이전 페이지")}
@@ -505,7 +529,8 @@ export function PlanmeHome({ children, articles: initialArticles = [] }: PlanmeH
       <a className={styles.skipLink} href="#trip-search">{t("여행 검색으로 바로가기")}</a>
       <div className={styles.hero}>
         <Image
-          src="/brand/planme-search-background.png"
+          unoptimized
+          src={homeMediaUrl("hero-autumn.jpg")}
           alt=""
           fill
           priority
@@ -522,13 +547,11 @@ export function PlanmeHome({ children, articles: initialArticles = [] }: PlanmeH
               priority
             />
           </Link>
-          <nav aria-label={t("홈 메뉴")}>
-            <a href="#discover">{t("여행 둘러보기")}</a>
-            <a href="#how-it-works">{t("이용 방법")}</a>
-            <a className={styles.navApp} href="#app-download">{t("GuideME 앱")}<ArrowUpRight size={16} aria-hidden="true" />
-            </a>
-          </nav>
-          <LanguageSwitcher />
+          <a href="#guide-app" className={styles.joinButton}>JOIN NOW</a>
+          <div className={styles.headerTools}>
+            <a href="guideme://help-me/intro" aria-label={locale === "ko" ? "GuideME 앱에서 HelpME 열기" : "Open HelpME in the GuideME app"} title="HelpME"><CircleHelp size={28} aria-hidden="true" /></a>
+            <LanguageSwitcher compact />
+          </div>
         </header>
         <div className={styles.heroCopy} lang="en">
           <span className={styles.eyebrow}>DISCOVER YOUR NEXT</span>
@@ -536,10 +559,7 @@ export function PlanmeHome({ children, articles: initialArticles = [] }: PlanmeH
             <span>With GuideME!</span>
           </h1>
           <p>Connecting Hearts Across Borders: A Journey for Every You in the World</p>
-          <a href="#trip-search" className={styles.heroJump}>
-            <ArrowDown size={17} aria-hidden="true" />
-            <span className={styles.srOnly}>{t("여행 검색으로 이동")}</span>
-          </a>
+
         </div>
       </div>
       <div className={styles.container}>
@@ -549,16 +569,7 @@ export function PlanmeHome({ children, articles: initialArticles = [] }: PlanmeH
           aria-label={t("GuideME 소개와 여행 서비스")}
         >
           <div className={styles.mainVideo}>
-            <video
-              controls
-              playsInline
-              preload="none"
-              poster="/home/guideme-poster.jpg"
-              aria-label={t("GuideME 소개 영상")}
-              src="/home/roller-introduction.mp4"
-            >{t("브라우저가 영상 재생을 지원하지 않습니다.")}{" "}
-              <a href="/home/roller-introduction.mp4">{t("소개 영상 열기")}</a>
-            </video>
+            <video controls playsInline preload="none" poster={homeMediaUrl("roller-cover.png")} src={homeMediaUrl("roller-feature.mp4")} aria-label={locale === "ko" ? "롤러 소개 영상" : "Roller introduction video"} />
           </div>
           <div className={styles.mediaAside}>
             <div className={styles.smallVideo}>
@@ -566,170 +577,41 @@ export function PlanmeHome({ children, articles: initialArticles = [] }: PlanmeH
                 controls
                 playsInline
                 preload="none"
-                poster="/home/roller-poster.jpg"
-                src="/home/roller-introduction-2.mp4"
-                aria-label={t("롤러 소개 영상")}
+                poster={homeMediaUrl("guideme-cover.png")}
+                src={homeMediaUrl("guideme-feature.mp4")}
+                aria-label={t("GuideME 소개 영상")}
               >{t("브라우저가 영상 재생을 지원하지 않습니다.")}{" "}
-                <a href="/home/roller-introduction-2.mp4">{t("롤러 소개 영상 열기")}</a>
+                <a href={homeMediaUrl("guideme-feature.mp4")}>{t("소개 영상 열기")}</a>
               </video>
-              <span>{t("Watch Our")}{" "}<br />{t("Profile Video")}</span>
+
             </div>
             <PartnerBanner />
           </div>
         </section>
         <SavedContentExplorer articles={articles} magazine={magazine} />
-        <section className={styles.staySection} aria-labelledby="stay-title">
-          <div>
-            <span className={styles.eyebrow}>RestME</span>
-            <h2 id="stay-title">{t("Only The Best Quality For You")}</h2>
-            <p>{t("Find your next stay with RestME. Check availability and booking conditions with our partner.")}</p>
-            <PartnerLink className={styles.blueButton} href={partnerLinks.stay}>{t("Learn More")}</PartnerLink>
-          </div>
-          <div className={styles.stayImage}>
-            <Image
-              src="/home/rest-me-popular-hotel-1.png"
-              alt={t("초록 식물과 수영장이 있는 숙소의 휴식 공간")}
-              fill
-              sizes="(max-width: 767px) 100vw, 50vw"
-            />
-          </div>
+        <section className={styles.thrillSection} aria-labelledby="thrill-title">
+          <div><span className={styles.thrillEyebrow}>Only The Best Quality For You</span><h2 id="thrill-title">Thrill<span>ME</span></h2><p>{locale === "ko" ? "현장의 짜릿함을 온몸으로! 차원이 다른 최고의 직관 경험" : "Feel the excitement. Experience the best moments, live."}</p></div>
+          <video controls playsInline preload="none" poster={homeMediaUrl("thrillme-cover.png")} src={homeMediaUrl("thrillme-feature.mp4")} aria-label={locale === "ko" ? "ThrillME 소개 영상" : "ThrillME introduction video"} />
         </section>
-        <section
-          className={styles.flightSection}
-          aria-labelledby="flight-title"
-        >
-          <div>
-            <span className={styles.eyebrow}>{t("BOOK YOUR DREAM VACATION")}</span>
-            <h2 id="flight-title">{t("TODAY")}</h2>
-            <p>{t("Find flights for your next journey with Aviasales.")}</p>
-            <PartnerLink
-              className={styles.blueButton}
-              href={partnerLinks.flight}
-            >{t("Book Now")}</PartnerLink>
-          </div>
-          <Plane size={126} strokeWidth={1} aria-hidden="true" />
+        <div className={styles.advertising} aria-label={locale === "ko" ? "광고 영역" : "Advertisement"}><Image unoptimized src={homeMediaUrl("advertisement-design.jpg")} alt="Guam International Dance Festival 2026 — December 4, 5 and 6" fill sizes="(max-width: 767px) 100vw, 1480px" /></div>
+        <section id="rollers" className={styles.rollersSection} aria-labelledby="rollers-title">
+          <a className={styles.rollerFeature} href="#discover">
+            <Image unoptimized src={homeMediaUrl("roller-landscape.jpg")} alt="" fill sizes="(max-width: 767px) 100vw, 1000px" />
+            <div><span className={styles.eyebrow}>TRAVEL</span><h2 id="rollers-title">The Ultimate<br />FOMO-Proof<br />Guide</h2><span className={styles.featureArrow}><ArrowRight size={24} aria-label={locale === "ko" ? "여행 콘텐츠 둘러보기" : "Explore travel stories"} /></span></div>
+          </a>
+          <RollerCards />
         </section>
-        {!!articles.length && (
-          <section className={styles.section} aria-labelledby="magazine-title">
-            <div className={styles.sectionHeading}>
-              <div>
-                <span className={styles.eyebrow}>{t("ROLLER’S DISPATCH")}</span>
-                <h2 id="magazine-title">{t("여행을 읽는 시간")}</h2>
-              </div>
-            </div>
-            <div className={styles.articleGrid}>
-              {articles.slice(0, 3).map((article) => (
-                <a
-                  key={article.id}
-                  href={article.href}
-                  className={styles.articleCard}
-                  target="_parent"
-                  rel="noopener noreferrer"
-                >
-                  <ArticleImage article={article} />
-                  <h3 lang={article.language}>{article.title}</h3>
-                  <p lang={article.language}>{article.summary}</p>
-                  <span>{t("기사 읽기")}<ArrowUpRight size={18} aria-hidden="true" />
-                  </span>
-                </a>
-              ))}
-            </div>
-          </section>
-        )}
         <section
           id="app-download"
           className={styles.appCta}
           aria-labelledby="app-title"
         >
-          <h2 id="app-title">{t("READY TO EXPLORE THE WORLD?")}</h2>
-          <p>{t("Meet local Rollers and discover new experiences with GuideME.")}</p>
-          <StoreLinks />
+          <h2 id="app-title">Your journey begins here.</h2>
+          <p>{locale === "ko" ? "GuideME 앱에서 여행을 계속하세요." : "Continue your journey with the GuideME app."}</p>
+          <a href="#guide-app" className={styles.blueButton}>{locale === "ko" ? "GuideME 앱 다운로드" : "Get the GuideME app"}<ArrowRight size={18} aria-hidden="true" /></a>
         </section>
       </div>
-      <div className={styles.processBackground}>
-        <div className={styles.container}>
-          <section
-            id="how-it-works"
-            className={styles.process}
-            aria-labelledby="process-title"
-          >
-            <span className={styles.eyebrow}>{t("HOW IT WORKS")}</span>
-            <h2 id="process-title">{t("PROCESS")}</h2>
-            <div className={styles.steps}>
-              {[
-                {
-                  icon: MapPin,
-                  title: t("Trip Planning"),
-                  text: t("Choose your departure, destination, and travel dates."),
-                },
-                {
-                  icon: CalendarDays,
-                  title: t("Trip Booking"),
-                  text: t("Explore flights, stays, and activities on our partner sites."),
-                },
-                {
-                  icon: Compass,
-                  title: t("Trip Preparation"),
-                  text: t("Review your itinerary and prepare for your trip."),
-                },
-                {
-                  icon: Sparkles,
-                  title: t("Trip Experience"),
-                  text: t("Meet local Rollers through GuideME."),
-                },
-              ].map((step, index) => (
-                <div className={styles.step} key={t(step.title)}>
-                  <span className={styles.stepIcon}>
-                    <step.icon size={29} strokeWidth={1.5} aria-hidden="true" />
-                  </span>
-                  <small>0{index + 1}</small>
-                  <h3>{t(step.title)}</h3>
-                  <p>{t(step.text)}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-          <section className={styles.faq} aria-labelledby="faq-title">
-            <div>
-              <h2 id="faq-title">{t("Frequently Asked Questions")}</h2>
-              <p>{t("What our clients usually asked about our services and tours.")}</p>
-            </div>
-            <div className={styles.faqList}>
-              {questions.map((item, index) => (
-                <details
-                  key={t(item.question)}
-                  open={index === 0 ? true : undefined}
-                >
-                  <summary>
-                    {t(item.question)}
-                    <ChevronDown size={20} aria-hidden="true" />
-                  </summary>
-                  <p>{t(item.answer)}</p>
-                </details>
-              ))}
-            </div>
-          </section>
-        </div>
-      </div>
-      <footer className={`${styles.container} ${styles.footer}`}>
-        <div className={styles.footerIntro}>
-          <Image
-            src="/brand/planme-logo.png"
-            alt="PlanME by GuideME"
-            width={250}
-            height={35}
-          />
-          <p>{t("여행을 계획하는 순간부터")}{" "}<br />{t("새로운 사람을 만나는 순간까지.")}</p>
-          <a href="#trip-search">{t("나만의 여행 시작하기")}<ArrowRight size={18} aria-hidden="true" />
-          </a>
-        </div>
-        <div className={styles.appFooter}>
-          <span className={styles.eyebrow}>{t("Ready?")}</span>
-          <h2>{t("Get the app")}{" "}<br />{t("Get the GuideME app")}{" "}<br />{t("on iOS & Android.")}</h2>
-          <StoreLinks />
-          <p>© {new Date().getFullYear()} GuideME</p>
-        </div>
-      </footer>
+      <HomeClosingSections />
     </main>
   );
 }
