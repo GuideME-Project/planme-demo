@@ -1,10 +1,14 @@
-// GuideME-App origin/main 3eedd35: FlyME, RestME, PlayME and HomeTopPicksSection.
+import { homeMediaUrl } from "./home-media";
+// Affiliate links retained from the existing PlanME home.
+// WinkME and GiftME URLs match GuideME-App origin/main 9fa8ed0.
 export const partnerLinks = {
   flight: "https://aviasales.tpx.lt/Ryx717iT",
   stay: "https://kkday.tpx.lt/AkJifRE2",
   tour: "https://tiqets.tpx.lt/fGBupMu9",
   esim: "https://yesim.tpx.lt/mM4SQ1TQ",
   insurance: "https://ektatraveling.tpx.lt/lt7O4KpT",
+  wink: "https://www.winkme.kr/",
+  gift: "https://www.giftme.kr/",
 } as const;
 
 // Official store listings verified on 2026-09-09.
@@ -13,7 +17,7 @@ export const appLinks = {
   android: "https://play.google.com/store/apps/details?id=guideme.app.prod",
 } as const;
 
-export type ContentCategory = "all" | "magazine" | "flight" | "stay" | "tour";
+export type ContentCategory = "all" | "magazine" | "deal" | "flight" | "stay" | "tour";
 
 export type HomeArticle = {
   id: string;
@@ -27,6 +31,7 @@ export type HomeArticle = {
 export const categories: { id: ContentCategory; label: string }[] = [
   { id: "all", label: "All" },
   { id: "magazine", label: "Roller’s Dispatch" },
+  { id: "deal", label: "DealME" },
   { id: "flight", label: "FlyME" },
   { id: "stay", label: "RestME" },
   { id: "tour", label: "PlayME" },
@@ -34,7 +39,7 @@ export const categories: { id: ContentCategory; label: string }[] = [
 
 export const picks: {
   id: string;
-  category: Exclude<ContentCategory, "all" | "magazine">;
+  category: Exclude<ContentCategory, "all" | "magazine" | "deal">;
   title: string;
   description: string;
   image: string;
@@ -48,7 +53,7 @@ export const picks: {
     category: "tour",
     title: "서울, 익숙함 너머의 발견",
     description: "도시의 새로운 표정을 만나는 여행",
-    image: "/home/joinme-1.png",
+    image: homeMediaUrl("joinme-1.png"),
     imageAlt: "남산과 서울의 야경",
     href: "https://kkday.tpx.lt/PRn71LCr",
     partner: "KKday",
@@ -59,10 +64,10 @@ export const picks: {
     category: "stay",
     title: "머무는 시간도 여행이 되도록",
     description: "RestME와 함께 나에게 맞는 숙소 찾기",
-    image: "/home/rest-me-popular-hotel-2.png",
+    image: homeMediaUrl("rest-me-popular-hotel-2.png"),
     imageAlt: "나무 천장과 흰 소파가 있는 숙소 거실",
-    href: partnerLinks.stay,
-    partner: "KKday",
+    href: "#stay-promo",
+    partner: "GuideME",
     keywords: "호텔 숙박 숙소 restme hotel stay",
   },
   {
@@ -70,7 +75,7 @@ export const picks: {
     category: "tour",
     title: "제주, 느리게 걷는 하루",
     description: "바람과 바다를 가까이 만나는 시간",
-    image: "/home/joinme-3.png",
+    image: homeMediaUrl("joinme-3.png"),
     imageAlt: "제주의 돌담 너머 푸른 바다",
     href: "https://kkday.tpx.lt/px3EDdk7",
     partner: "KKday",
@@ -92,7 +97,7 @@ export const picks: {
     category: "tour",
     title: "부산, 바다가 부르는 순간",
     description: "나만의 속도로 즐기는 바다 도시",
-    image: "/home/joinme-2.png",
+    image: homeMediaUrl("joinme-2.png"),
     imageAlt: "부산 여행 풍경",
     href: "https://kkday.tpx.lt/p2tXjcff",
     partner: "KKday",
@@ -103,7 +108,7 @@ export const picks: {
     category: "tour",
     title: "강릉에서 만나는 여유",
     description: "여행에 작은 쉼표를 더해 보세요",
-    image: "/home/joinme-4.png",
+    image: homeMediaUrl("joinme-4.png"),
     imageAlt: "강릉 여행 풍경",
     href: "https://kkday.tpx.lt/BxD9eqEc",
     partner: "KKday",
@@ -113,23 +118,31 @@ export const picks: {
 
 export const questions = [
   {
-    question: "What type of travel services does GuideME offer?",
+    question: "How does PlanME work, and how long does it take to create an itinerary?",
+    questionKo: "PlanME는 어떻게 일정을 만들고, 얼마나 걸리나요?",
     answer:
-      "PlanME helps you create domestic travel itineraries and review recommended places and routes. You can explore flights, stays, and activities through our partners, and meet local Rollers through the GuideME app.",
+      "Enter a departure, destination, travel duration, and transport preference. PlanME then creates a domestic itinerary with places and routes. The time needed can vary by trip and service availability.",
+    answerKo: "출발지와 목적지, 여행 기간과 이동수단을 입력하면 PlanME가 국내 여행의 장소와 동선을 구성합니다. 소요 시간은 여행 조건과 서비스 상태에 따라 달라질 수 있습니다.",
   },
   {
-    question: "How do I book a trip with GuideME?",
+    question: "Can I view my itinerary offline in the GuideME app?",
+    questionKo: "GuideME 앱에서 일정을 오프라인으로 볼 수 있나요?",
     answer:
-      "Enter your departure, destination, dates, and transport preference to plan a domestic trip. Flight, stay, and activity links open our partner sites, where you can check availability and complete your booking. International itinerary searches currently show a preparation guide.",
+      "You can view your itinerary on the web. Automatic sync to the GuideME app and offline access are being prepared.",
+    answerKo: "현재 생성한 일정은 웹에서 확인할 수 있습니다. GuideME 앱 자동 동기화와 오프라인 열람은 준비 중입니다.",
   },
   {
-    question: "What is the payment process for GuideME?",
+    question: "Can I edit the places or order in a generated itinerary?",
+    questionKo: "생성된 일정의 장소나 순서를 수정할 수 있나요?",
     answer:
-      "For flights, stays, and activities linked from this page, payment is handled by the partner site. Check that site's prices, payment options, and booking conditions before purchasing.",
+      "Editing places and their order is not available in the current itinerary view. Change the search details and create a new itinerary instead.",
+    answerKo: "현재 일정 화면에서는 장소와 방문 순서를 직접 수정할 수 없습니다. 검색 조건을 변경해 새 일정을 생성해 주세요.",
   },
   {
-    question: "How do I cancel my booking with GuideME?",
+    question: "How can I save my plan and get the Welcome Coupon Pack?",
+    questionKo: "일정을 저장하고 웰컴 쿠폰팩을 받으려면 어떻게 하나요?",
     answer:
-      "For a booking made through one of the partner links on this page, contact the provider you booked with and follow its cancellation policy. Cancellation and refund conditions depend on that booking.",
+      "You can explore an itinerary without signing in. Account-based saving and the Welcome Coupon Pack are being prepared.",
+    answerKo: "로그인 없이 일정을 살펴볼 수 있습니다. 계정에 일정 저장하기와 웰컴 쿠폰팩은 준비 중입니다.",
   },
 ];

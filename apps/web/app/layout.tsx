@@ -3,7 +3,7 @@ import { LocaleProvider } from "@/components/i18n/LocaleProvider";
 import { isLocale } from "@/lib/i18n/routing";
 import { planmeOpenGraphImage } from "@/lib/brand-metadata";
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Oswald, Poppins } from "next/font/google";
 import "./globals.css";
 import { ThemeRegistry } from "@/theme/ThemeRegistry";
 
@@ -16,6 +16,9 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
+
+const homeDisplay = Oswald({ variable: "--font-home-display", subsets: ["latin"], weight: ["500", "600", "700"], display: "swap" });
+const homeBody = Poppins({ variable: "--font-home-body", subsets: ["latin"], weight: ["400", "500", "600"], display: "swap" });
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://www.planme.kr"),
@@ -42,7 +45,7 @@ export default async function RootLayout({
   return (
     <html
       lang={locale}
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${homeDisplay.variable} ${homeBody.variable} h-full antialiased`}
     >
       <head />
       <body className="min-h-full flex flex-col">

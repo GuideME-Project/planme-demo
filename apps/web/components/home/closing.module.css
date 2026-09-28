@@ -1,0 +1,693 @@
+.container {
+  width: min(1440px, calc(100% - 80px));
+  margin-inline: auto;
+  color: #175da5;
+  font-family: var(--font-home-body), Arial, sans-serif;
+}
+
+.processBackground {
+  margin-top: 120px;
+  padding: 32px 0 130px;
+  background: #f7f7f7;
+}
+
+.processHeading {
+  position: relative;
+  text-align: center;
+}
+
+.processHeading h2 {
+  margin: 0;
+  color: #fff;
+  font-family: var(--font-home-display), Impact, sans-serif;
+  font-size: clamp(96px, 10vw, 168px);
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0.025em;
+}
+
+.processHeading > p {
+  position: absolute;
+  inset: 50% 0 auto;
+  margin: 0;
+  transform: translateY(-50%);
+  color: #4a9bd4;
+  font-size: 23px;
+  letter-spacing: 0.24em;
+}
+
+.steps {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  min-height: 440px;
+  padding: 36px 16px 0;
+}
+
+.stepPath {
+  position: absolute;
+  top: 46px;
+  left: 9%;
+  width: 82%;
+  height: 240px;
+  stroke: #e4eaf0;
+  stroke-width: 2;
+  stroke-dasharray: 16 16;
+}
+
+.step {
+  position: relative;
+  margin-top: 60px;
+  text-align: center;
+}
+
+.step:nth-of-type(2) {
+  margin-top: 156px;
+}
+
+.step:nth-of-type(3) {
+  margin-top: 0;
+}
+
+.step:nth-of-type(4) {
+  margin-top: 148px;
+}
+
+.stepIcon {
+  display: inline-flex;
+  width: 148px;
+  height: 148px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #489fd4;
+  background: #fff;
+  box-shadow: 0 15px 32px rgb(100 120 145 / 4%);
+}
+
+.step h3 {
+  margin: 38px 0 10px;
+  font-size: 25px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.step p {
+  max-width: 250px;
+  margin: 0 auto;
+  color: #6395c6;
+  font-size: 16px;
+  line-height: 1.6;
+  text-wrap: balance;
+  word-break: keep-all;
+}
+
+.faq {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(0, 0.85fr);
+  align-items: start;
+  gap: 70px;
+  padding-top: 130px;
+}
+
+.faqList {
+  display: grid;
+  gap: 26px;
+}
+
+.faqList details {
+  padding: 28px 30px;
+  border-radius: 24px;
+  background: #fff;
+  box-shadow: 0 10px 26px rgb(66 78 90 / 3%);
+}
+
+.faqList summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.faqList summary::-webkit-details-marker {
+  display: none;
+}
+
+.faqList summary:focus-visible {
+  outline: 2px solid #175da5;
+  outline-offset: 8px;
+  border-radius: 4px;
+}
+
+.faqToggle {
+  display: inline-flex;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #9bc9e6;
+  border-radius: 50%;
+  color: #63a5d2;
+}
+
+.faqList details[open] .faqToggle {
+  border-color: #4997c8;
+  color: #fff;
+  background: #4997c8;
+}
+
+.faqList details[open] .faqToggle svg {
+  transform: rotate(180deg);
+}
+
+.faqList details > p {
+  margin: 23px 48px 4px 0;
+  color: #6195c8;
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+.faqIntro h2 {
+  margin: 0;
+  font-family: var(--font-home-display), Impact, sans-serif;
+  font-size: clamp(56px, 5.3vw, 84px);
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.025em;
+}
+
+.faqIntro > p {
+  margin: 44px 0 0;
+  color: #6793bd;
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+.footer {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.45fr);
+  align-items: stretch;
+  gap: 30px;
+  padding-block: 130px 150px;
+}
+
+.newsletter {
+  padding: 54px 48px 44px;
+  border-radius: 38px;
+  background: #f7f7f7;
+}
+
+.newsletter h2 {
+  margin: 0 0 24px;
+  font-family: var(--font-home-display), Impact, sans-serif;
+  font-size: clamp(56px, 5.3vw, 84px);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.015em;
+}
+
+.newsletter > p {
+  word-break: keep-all;
+  max-width: 370px;
+  margin: 0 0 24px;
+  color: #628db7;
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+.newsletterPreview {
+  display: flex;
+  flex-direction: column;
+  align-items: start;
+  gap: 18px;
+}
+
+.newsletterPreview input {
+  width: 100%;
+  height: 66px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 18px;
+  color: #507da7;
+  background: #fff;
+  font-family: inherit;
+  font-size: 15px;
+}
+
+.newsletterPreview input::placeholder {
+  color: #819bb7;
+  opacity: 1;
+}
+
+.newsletterPreview button {
+  min-height: 58px;
+  padding: 0 29px;
+  border: 0;
+  border-radius: 6px;
+  color: #fff;
+  background: #185ba6;
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.newsletterPreview :disabled {
+  cursor: not-allowed;
+}
+
+.newsletterPreview small {
+  color: #50799e;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.appFooter {
+  display: flex;
+  flex-direction: column;
+  padding: 60px 48px 40px;
+  border-radius: 40px;
+  background: #ffbe00;
+}
+
+.appBrand img {
+  width: min(320px, 58%);
+  height: auto;
+  object-fit: contain;
+  object-position: left;
+}
+
+.appContent {
+  display: flex;
+  justify-content: space-between;
+  gap: 22px;
+  margin-top: 24px;
+}
+
+.appContent h2 {
+  margin: 0;
+  color: #fff;
+  font-family: var(--font-home-display), Impact, sans-serif;
+  font-size: clamp(30px, 2.7vw, 44px);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.appContent h2 > span {
+  display: block;
+  color: #175da5;
+  font-size: 1.06em;
+}
+
+.storeLinks {
+  display: grid;
+  flex: 0 0 158px;
+  align-content: start;
+  gap: 16px;
+}
+
+.storeLinks a {
+  display: grid;
+  grid-template-columns: 30px 120px;
+  align-items: end;
+  gap: 5px 8px;
+  color: #21558b;
+  text-decoration: none;
+}
+
+.storeLinks a:focus-visible {
+  outline: 3px solid #175da5;
+  outline-offset: 6px;
+  border-radius: 4px;
+}
+
+.storeLinks img {
+  width: 120px;
+  height: 120px;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.platformIcon {
+  display: flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+}
+
+.appleIcon {
+  color: #fff;
+  background: #009cf1;
+  font-family: Arial, sans-serif;
+  font-size: 26px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.appleIcon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.playIcon {
+  background: #121212;
+}
+
+.playIcon svg {
+  width: 25px;
+  height: 25px;
+}
+
+.storeLabel {
+  grid-column: 2;
+  text-align: center;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.appCopyright {
+  margin-top: auto;
+  padding-top: 25px;
+  border-top: 1px solid rgb(255 255 255 / 25%);
+  color: #6b5100;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.appContent + .appCopyright {
+  margin-top: 28px;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 1100px) {
+  .container {
+    width: calc(100% - 48px);
+  }
+
+  .stepIcon {
+    width: 112px;
+    height: 112px;
+  }
+
+  .stepIcon svg {
+    width: 56px;
+    height: 56px;
+  }
+
+  .step h3 {
+    font-size: 20px;
+  }
+
+  .step p {
+    padding-inline: 12px;
+    font-size: 14px;
+  }
+
+  .faq {
+    gap: 36px;
+    padding-top: 80px;
+  }
+
+  .faqList details {
+    padding: 22px;
+  }
+
+  .faqList summary {
+    font-size: 17px;
+  }
+
+  .faqIntro h2 {
+    font-size: 57px;
+  }
+
+  .footer {
+    gap: 22px;
+    padding-block: 90px;
+  }
+
+  .newsletter,
+  .appFooter {
+    padding: 38px 28px 30px;
+    border-radius: 30px;
+  }
+
+  .newsletter > p {
+    font-size: 15px;
+  }
+
+  .appContent h2 {
+    font-size: 30px;
+  }
+
+  .storeLinks {
+    flex-basis: 120px;
+  }
+
+  .storeLinks a {
+    grid-template-columns: 22px 90px;
+  }
+
+  .storeLinks img {
+    width: 90px;
+    height: 90px;
+  }
+
+  .platformIcon {
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    font-size: 20px;
+  }
+
+  .playIcon svg {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+@media (max-width: 767px) {
+  .container {
+    width: calc(100% - 36px);
+  }
+
+  .processBackground {
+    margin-top: 64px;
+    padding: 28px 0 64px;
+  }
+
+  .processHeading h2 {
+    font-size: clamp(70px, 16vw, 112px);
+  }
+
+  .processHeading > p {
+    font-size: 15px;
+  }
+
+  .steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 34px 10px;
+    min-height: 0;
+    padding: 32px 0 0;
+  }
+
+  .stepPath {
+    display: none;
+  }
+
+  .step:nth-of-type(n) {
+    margin-top: 0;
+  }
+
+  .step:nth-of-type(even) {
+    padding-top: 42px;
+  }
+
+  .stepIcon {
+    width: 100px;
+    height: 100px;
+  }
+
+  .step h3 {
+    margin: 22px 0 8px;
+    font-size: 17px;
+  }
+
+  .step p {
+    padding-inline: 4px;
+    font-size: 13px;
+  }
+
+  .faq {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 30px;
+    padding-top: 76px;
+  }
+
+  .faqIntro {
+    grid-row: 1;
+  }
+
+  .faqIntro h2 {
+    font-size: 58px;
+  }
+
+  .faqIntro > p {
+    margin-top: 22px;
+    font-size: 14px;
+  }
+
+  .desktopBreak {
+    display: none;
+  }
+
+  .faqList {
+    gap: 14px;
+  }
+
+  .faqList details {
+    padding: 20px;
+    border-radius: 18px;
+  }
+
+  .faqList summary {
+    gap: 16px;
+    font-size: 15px;
+  }
+
+  .faqToggle {
+    flex-basis: 28px;
+    width: 28px;
+    height: 28px;
+  }
+
+  .faqList details > p {
+    margin: 18px 0 0;
+    font-size: 14px;
+  }
+
+  .footer {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+    padding-block: 56px 64px;
+  }
+
+  .newsletter,
+  .appFooter {
+    padding: 34px 28px;
+  }
+
+  .newsletter h2 {
+    font-size: 64px;
+  }
+
+  .newsletterPreview input {
+    max-width: 420px;
+  }
+
+  .appBrand img {
+    width: 230px;
+    max-width: 75%;
+  }
+
+  .appContent {
+    margin-top: 25px;
+    gap: 14px;
+  }
+
+  .appContent h2 {
+    font-size: clamp(25px, 5.5vw, 38px);
+  }
+
+  .storeLinks {
+    flex-basis: 98px;
+    gap: 13px;
+  }
+
+  .storeLinks a {
+    grid-template-columns: 18px 76px;
+    gap: 4px;
+  }
+
+  .storeLinks img {
+    width: 76px;
+    height: 76px;
+  }
+
+  .platformIcon {
+    width: 18px;
+    height: 18px;
+    font-size: 16px;
+  }
+
+  .playIcon svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .storeLabel {
+    font-size: 8px;
+  }
+
+  .appCopyright {
+    padding-top: 20px;
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .appContent {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 26px;
+  }
+
+  .storeLinks {
+    flex-basis: auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    max-width: 280px;
+    gap: 16px;
+  }
+
+  .storeLinks a {
+    grid-template-columns: 20px minmax(0, 96px);
+    gap: 6px;
+  }
+
+  .storeLinks img {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1;
+  }
+
+  .platformIcon {
+    width: 20px;
+    height: 20px;
+  }
+
+  .storeLabel {
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 380px) {
+  .appFooter {
+    padding-inline: 22px;
+  }
+}

@@ -53,3 +53,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Homepage media originals stay local; published files live in the PlanME S3 bucket.
+/apps/web/public/home/
