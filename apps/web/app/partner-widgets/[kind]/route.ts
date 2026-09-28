@@ -18,7 +18,7 @@ export async function GET(request: Request, context: { params: Promise<{ kind: s
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow"><title>${kind === "flight" ? "FlyME" : "PlayME"}</title>
 <style>html,body{margin:0;padding:0;background:#fff;font-family:Arial,sans-serif}*{box-sizing:border-box}
-#widget{min-height:${kind === "flight" ? "0" : "280"}px;padding:8px;${kind === "tour" ? "visibility:hidden" : ""}}#status{padding:20px;color:#566777;font-size:14px}
+#widget{min-height:${kind === "flight" ? "0" : "280"}px;padding:8px}#status{padding:20px;color:#566777;font-size:14px}
 #tpwl-search{display:block;padding:16px;background:#f2f6fc;border:1px solid #d5e1ef;border-radius:16px}
 @media(max-width:600px){#tpwl-search{padding:12px 8px}}
 #widget[data-failed]{min-height:0;height:0;overflow:hidden;padding:0}
@@ -67,6 +67,7 @@ function styleFlightSearch() {
   }
 }
 // Tiqets' official loader uses this message after rendering its contents.
+// Keep its iframe visible during loading so Chromium can render and report its size.
 window.addEventListener('message', (event) => {
   const frame = widget.querySelector('iframe');
   if (event.origin !== 'https://www.tiqets.com' || event.source !== frame?.contentWindow) return;
