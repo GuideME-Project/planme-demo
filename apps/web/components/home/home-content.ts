@@ -119,28 +119,28 @@ export const picks: {
 export const questions = [
   {
     question: "How does PlanME work, and how long does it take to create an itinerary?",
-    questionKo: "PlanME는 어떻게 일정을 만들고, 얼마나 걸리나요?",
+    questionKo: "플랜미는 어떻게 작동하나요? 일정을 짜는 데 얼마나 걸리나요?",
     answer:
       "Enter a departure, destination, travel duration, and transport preference. PlanME then creates a domestic itinerary with places and routes. The time needed can vary by trip and service availability.",
-    answerKo: "출발지와 목적지, 여행 기간과 이동수단을 입력하면 PlanME가 국내 여행의 장소와 동선을 구성합니다. 소요 시간은 여행 조건과 서비스 상태에 따라 달라질 수 있습니다.",
+    answerKo: "플랜미는 AI를 활용해 고객님의 취향에 맞는 맞춤형 여행 일정을 단 1분 만에 생성해 드립니다. 여행지, 날짜, 동행인 등 간단한 정보만 입력하면 최적화된 여행 동선을 즉시 확인할 수 있습니다.",
   },
   {
     question: "Can I view my itinerary offline in the GuideME app?",
-    questionKo: "GuideME 앱에서 일정을 오프라인으로 볼 수 있나요?",
+    questionKo: "생성된 일정을 여행지에서 인터넷 없이 오프라인으로 볼 수 있나요?",
     answer:
       "You can view your itinerary on the web. Automatic sync to the GuideME app and offline access are being prepared.",
     answerKo: "현재 생성한 일정은 웹에서 확인할 수 있습니다. GuideME 앱 자동 동기화와 오프라인 열람은 준비 중입니다.",
   },
   {
     question: "Can I edit the places or order in a generated itinerary?",
-    questionKo: "생성된 일정의 장소나 순서를 수정할 수 있나요?",
+    questionKo: "AI가 짜준 일정을 제 마음대로 수정할 수 있나요?",
     answer:
       "Editing places and their order is not available in the current itinerary view. Change the search details and create a new itinerary instead.",
     answerKo: "현재 일정 화면에서는 장소와 방문 순서를 직접 수정할 수 없습니다. 검색 조건을 변경해 새 일정을 생성해 주세요.",
   },
   {
     question: "How can I save my plan and get the Welcome Coupon Pack?",
-    questionKo: "일정을 저장하고 웰컴 쿠폰팩을 받으려면 어떻게 하나요?",
+    questionKo: "일정을 저장하려면 회원가입을 해야 하나요? 가입 혜택이 있나요?",
     answer:
       "You can explore an itinerary without signing in. Account-based saving and the Welcome Coupon Pack are being prepared.",
     answerKo: "로그인 없이 일정을 살펴볼 수 있습니다. 계정에 일정 저장하기와 웰컴 쿠폰팩은 준비 중입니다.",

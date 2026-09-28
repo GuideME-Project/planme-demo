@@ -2,7 +2,7 @@
 import { homeMediaUrl } from "./home-media";
 
 import Image from "next/image";
-import { ArrowUpRight, ChevronRight, Pause, Play } from "lucide-react";
+import { ChevronRight, Pause, Play } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import homeStyles from "./home.module.css";
@@ -82,7 +82,6 @@ function RollerCard({ name, imagePrefix }: (typeof rollers)[number]) {
           ))}
         </span>
         <h3>{name}</h3>
-        <span className={styles.caption}>{korean ? "GuideME 앱에서 만나보세요" : "Meet Rollers in the GuideME app"}<ArrowUpRight size={16} aria-hidden="true" /></span>
       </a>
       <div className={styles.controls}>
         <span className={styles.count} aria-label={korean ? `사진 ${slideNumbers.length}개 중 ${index + 1}번째` : `Photo ${index + 1} of ${slideNumbers.length}`}>{index + 1} / {slideNumbers.length}</span>

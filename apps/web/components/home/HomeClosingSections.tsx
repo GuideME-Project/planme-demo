@@ -15,28 +15,28 @@ export function HomeClosingSections() {
       Icon: Route,
       title: "Trip Planning",
       text: korean
-        ? "출발지, 목적지와 여행 기간을 선택하세요."
+        ? "여행 기간 동안\n무엇을 할지 계획합니다."
         : "Choose your departure, destination, and trip length.",
     },
     {
       Icon: CalendarCheck2,
       title: "Trip Booking",
       text: korean
-        ? "필요한 여행 서비스를 둘러보세요."
+        ? "여행에 필요한\n호텔과 교통편 등을 예약합니다"
         : "Explore the services for your journey.",
     },
     {
       Icon: Luggage,
       title: "Trip Preparation",
       text: korean
-        ? "동선과 일정을 확인하고 여행을 준비하세요."
+        ? "모든 숙박 시설과\n여행 필수품을 준비합니다."
         : "Review your itinerary and get ready to go.",
     },
     {
       Icon: Plane,
       title: "Trip Experience",
       text: korean
-        ? "GuideME 롤러와 함께 여행하세요."
+        ? "롤러와 함께\n최고의 여행 경험을 제공합니다."
         : "Travel with local Rollers through GuideME.",
     },
   ];
@@ -87,11 +87,11 @@ export function HomeClosingSections() {
       <footer className={`${styles.container} ${styles.footer}`}>
         <section className={styles.newsletter} aria-labelledby="newsletter-title">
           <h2 id="newsletter-title">NEWS-<br />LETTER</h2>
-          <p>{korean ? "GuideME의 새로운 소식과 여행 이야기를 전해 드릴게요." : "Travel stories and GuideME news, all in one place."}</p>
+          <p>{korean ? "뉴스레터를 구독하고 특별한 여행 특가 정보를 받아보세요. 지금 바로 가입하세요!" : "Travel stories and GuideME news, all in one place."}</p>
           <div className={styles.newsletterPreview}>
             <label className={styles.srOnly} htmlFor="newsletter-email">{korean ? "이메일 주소" : "Email address"}</label>
             <input id="newsletter-email" type="email" placeholder="Email address" disabled aria-describedby="newsletter-status" />
-            <button type="button" disabled>{korean ? "구독 준비 중" : "Coming soon"}</button>
+            <button type="button" disabled>Book Now</button>
             <small id="newsletter-status">{korean ? "뉴스레터 구독 기능을 준비하고 있습니다." : "Newsletter subscriptions are being prepared."}</small>
           </div>
         </section>
