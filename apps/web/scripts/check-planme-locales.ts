@@ -21,34 +21,45 @@ assert.equal(translate("en", "서울역 출발"), "Depart from 서울역");
 assert.equal(translate("en", "경복궁"), "경복궁");
 assert.equal(translateError("en", "새로운 제공자 오류"), "We couldn't complete this request. Please try again.");
 
-for (const [path, cookie, expected] of [
-  ["/?q=Seoul", "", "/ko?q=Seoul"],
+const redirectCases = [
+  ["/?q=Seoul", "", "/en?q=Seoul"],
   ["/?q=Seoul", "planme-locale=en", "/en?q=Seoul"],
-  ["/", "planme-locale=fr", "/ko"],
-  ["/itinerary/abc?ref=gpt", "planme-locale=en", "/ko/itinerary/abc?ref=gpt"],
-]) {
+  ["/?q=Seoul", "planme-locale=ko", "/ko?q=Seoul"],
+  ["/", "planme-locale=fr", "/en"],
+  ["/itinerary/abc?ref=gpt", "", "/en/itinerary/abc?ref=gpt"],
+  ["/itinerary/abc?ref=gpt", "planme-locale=en", "/en/itinerary/abc?ref=gpt"],
+  ["/itinerary/abc?ref=gpt", "planme-locale=ko", "/ko/itinerary/abc?ref=gpt"],
+  ["/itinerary/abc?ref=gpt", "planme-locale=fr", "/en/itinerary/abc?ref=gpt"],
+];
+for (const [path, cookie, expected] of redirectCases) {
   const response = proxy(new NextRequest(`https://www.planme.kr${path}`, { headers: { cookie } }));
   assert.equal(response.status, 307);
   assert.equal(response.headers.get("location"), `https://www.planme.kr${expected}`);
   assert.equal(response.headers.get("cache-control"), "private, no-store");
 }
-const explicit = proxy(new NextRequest("https://www.planme.kr/en", { headers: { cookie: "planme-locale=ko", "x-planme-locale": "ko" } }));
-assert.equal(explicit.headers.get("x-middleware-request-x-planme-locale"), "en");
-assert.equal(explicit.headers.get("location"), null);
+for (const locale of ["ko", "en"]) {
+  const otherLocale = locale === "ko" ? "en" : "ko";
+  const explicit = proxy(new NextRequest(`https://www.planme.kr/${locale}`, { headers: { cookie: `planme-locale=${otherLocale}`, "x-planme-locale": otherLocale } }));
+  assert.equal(explicit.headers.get("x-middleware-request-x-planme-locale"), locale);
+  assert.equal(explicit.headers.get("location"), null);
+}
 console.log("언어 사전·기간·원문 대체·주소 정책 검사 통과");
 
 async function checkHttp(): Promise<void> {
 const base: string | undefined = process.env.PLANME_BASE_URL;
 if (base) {
   for (const locale of ["ko", "en"]) {
-    const response: Response = await fetch(`${base}/${locale}?q=Seoul`);
+    const response: Response = await fetch(`${base}/${locale}?q=Seoul`, { headers: { cookie: `planme-locale=${locale === "ko" ? "en" : "ko"}` } });
     assert.equal(response.status, 200);
     const html: string = await response.text();
     assert.ok(html.includes(`lang="${locale}"`));
     assert.ok(html.includes(`rel="canonical" href="https://www.planme.kr/${locale}"`));
-    assert.ok(html.includes('hrefLang="ko"') || html.includes('hreflang="ko"'));
+    const head = html.slice(0, html.indexOf("</head>")).toLowerCase();
+    for (const [language, path] of [["ko", "ko"], ["en", "en"], ["x-default", "en"]]) {
+      assert.ok(head.includes(`rel="alternate" hreflang="${language}" href="https://www.planme.kr/${path}"`));
+    }
     assert.ok(html.includes(`content="${locale === "ko" ? "ko_KR" : "en_US"}"`));
-    assert.ok(html.includes(locale === "ko" ? "자주 묻는 질문" : "Frequently Asked Questions"));
+    assert.ok(html.includes(`aria-label="${locale === "ko" ? "여행 일정 검색" : "Search for an itinerary"}"`));
     const image: Response = await fetch(`${base}/og?locale=${locale}`);
     assert.equal(image.status, 200);
     assert.match(image.headers.get("content-type") ?? "", /image\/png/);
@@ -56,12 +67,16 @@ if (base) {
     assert.equal(png.readUInt32BE(16), 1200);
     assert.equal(png.readUInt32BE(20), 630);
   }
-  const redirect: Response = await fetch(`${base}/?q=Seoul`, { redirect: "manual", headers: { cookie: "planme-locale=en" } });
-  assert.equal(new URL(redirect.headers.get("location")!, base).pathname, "/en");
-  assert.equal(new URL(redirect.headers.get("location")!, base).search, "?q=Seoul");
+  for (const [path, cookie, expected] of redirectCases) {
+    const response: Response = await fetch(`${base}${path}`, { redirect: "manual", headers: { cookie, "Accept-Language": "ko-KR,ko;q=0.9" } });
+    assert.equal(response.status, 307);
+    assert.equal(new URL(response.headers.get("location")!, base).href, `${base}${expected}`);
+    assert.equal(response.headers.get("cache-control"), "private, no-store");
+  }
   assert.equal((await fetch(`${base}/fr`)).status, 404);
-  const legacy: Response = await fetch(`${base}/itinerary/busan-bts-1d1n`, { redirect: "manual" });
-  assert.equal(new URL(legacy.headers.get("location")!, base).pathname, "/ko/itinerary/busan-bts-1d1n");
+  const defaultImage: Buffer = Buffer.from(await (await fetch(`${base}/og`)).arrayBuffer());
+  const englishImage: Buffer = Buffer.from(await (await fetch(`${base}/og?locale=en`)).arrayBuffer());
+  assert.deepEqual(defaultImage, englishImage);
   assert.equal((await fetch(`${base}/api/gpt/openapi`)).status, 200);
   console.log("한·영 HTTP 응답·메타데이터·공유 이미지·기존 링크 검사 통과");
 }

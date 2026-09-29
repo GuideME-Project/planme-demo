@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { planmeOpenGraphImage } from "@/lib/brand-metadata";
-import type { Locale } from "./routing";
+import { defaultLocale, type Locale } from "./routing";
 
 // planme.kr currently redirects to this canonical host.
 export const publicOrigin = "https://www.planme.kr";
@@ -14,7 +14,7 @@ export function localizedMetadata(locale: Locale, path: string, title: string): 
     description,
     alternates: {
       canonical: url,
-      languages: { ko: `${publicOrigin}/ko${path}`, en: `${publicOrigin}/en${path}`, "x-default": `${publicOrigin}/ko${path}` },
+      languages: { ko: `${publicOrigin}/ko${path}`, en: `${publicOrigin}/en${path}`, "x-default": `${publicOrigin}/${defaultLocale}${path}` },
     },
     openGraph: {
       title: `PlanME · ${title}`,
