@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 import { LocaleProvider } from "@/components/i18n/LocaleProvider";
-import { isLocale } from "@/lib/i18n/routing";
+import { defaultLocale, isLocale } from "@/lib/i18n/routing";
 import { planmeOpenGraphImage } from "@/lib/brand-metadata";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Oswald, Poppins } from "next/font/google";
@@ -26,10 +26,10 @@ export const metadata: Metadata = {
     default: "PlanME Demo",
     template: "%s | PlanME",
   },
-  description: "GuideME 스타일의 여정으로 안내하는 PlanME 일정 데모입니다.",
+  description: "Create your own travel itinerary with PlanME and explore flights, stays, and activities.",
   openGraph: {
     title: "PlanME Demo",
-    description: "GuideME 스타일의 여정으로 안내하는 PlanME 일정 데모입니다.",
+    description: "Create your own travel itinerary with PlanME and explore flights, stays, and activities.",
     images: [planmeOpenGraphImage],
     type: "website",
   },
@@ -40,8 +40,8 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const requestedLocale = (await headers()).get("x-planme-locale") ?? "ko";
-  const locale = isLocale(requestedLocale) ? requestedLocale : "ko";
+  const requestedLocale = (await headers()).get("x-planme-locale") ?? defaultLocale;
+  const locale = isLocale(requestedLocale) ? requestedLocale : defaultLocale;
   return (
     <html
       lang={locale}
