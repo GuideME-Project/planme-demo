@@ -3,6 +3,8 @@ import { homeMediaUrl } from "./home-media";
 
 import Image from "next/image";
 import { CalendarCheck2, ChevronDown, Luggage, Plane, Route } from "lucide-react";
+import FacebookIcon from "@mui/icons-material/Facebook";
+import InstagramIcon from "@mui/icons-material/Instagram";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import { appLinks, questions } from "./home-content";
 import styles from "./closing.module.css";
@@ -99,6 +101,10 @@ export function HomeClosingSections() {
         <section id="guide-app" className={styles.appFooter} aria-labelledby="guide-app-title">
           <div className={styles.appBrand}>
             <Image unoptimized src={homeMediaUrl("guideme-logo-transparent.png")} alt="GuideME" width={394} height={126} />
+            <nav className={styles.socialLinks} aria-label="GuideME social media">
+              <a href="https://www.facebook.com/festivalallkorea" target="_parent" rel="noopener noreferrer" aria-label="GuideME Facebook"><FacebookIcon sx={{ fontSize: 20 }} aria-hidden="true" /></a>
+              <a href="https://instagram.com/guideme_magazine" target="_parent" rel="noopener noreferrer" aria-label="GuideME Instagram"><InstagramIcon sx={{ fontSize: 20 }} aria-hidden="true" /></a>
+            </nav>
           </div>
           <div className={styles.appContent}>
             <h2 id="guide-app-title"><span>Ready?</span>Get the app<br />Get the GuideME app<br />on iOS &amp; Android.</h2>
@@ -115,7 +121,14 @@ export function HomeClosingSections() {
               </a>
             </div>
           </div>
-          <div className={styles.appCopyright}>Copyright © {new Date().getFullYear()} GuideME. All rights reserved.</div>
+          <div className={styles.footerBottom}>
+            <div className={styles.appCopyright}>Copyright © {new Date().getFullYear()} GuideME. All rights reserved.</div>
+            <div className={styles.legalLinks}>
+              <span>Privacy Policy</span>
+              <span aria-hidden="true">|</span>
+              <span>Terms &amp; Conditions</span>
+            </div>
+          </div>
         </section>
       </footer>
     </>

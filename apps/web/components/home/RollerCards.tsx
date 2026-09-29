@@ -81,7 +81,7 @@ function RollerCard({ name, imagePrefix }: (typeof rollers)[number]) {
             />
           ))}
         </span>
-        <h3>{name}</h3>
+        <div><span className={styles.category}>{imagePrefix === "star-roller" ? "GUIDE" : "INSPIRATION"}</span><h3>{name}</h3></div>
       </a>
       <div className={styles.controls}>
         <span className={styles.count} aria-label={korean ? `사진 ${slideNumbers.length}개 중 ${index + 1}번째` : `Photo ${index + 1} of ${slideNumbers.length}`}>{index + 1} / {slideNumbers.length}</span>

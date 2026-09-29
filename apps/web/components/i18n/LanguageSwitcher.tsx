@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useLocale } from "./LocaleProvider";
 import { localizedPath } from "@/lib/i18n/routing";
-import { Globe2 } from "lucide-react";
+import { Globe } from "lucide-react";
 
 // Remember an explicit language choice for one year; an explicit URL always takes precedence.
 const localePreferenceMaxAgeSeconds = 365 * 24 * 60 * 60;
@@ -36,7 +36,7 @@ export function LanguageSwitcher({ compact = false }: { compact?: boolean }) {
           aria-controls="planme-language-options"
           onClick={() => setOpen(!open)}
         >
-          <Globe2 size={21} aria-hidden="true" />
+          <Globe size={28} strokeWidth={1.5} aria-hidden="true" />
         </button>
       )}
       <div id={compact ? "planme-language-options" : undefined} className={compact ? "language-switcher__options" : undefined} hidden={compact && !open}>
