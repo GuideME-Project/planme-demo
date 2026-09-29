@@ -939,21 +939,35 @@
 .articleCard {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   gap: 16px;
   padding: 30px;
   border-radius: 16px;
   background: #eef5fb;
 }
 .articleCard h3 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  flex-shrink: 0;
   font-size: 22px;
   color: var(--ink);
 }
 .articleCard p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  flex-shrink: 0;
   font-size: 14px;
   color: var(--muted);
 }
 .articleCard > span:last-child {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 12px;
   margin-top: auto;
@@ -1519,6 +1533,9 @@
 .explorerToolbar { margin-bottom: 76px; }
 .pickGrid { gap: 28px; }
 .pickGrid[data-layout="mosaic"] { grid-template-columns: repeat(3,minmax(0,1fr)); grid-auto-rows: clamp(300px, 24vw, 462px); }
+.pickGrid[data-layout="mosaic"] .articleCard { gap: 12px; padding: 24px; }
+.pickGrid[data-layout="mosaic"] .articleCard > :first-child { min-height: 0; flex-shrink: 1; }
+.pickGrid[data-layout="mosaic"] .articleCard .eyebrow { flex-shrink: 0; }
 .pickGrid[data-layout="mosaic"] > .servicePromotions { grid-column: auto; grid-row: auto; }
 .pickGrid[data-layout="mosaic"][data-count="6"] > :nth-child(6) { grid-column: auto; }
 
