@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { translate } from "@/lib/i18n/messages";
+import { defaultLocale, isLocale } from "@/lib/i18n/routing";
 import { planmeOpenGraphImage } from "@/lib/brand-metadata";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
@@ -72,7 +73,8 @@ export async function generateMetadata({
  */
 export default async function ItineraryPage({ params }: ItineraryPageProps) {
   const { id } = await params;
-  const locale = (await headers()).get("x-planme-locale") === "en" ? "en" : "ko";
+  const requestedLocale = (await headers()).get("x-planme-locale") ?? defaultLocale;
+  const locale = isLocale(requestedLocale) ? requestedLocale : defaultLocale;
 
   if (id.startsWith("planme-v3-")) {
     const snapshot = await getPlanmeV3Storage().jobStore.getJob(id);

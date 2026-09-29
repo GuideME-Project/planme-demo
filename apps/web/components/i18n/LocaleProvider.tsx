@@ -2,9 +2,9 @@
 
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { translate } from "@/lib/i18n/messages";
-import type { Locale } from "@/lib/i18n/routing";
+import { defaultLocale, type Locale } from "@/lib/i18n/routing";
 
-const LocaleContext = createContext<Locale>("ko");
+const LocaleContext = createContext<Locale>(defaultLocale);
 export function LocaleProvider({ locale, children }: { locale: Locale; children: ReactNode }) {
   return <LocaleContext.Provider value={locale}>{children}</LocaleContext.Provider>;
 }

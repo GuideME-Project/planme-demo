@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import { defaultLocale, isLocale } from "@/lib/i18n/routing";
 
 export const size = {
   width: 1200,
@@ -12,7 +13,9 @@ export const contentType = "image/png";
  */
 export function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const english = searchParams.get("locale") === "en";
+  const requestedLocale = searchParams.get("locale") ?? defaultLocale;
+  const locale = isLocale(requestedLocale) ? requestedLocale : defaultLocale;
+  const english = locale === "en";
   const title = searchParams.get("title") ?? (english ? "Start your own journey" : "나만의 여행을 시작하세요");
 
   return new ImageResponse(
