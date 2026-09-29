@@ -444,7 +444,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
               <ArticleImage article={article} />
               <span className={styles.eyebrow}>ROLLER’S DISPATCH</span>
               <h3 lang={article.language}>{article.title}</h3>
-              <p lang={article.language}>{article.summary}</p>
+              {article.summary && <p lang={article.language}>{article.summary}</p>}
               <span>{t("기사 읽기")}<ArrowUpRight size={18} aria-hidden="true" />
               </span>
             </a>
