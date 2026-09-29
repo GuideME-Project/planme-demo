@@ -11,23 +11,24 @@ type Result = { key: string; skip: number; attempt: number; articles: HomeArticl
 export function useMagazine() {
   const { countryCode } = useMagazineCountry();
   const { locale } = useLocale();
-  const key = `${countryCode}:${locale}`;
+  // Before a trip search there is no country; the feed then shows the latest articles of every country.
+  const key = `${countryCode ?? "all"}:${locale}`;
   const [request, setRequest] = useState({ key, skip: 0, attempt: 0 });
   const skip = request.key === key ? request.skip : 0;
   const attempt = request.key === key ? request.attempt : 0;
   const [result, setResult] = useState<Result | null>(null);
   const current = result?.key === key ? result : null;
-  const loading = Boolean(countryCode && (!current || current.skip !== skip || current.attempt !== attempt));
+  const loading = !current || current.skip !== skip || current.attempt !== attempt;
 
   useEffect(() => {
-    if (!countryCode) return;
     const controller = new AbortController();
     async function load() {
       try {
-        const params = new URLSearchParams({ countryCode: countryCode!, language: locale, skip: String(skip) });
+        const params = new URLSearchParams({ language: locale, skip: String(skip) });
+        if (countryCode) params.set("countryCode", countryCode);
         const response = await fetch(`/api/magazine?${params}`, { signal: controller.signal, cache: "no-store" });
         if (!response.ok) throw new Error("Magazine unavailable");
-        const page = parseMagazinePage(await response.text(), countryCode!);
+        const page = parseMagazinePage(await response.text(), countryCode);
         if (controller.signal.aborted) return;
         const articles = page.list.map(article => ({
           id: article.articleUrl, title: article.title, summary: article.summary ?? "",

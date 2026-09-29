@@ -1481,25 +1481,26 @@
 
 /* Homepage v2: proportions and typography from the supplied Figma frame. */
 .home { --ink: #18569e; --blue: #479ad5; font-family: var(--font-home-body), var(--font-geist-sans), sans-serif; }
-.container { width: min(1480px, calc(100% - 96px)); }
-.hero { min-height: 0; height: clamp(710px, 46vw, 880px); }
-.hero::after { content: ""; position: absolute; inset: 0 0 auto; height: 43%; background: linear-gradient(#fcde00c9, transparent); pointer-events: none; }
+.container { width: min(1520px, 79.2%); }
+.hero { min-height: 0; height: clamp(550px, 42.4vw, 814px); }
+.hero::after { content: ""; position: absolute; inset: 0 0 auto; height: 43%; background: linear-gradient(#fcde0070, transparent); pointer-events: none; }
 .heroBackground { object-position: center; }
-.header { z-index: 2; justify-content: flex-start; width: min(1400px, calc(100% - 96px)); height: 140px; gap: 24px; }
-.header img { width: 360px; }
-.joinButton { padding: 9px 30px; background: #284dc3; color: white !important; border-radius: 999px; font-size: 12px; white-space: nowrap; }
+.header { z-index: 2; justify-content: flex-start; width: min(1400px, 73%); height: clamp(100px, 7.3vw, 140px); gap: 24px; }
+.header img { width: clamp(250px, 19vw, 364px); }
+.joinButton { padding: 5px 22px; background: #284dc3; color: white !important; border-radius: 999px; font-size: 9px; white-space: nowrap; }
 .headerTools { margin-left: auto; gap: 20px; }
-.headerTools > a { background: transparent; }
-.heroCopy { z-index: 1; padding: 15px 24px 90px; }
+.headerTools > a { background: #ffcf23; width: 30px; height: 30px; border-radius: 50%; }
+.headerTools :global(.language-switcher--compact) > button { background: transparent; border: 0; }
+.heroCopy { z-index: 1; padding: 10px 24px 50px; }
 .heroCopy > .eyebrow { font-size: clamp(16px, 1.65vw, 30px); font-weight: 400; color: #5c96a5; letter-spacing: .24em; }
-.heroCopy h1 { font-family: var(--font-home-display), sans-serif; font-size: clamp(66px, 5.6vw, 108px); font-weight: 700; line-height: 1.25; letter-spacing: -.015em; color: #257acb; margin: 24px 0 30px; }
+.heroCopy h1 { font-family: var(--font-home-display), sans-serif; font-size: clamp(66px, 5.3vw, 102px); font-weight: 700; line-height: 1.25; letter-spacing: -.015em; color: #257acb; margin: 20px 0 24px; }
 .heroCopy h1 span { color: inherit; }
 .heroCopy p { color: #257acb; font-size: clamp(13px, 1.1vw, 21px); }
 .searchDock { margin-top: -74px; z-index: 3; }
 .mediaSection { margin-top: 100px; grid-template-columns: 2.63fr 1fr; gap: 30px; }
 .mainVideo { border-radius: 40px; aspect-ratio: 1063 / 646; align-self: stretch; width: 100%; min-width: 0; }
 .mainVideo video { object-fit: cover; }
-.smallVideo { border-radius: 24px; }
+.smallVideo { border-radius: 24px; aspect-ratio: 404 / 300; }
 .smallVideo video { aspect-ratio: 404 / 300; object-fit: cover; }
 .partnerBanner { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; border-radius: 24px; background: #1955a5; padding: 24px; }
 .bannerArtwork { display: block; flex-shrink: 0; }
@@ -1517,7 +1518,7 @@
 .contentSearch { flex-direction: row-reverse; margin: 0; }
 .explorerToolbar { margin-bottom: 76px; }
 .pickGrid { gap: 28px; }
-.pickGrid[data-layout="mosaic"] { grid-template-columns: repeat(3,minmax(0,1fr)); grid-auto-rows: 420px; }
+.pickGrid[data-layout="mosaic"] { grid-template-columns: repeat(3,minmax(0,1fr)); grid-auto-rows: clamp(300px, 24vw, 462px); }
 .pickGrid[data-layout="mosaic"] > .servicePromotions { grid-column: auto; grid-row: auto; }
 .pickGrid[data-layout="mosaic"][data-count="6"] > :nth-child(6) { grid-column: auto; }
 
@@ -1540,7 +1541,7 @@
 .advertising { position: relative; padding: 0; aspect-ratio: 1520 / 724; min-height: 0; border-radius: 40px; margin-top: 140px; overflow: hidden; }
 .advertising img { object-fit: cover; }
 .rollersSection { display: grid; grid-template-columns: 2.13fr 1fr; gap: 30px; margin-top: 130px; }
-.rollerFeature { border-radius: 24px; min-height: 620px; }
+.rollerFeature { width: 100%; min-width: 0; border-radius: 24px; min-height: 0; aspect-ratio: 1016 / 764; }
 .rollerFeature h2 { font-family: var(--font-home-display), sans-serif; font-size: clamp(42px, 4vw, 72px) !important; line-height: 1.07 !important; letter-spacing: -.02em !important; }
 .rollerGroups { display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; gap: 28px; margin: 0; }
 .rollerGroup { position: relative; overflow: hidden; border-radius: 24px; padding: 34px; color: white; background: #aeb1ae; display: flex; flex-direction: column; justify-content: space-between; }
@@ -1548,7 +1549,7 @@
 .rollerGroup::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg,#142a3290,transparent); }
 .rollerGroup h3 { position: relative; z-index: 1; color: white; font-family: var(--font-home-display), sans-serif; font-size: 32px; }
 .rollerGroup > span { position: relative; z-index: 1; font-size: 13px; }
-.appCta { border-radius: 40px; margin-top: 40px; padding: 66px 30px; background: #ffb510; }
+.appCta { border-radius: 40px; margin-top: 40px; padding: clamp(50px, 4vw, 78px) 30px; background: #f2ae2a; }
 .appCta p { word-break: keep-all; text-wrap: balance; }
 .home .appCta h2 { font-family: var(--font-home-display), sans-serif; font-size: clamp(36px, 5vw, 80px); letter-spacing: -.02em; color: white; }
 @media(max-width: 1023px) {
@@ -1579,7 +1580,8 @@
  .mediaSection { margin-top: 60px; grid-template-columns: 1fr; }
  .mainVideo { aspect-ratio: 16 / 10; } .mainVideo video { height: 100%; aspect-ratio: auto; }
  .mediaAside { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
- .smallVideo video { height: 100%; aspect-ratio: 1; }
+ .smallVideo { aspect-ratio: auto; align-self: stretch; }
+ .smallVideo video { height: 100%; aspect-ratio: auto; object-fit: contain; background: #f9b900; }
  .partnerBanner { border-radius: 18px; min-height: 210px; padding: 12px; }
  .partnerBanner strong { font-size: 22px; }
  .partnerBanner .bannerArtwork { width: 100px; height: 72px; }
@@ -1599,7 +1601,7 @@
  .thrillSection p { margin-top: 14px !important; }
  .advertising { margin-top: 60px; border-radius: 22px; }
  .rollersSection { grid-template-columns: 1fr; margin-top: 60px; gap: 18px; }
- .rollerFeature { min-height: 400px; }
+ .rollerFeature { min-height: 400px; aspect-ratio: auto; }
  .rollerGroups { grid-template-columns: 1fr 1fr; grid-template-rows: auto; gap: 14px; }
  .rollerGroup { min-height: 200px; padding: 18px; }
  .rollerGroup h3 { font-size: 25px; }
@@ -1616,3 +1618,32 @@
 .rollerFeature:focus-visible, .rollerGroup:focus-visible { outline: 3px solid #257acb; outline-offset: 4px; }
 
 .rollerGroup > span { color: white; }
+
+.serviceBrand { display: flex; align-items: center; justify-content: center; gap: 5px; width: 100%; }
+.servicePromotions .serviceBrand strong { margin: 0; font-family: var(--font-home-body), sans-serif; font-size: clamp(15px, 1.4vw, 25px); color: #ffcd30; }
+.servicePromotions .serviceBrand span { margin: 0; font-size: 9px; }
+.serviceBrand img { width: 42%; height: auto; }
+.servicePromotions .serviceLearnMore { display: inline-flex; margin-top: 12px; padding: 12px 24px; border: 1px solid #ffffff80; border-radius: 8px; font-size: 12px; }
+.servicePromotions a { justify-content: space-between; }
+.servicePromotions .bannerArtwork { width: min(72%, 300px); height: clamp(105px, 10vw, 188px); }
+.promoControls button { width: 12px; height: 12px; }
+/* One-row search (MUI xl): keep the full width so KO/EN labels and transport buttons are not clipped. */
+@media (min-width: 1536px) {
+  .searchDock :global(#trip-search) > div > form { grid-template-columns: 1fr 1fr minmax(150px, .8fr) minmax(290px, 1.3fr) auto; }
+}
+@media (min-width: 768px) and (max-width: 1023px) {
+  .container { width: calc(100% - 64px); }
+  .header { width: calc(100% - 64px); }
+  .heroCopy h1 { font-size: 64px; }
+}
+/* The aside cannot shrink below the banner content; keep the main cover near 1063:646 so its title is not cropped. */
+@media (min-width: 768px) and (max-width: 1279px) {
+  .mediaSection { grid-template-columns: 1fr; }
+  .mainVideo { align-self: auto; }
+  .mediaAside { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+}
+@media (min-width: 1280px) and (max-width: 1535px) {
+  .mediaSection { grid-template-columns: 3fr 1fr; }
+}
+.helpMark { color: #20262e; font-size: 17px; font-weight: 700; line-height: 1; }
+.thrillVideo { position: relative; overflow: hidden; aspect-ratio: 16 / 9; border-radius: 25px; background: #122a47; }

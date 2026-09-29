@@ -136,7 +136,7 @@ export const questions = [
     questionKo: "AI가 짜준 일정을 제 마음대로 수정할 수 있나요?",
     answer:
       "Editing places and their order is not available in the current itinerary view. Change the search details and create a new itinerary instead.",
-    answerKo: "현재 일정 화면에서는 장소와 방문 순서를 직접 수정할 수 없습니다. 검색 조건을 변경해 새 일정을 생성해 주세요.",
+    answerKo: "현재는 생성된 일정의 장소나 방문 순서를 직접 수정하는 기능을 제공하지 않습니다. 다른 일정이 필요하시면 출발지, 목적지, 여행 기간, 이동수단을 변경해 새로운 일정을 생성하실 수 있습니다.",
   },
   {
     question: "How can I save my plan and get the Welcome Coupon Pack?",

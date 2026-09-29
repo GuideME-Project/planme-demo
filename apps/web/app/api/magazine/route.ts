@@ -3,11 +3,12 @@ import { fetchMagazinePage } from "@/lib/planme-magazine-server";
 
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
-  const countryCode = params.get("countryCode") ?? "";
+  // Without countryCode the route returns the latest public articles regardless of country.
+  const countryCode = params.get("countryCode");
   const language = params.get("language") ?? "ko";
   const skip = params.get("skip") ?? "0";
   const headers = { "Cache-Control": "no-store" };
-  if (!/^[A-Z]{2}$/.test(countryCode) || (language !== "ko" && language !== "en") ||
+  if ((countryCode !== null && !/^[A-Z]{2}$/.test(countryCode)) || (language !== "ko" && language !== "en") ||
     !/^\d+$/.test(skip) || !Number.isSafeInteger(Number(skip)) || Number(skip) > 1_000_000) {
     return Response.json({ error: "INVALID_REQUEST" }, { status: 400, headers });
   }

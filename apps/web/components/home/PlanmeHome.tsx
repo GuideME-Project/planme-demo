@@ -9,7 +9,6 @@ import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } fro
 import {
   ArrowRight,
   ArrowUpRight,
-  CircleHelp,
   ChevronLeft,
   ChevronRight,
   Compass,
@@ -30,6 +29,7 @@ import {
 import styles from "./home.module.css";
 import { HomeClosingSections } from "./HomeClosingSections";
 import { RollerCards } from "./RollerCards";
+import { HomeVideo } from "./HomeVideo";
 import { PartnerWidget } from "./PartnerWidget";
 import { getContentPage } from "./content-pagination";
 import { useMagazine } from "./use-magazine";
@@ -173,12 +173,7 @@ function MagazineNotice({ magazine }: { magazine: MagazineState }) {
   const { t, locale } = useLocale();
   const name = magazine.countryCode
     ? new Intl.DisplayNames([locale], { type: "region" }).of(magazine.countryCode) : null;
-  if (!magazine.countryCode) return <div className={styles.magazineNotice}>
-    <p role="status">{locale === "ko"
-      ? "상단에서 여행 일정을 검색하면 해당 국가의 매거진 기사를 보여드립니다."
-      : "Search for a trip above to see magazine articles about your destination country."}</p>
-    <a href="#trip-search">{t("여행 검색으로 이동")}</a>
-  </div>;
+  if (!name && !magazine.loading && !magazine.failed && magazine.articles.length && !magazine.hasMore) return null;
   return <div className={styles.magazineNotice} aria-busy={magazine.loading}>
     {name && <strong>{name} · Roller’s Dispatch</strong>}
     {(magazine.loading || magazine.failed || !magazine.articles.length) && <p role={magazine.failed ? "alert" : "status"}>
@@ -221,9 +216,9 @@ function ServicePromotions() {
   return (
     <div className={styles.servicePromotions} aria-label={ko ? "GuideME 서비스" : "GuideME services"}>
       <a href={service.href} target="_parent" rel="noopener noreferrer">
+        <div className={styles.serviceBrand}><strong>{service.name}</strong><span>by</span><Image src={homeMediaUrl("guideme-logo-transparent.png")} unoptimized alt="GuideME" width={394} height={126} /></div>
         <BannerArtwork name={service.artwork} />
-        <strong>{service.name}</strong>
-        <span>Learn More<ArrowUpRight size={16} /></span>
+        <span className={styles.serviceLearnMore}>Learn More</span>
       </a>
       <div className={styles.promoControls}>
         {services.map((item, itemIndex) => <button key={item.name} type="button" aria-label={item.name} aria-pressed={index === itemIndex} onClick={() => setIndex(itemIndex)} />)}
@@ -457,7 +452,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
           {category === "all" && <ServicePromotions />}
         </div>}
         {category === "all" && <><div className={styles.inlineServiceBanners}><ServiceBanner kind="deal" /><ServiceBanner kind="stay" /></div></>}
-        {!isWidgetTab && !isBannerTab && !visiblePicks.length && !visibleArticles.length && (category !== "magazine" || (!magazine.loading && !magazine.failed && !!magazine.countryCode && articles.length > 0)) && (
+        {!isWidgetTab && !isBannerTab && !visiblePicks.length && !visibleArticles.length && (category !== "magazine" || (!magazine.loading && !magazine.failed && articles.length > 0)) && (
           <div className={styles.emptyState}>
             <Compass size={32} aria-hidden="true" />
             <h3>
@@ -518,7 +513,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
 export function PlanmeHome({ children, articles: initialArticles = [] }: PlanmeHomeProps) {
   const { t, locale } = useLocale();
   const magazine = useMagazine();
-  const articles = magazine.countryCode ? magazine.articles : initialArticles;
+  const articles = magazine.articles.length ? magazine.articles : initialArticles;
   return (
     <main className={styles.home}>
       <a className={styles.skipLink} href="#trip-search">{t("여행 검색으로 바로가기")}</a>
@@ -544,7 +539,7 @@ export function PlanmeHome({ children, articles: initialArticles = [] }: PlanmeH
           </Link>
           <a href="#guide-app" className={styles.joinButton}>JOIN NOW</a>
           <div className={styles.headerTools}>
-            <a href="guideme://help-me/intro" aria-label={locale === "ko" ? "GuideME 앱에서 HelpME 열기" : "Open HelpME in the GuideME app"} title="HelpME"><CircleHelp size={28} aria-hidden="true" /></a>
+            <a href="guideme://help-me/intro" aria-label={locale === "ko" ? "GuideME 앱에서 HelpME 열기" : "Open HelpME in the GuideME app"} title="HelpME"><span className={styles.helpMark} aria-hidden="true">?</span></a>
             <LanguageSwitcher compact />
           </div>
         </header>
@@ -553,7 +548,7 @@ export function PlanmeHome({ children, articles: initialArticles = [] }: PlanmeH
           <h1>For ME,{" "}<br />By Human Touch,<br />
             <span>With GuideME!</span>
           </h1>
-          <p>Connecting Hearts Across Borders: A Journey for Every You in the World</p>
+          <p>Connecting Hearts Across Borders: A Journey for Every &apos;You&apos; in the World</p>
 
         </div>
       </div>
@@ -564,20 +559,11 @@ export function PlanmeHome({ children, articles: initialArticles = [] }: PlanmeH
           aria-label={t("GuideME 소개와 여행 서비스")}
         >
           <div className={styles.mainVideo}>
-            <video controls playsInline preload="none" poster={homeMediaUrl("roller-cover.png")} src={homeMediaUrl("roller-feature.mp4")} aria-label={locale === "ko" ? "롤러 소개 영상" : "Roller introduction video"} />
+            <HomeVideo poster="roller-cover.png" source="roller-feature.mp4" label={locale === "ko" ? "롤러 소개 영상 재생" : "Play Roller introduction video"} />
           </div>
           <div className={styles.mediaAside}>
             <div className={styles.smallVideo}>
-              <video
-                controls
-                playsInline
-                preload="none"
-                poster={homeMediaUrl("guideme-cover.png")}
-                src={homeMediaUrl("guideme-feature.mp4")}
-                aria-label={t("GuideME 소개 영상")}
-              >{t("브라우저가 영상 재생을 지원하지 않습니다.")}{" "}
-                <a href={homeMediaUrl("guideme-feature.mp4")}>{t("소개 영상 열기")}</a>
-              </video>
+              <HomeVideo profile poster="guideme-cover.png" source="guideme-feature.mp4" label={locale === "ko" ? "GuideME 소개 영상 재생" : "Play GuideME profile video"} />
 
             </div>
             <PartnerBanner />
@@ -585,8 +571,10 @@ export function PlanmeHome({ children, articles: initialArticles = [] }: PlanmeH
         </section>
         <SavedContentExplorer articles={articles} magazine={magazine} />
         <section className={styles.thrillSection} aria-labelledby="thrill-title">
-          <div><span className={styles.thrillEyebrow}>Only The Best Quality For You</span><h2 id="thrill-title">Thrill<span>ME</span></h2><p>{locale === "ko" ? "현장의 짜릿함을 온몸으로! 차원이 다른 최고의 직관 경험" : "Feel the excitement. Experience the best moments, live."}</p></div>
-          <video controls playsInline preload="none" poster={homeMediaUrl("thrillme-cover.png")} src={homeMediaUrl("thrillme-feature.mp4")} aria-label={locale === "ko" ? "ThrillME 소개 영상" : "ThrillME introduction video"} />
+          <div><span className={styles.thrillEyebrow}>Only The Best Quality For You</span><h2 id="thrill-title">Thrill<span>ME</span></h2><p>{locale === "ko" ? <>현장의 짜릿함을 온몸으로!<br />차원이 다른 최고의 직관 경험</> : "Feel the excitement. Experience the best moments, live."}</p></div>
+          <div className={styles.thrillVideo}>
+            <HomeVideo poster="thrillme-cover.png" source="thrillme-feature.mp4" label={locale === "ko" ? "ThrillME 소개 영상 재생" : "Play ThrillME introduction video"} />
+          </div>
         </section>
         <div className={styles.advertising} aria-label={locale === "ko" ? "광고 영역" : "Advertisement"}><Image unoptimized src={homeMediaUrl("advertisement-design.jpg")} alt="Guam International Dance Festival 2026 — December 4, 5 and 6" fill sizes="(max-width: 767px) 100vw, 1480px" /></div>
         <section id="rollers" className={styles.rollersSection} aria-labelledby="rollers-title">
@@ -603,7 +591,7 @@ export function PlanmeHome({ children, articles: initialArticles = [] }: PlanmeH
         >
           <h2 id="app-title">Your journey begins here.</h2>
           <p>{locale === "ko" ? "준비는 모두 끝났어요. 앱에서 당신의 여정을 시작해 보세요!" : "Continue your journey with the GuideME app."}</p>
-          <a href="#guide-app" className={styles.blueButton}>Start Now<ArrowRight size={18} aria-hidden="true" /></a>
+          <a href="#guide-app" className={styles.blueButton}>Start Now</a>
         </section>
       </div>
       <HomeClosingSections />

@@ -1,6 +1,7 @@
 export type MagazineArticle = {
   articleNo: number;
-  countryCode: string;
+  // null when the page was read without a country filter (latest public articles).
+  countryCode: string | null;
   title: string;
   summary: string | null;
   thumbnailUrl: string | null;
@@ -29,13 +30,15 @@ function isHttpUrl(value: string) {
   } catch { return false; }
 }
 
-export function parseMagazinePage(text: string, countryCode: string): MagazinePage {
+export function parseMagazinePage(text: string, countryCode: string | null): MagazinePage {
   const response = JSON.parse(text) as { success?: boolean; data?: MagazinePage } | null;
   const page = response?.data;
   if (response?.success !== true || !page || !Number.isSafeInteger(page.count) || page.count < 0 ||
     !Array.isArray(page.list) || page.list.length > MAGAZINE_PAGE_SIZE || page.list.length > page.count ||
     !page.list.every(article => article && Number.isSafeInteger(article.articleNo) && article.articleNo > 0 &&
-      article.countryCode === countryCode && typeof article.title === "string" && article.title.trim() &&
+      (countryCode === null
+        ? article.countryCode === null || (typeof article.countryCode === "string" && /^[A-Z]{2}$/.test(article.countryCode))
+        : article.countryCode === countryCode) && typeof article.title === "string" && article.title.trim() &&
       (article.summary === null || typeof article.summary === "string") &&
       (article.thumbnailUrl === null || (typeof article.thumbnailUrl === "string" && isHttpUrl(article.thumbnailUrl))) &&
       (article.articleUrl === `https://guidemetrip.co.kr/post/detail/${article.articleNo}` ||
