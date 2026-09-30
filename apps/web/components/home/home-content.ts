@@ -2,11 +2,10 @@ import { homeMediaUrl } from "./home-media";
 // Affiliate links retained from the existing PlanME home.
 // WinkME and GiftME URLs match GuideME-App origin/main 9fa8ed0.
 export const partnerLinks = {
-  flight: "https://aviasales.tpx.lt/Ryx717iT",
-  stay: "https://kkday.tpx.lt/AkJifRE2",
-  tour: "https://tiqets.tpx.lt/fGBupMu9",
-  esim: "https://yesim.tpx.lt/mM4SQ1TQ",
-  insurance: "https://ektatraveling.tpx.lt/lt7O4KpT",
+  flight: "https://aviasales.tpx.lt/cyAmGC5q",
+  tour: "https://tiqets.tpx.lt/YsmjlcbA",
+  esim: "https://yesim.tpx.lt/oACpSmbo",
+  insurance: "https://ektatraveling.tpx.lt/dJ5LpEr4",
   wink: "https://www.winkme.kr/",
   gift: "https://www.giftme.kr/",
 } as const;
