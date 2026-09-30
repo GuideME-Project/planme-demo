@@ -17,7 +17,7 @@ import type { PlanmePlaceAttribution } from "@/lib/planme-places";
 
 const PREPARATION_CARDS = [
   { title: "항공", href: partnerLinks.flight, action: "Aviasales로 이동", caption: "여행의 시작", description: "출발 시간과 수하물 조건을 살펴보세요.", Icon: FlightTakeoffRoundedIcon, color: "#2364d8", background: "#eaf2ff" },
-  { title: "숙박", href: partnerLinks.stay, action: "KKday로 이동", caption: "편안한 머무름", description: "여행 동선에 맞는 숙소 위치를 생각해 보세요.", Icon: HotelRoundedIcon, color: "#7c50bc", background: "#f2edfc" },
+  { title: "숙박", href: undefined, action: "", caption: "편안한 머무름", description: "여행 동선에 맞는 숙소 위치를 생각해 보세요.", Icon: HotelRoundedIcon, color: "#7c50bc", background: "#f2edfc" },
   { title: "체험 · 티켓", href: partnerLinks.tour, action: "Tiqets로 이동", caption: "기억에 남을 순간", description: "꼭 해보고 싶은 체험과 방문지를 골라보세요.", Icon: ConfirmationNumberRoundedIcon, color: "#b55e27", background: "#fff2e6" },
   { title: "eSIM", href: partnerLinks.esim, action: "Yesim으로 이동", caption: "도착하자마자 연결", description: "사용할 데이터와 휴대폰 호환 여부를 확인해 보세요.", Icon: SimCardRoundedIcon, color: "#187b77", background: "#e7f6f3" },
   { title: "여행자 보험", href: partnerLinks.insurance, action: "EKTA로 이동", caption: "마음까지 든든하게", description: "여행 기간과 필요한 보장 내용을 살펴보세요.", Icon: VerifiedUserOutlinedIcon, color: "#587086", background: "#edf2f7" },
@@ -78,12 +78,12 @@ export function PlanmeGlobalPreparation({ origin, destination, attributions = []
               <Typography sx={{ color: "#62738c", fontSize: 12, fontWeight: 650, mb: 0.5 }}>{t(caption)}</Typography>
               <Typography component="h3" sx={{ color: "#124b97", fontSize: 21, fontWeight: 750 }}>{t(title)}</Typography>
               <Typography sx={{ mt: 1, color: "#62738c", fontSize: 14, lineHeight: 1.75 }}>{t(description)}</Typography>
-              <Box sx={{ mt: "auto", pt: 2.5 }}>
+              {href && <Box sx={{ mt: "auto", pt: 2.5 }}>
                 <Button href={href} target="_parent" rel="sponsored noopener noreferrer" variant="outlined" endIcon={<ArrowForwardRoundedIcon aria-hidden="true" />} sx={{ minHeight: 48, borderRadius: 2, fontWeight: 700, "&:focus-visible": { outline: "2px solid #1660df", outlineOffset: 3 } }}>
                   {t(action)}
                   <Box component="span" sx={visuallyHidden}>{t("(제휴 사이트)")}</Box>
                 </Button>
-              </Box>
+              </Box>}
             </Box>
           ))}
         </Box>
