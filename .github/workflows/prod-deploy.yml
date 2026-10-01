@@ -1,0 +1,153 @@
+name: Prod Deploy
+
+"on":
+  push:
+    branches:
+      - main
+    paths:
+      - apps/web/**
+      - packages/**
+      - package.json
+      - package-lock.json
+      - Dockerfile
+      - .dockerignore
+      - .github/workflows/prod-deploy.yml
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+# 같은 서비스에 배포가 겹치지 않도록 직렬화하고, 진행 중인 배포는 취소하지 않습니다.
+concurrency:
+  group: prod-deploy
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-northeast-2
+  AWS_ACCOUNT_ID: "637423299104"
+  ECR_REGISTRY: 637423299104.dkr.ecr.ap-northeast-2.amazonaws.com
+  ECR_REPOSITORY: guideme/planme-web
+  ECS_CLUSTER: guideme-prod
+  ECS_SERVICE: prod-planme-web
+  CONTAINER_NAME: planme-web
+  SSM_PARAMETER_PATH: /guideme/prod/planme-web
+
+jobs:
+  deploy:
+    name: Build, push, and deploy PlanME web
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # NEXT_PUBLIC_* 값은 브라우저 번들에 인라인되는 공개 값이라 GitHub 변수로 전달합니다.
+      # ECR 수명 주기 정책이 `prod` 접두사 태그만 개수 제한을 하므로 커밋 태그에도 접두사를 붙입니다.
+      - name: Build and push image
+        env:
+          IMAGE_URI: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker build \
+            --build-arg NEXT_PUBLIC_ODSAY_API_KEY="${{ vars.NEXT_PUBLIC_ODSAY_API_KEY }}" \
+            --build-arg NEXT_PUBLIC_NAVER_MAPS_CLIENT_ID="${{ vars.NEXT_PUBLIC_NAVER_MAPS_CLIENT_ID }}" \
+            --build-arg NEXT_PUBLIC_NCP_MAPS_CLIENT_ID="${{ vars.NEXT_PUBLIC_NCP_MAPS_CLIENT_ID }}" \
+            --tag "$IMAGE_URI:prod-${{ github.sha }}" \
+            --tag "$IMAGE_URI:prod" \
+            .
+          docker push "$IMAGE_URI:prod-${{ github.sha }}"
+          docker push "$IMAGE_URI:prod"
+
+      # Terraform은 초기 task definition만 만들고, 이후 이미지와 secrets 매핑은 이 워크플로가 관리합니다.
+      # SSM 값은 복호화하지 않고 이름만 읽어 task definition secrets(valueFrom)를 재구성합니다.
+      - name: Register task definition
+        id: task-definition
+        env:
+          IMAGE_URI: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:prod-${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          current="$(aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --query 'services[0].taskDefinition' \
+            --output text)"
+
+          if [ -z "$current" ] || [ "$current" = "None" ]; then
+            echo "ECS service $ECS_SERVICE was not found" >&2
+            exit 1
+          fi
+
+          aws ecs describe-task-definition \
+            --task-definition "$current" \
+            --query taskDefinition \
+            --output json > "$RUNNER_TEMP/current.json"
+
+          aws ssm get-parameters-by-path \
+            --path "$SSM_PARAMETER_PATH" \
+            --recursive \
+            --no-with-decryption \
+            --output json > "$RUNNER_TEMP/parameters.json"
+
+          if [ "$(jq '.Parameters | length' "$RUNNER_TEMP/parameters.json")" -eq 0 ]; then
+            echo "No SSM parameters under $SSM_PARAMETER_PATH" >&2
+            exit 1
+          fi
+
+          jq \
+            --arg container_name "$CONTAINER_NAME" \
+            --arg image_uri "$IMAGE_URI" \
+            --arg region "$AWS_REGION" \
+            --arg account_id "$AWS_ACCOUNT_ID" \
+            --slurpfile parameters "$RUNNER_TEMP/parameters.json" \
+            'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)
+             | .containerDefinitions |= map(
+                 if .name == $container_name then
+                   .image = $image_uri
+                   | .secrets = ($parameters[0].Parameters | map({
+                       "name": (.Name | split("/")[-1]),
+                       "valueFrom": ("arn:aws:ssm:" + $region + ":" + $account_id + ":parameter" + .Name)
+                     }))
+                 else
+                   .
+                 end
+               )' \
+            "$RUNNER_TEMP/current.json" > "$RUNNER_TEMP/candidate.json"
+
+          arn="$(aws ecs register-task-definition \
+            --cli-input-json "file://$RUNNER_TEMP/candidate.json" \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)"
+          echo "arn=$arn" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy service
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$ECS_SERVICE" \
+            --task-definition "${{ steps.task-definition.outputs.arn }}" \
+            --force-new-deployment > /dev/null
+
+          aws ecs wait services-stable \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE"
+
+      # DNS 전환 전에는 PLANME_SMOKE_URL을 비워 두고, 전환 후 `https://planme.kr`로 설정합니다.
+      - name: Smoke test
+        if: vars.PLANME_SMOKE_URL != ''
+        run: curl --fail --silent --show-error --retry 5 --retry-delay 5 "${{ vars.PLANME_SMOKE_URL }}/api/health"
