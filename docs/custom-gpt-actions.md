@@ -49,7 +49,7 @@ MCP가 생성한 일정은 웹 저장 API(`POST /api/gpt/itineraries/preview-sto
 PlanME 일정이 준비됐습니다.
 CarryME를 사용하면 짐은 목적지로 이동하고 여행자는 바로 일정으로 이동할 수 있어요.
 
-[상세 일정 열기](https://planme.kr/itinerary/generated-...)
+[상세 일정 열기](https://www.planme.kr/itinerary/generated-...)
 ```
 
 ChatGPT Builder 미리보기에서는 외부 Markdown 이미지가 안정적으로 인라인 렌더링되지 않습니다. 기본 응답은 짧은 요약과 상세 일정 링크를 우선합니다. `previewMarkdown`과 `ogImageUrl`은 이미지 미리보기를 지원하는 클라이언트나 별도 테스트용 보조 메타데이터로만 사용합니다.

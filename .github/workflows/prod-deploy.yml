@@ -32,6 +32,8 @@ env:
   ECS_SERVICE: prod-planme-web
   CONTAINER_NAME: planme-web
   SSM_PARAMETER_PATH: /guideme/prod/planme-web
+  # Terraform은 서비스를 desired 0으로 만들기 때문에 배포 시 수량을 올립니다.
+  DESIRED_COUNT: ${{ vars.PLANME_DESIRED_COUNT || '1' }}
 
 jobs:
   deploy:
@@ -141,13 +143,14 @@ jobs:
             --cluster "$ECS_CLUSTER" \
             --service "$ECS_SERVICE" \
             --task-definition "${{ steps.task-definition.outputs.arn }}" \
+            --desired-count "$DESIRED_COUNT" \
             --force-new-deployment > /dev/null
 
           aws ecs wait services-stable \
             --cluster "$ECS_CLUSTER" \
             --services "$ECS_SERVICE"
 
-      # DNS 전환 전에는 PLANME_SMOKE_URL을 비워 두고, 전환 후 `https://planme.kr`로 설정합니다.
+      # DNS 전환 전에는 PLANME_SMOKE_URL을 비워 두고, 전환 후 `https://www.planme.kr`로 설정합니다.
       - name: Smoke test
         if: vars.PLANME_SMOKE_URL != ''
         run: curl --fail --silent --show-error --retry 5 --retry-delay 5 "${{ vars.PLANME_SMOKE_URL }}/api/health"
