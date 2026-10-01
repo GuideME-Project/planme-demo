@@ -1,4 +1,5 @@
 import type { MapCoordinate, RouteTransitMarker } from "@planme/core";
+import { DEFAULT_PLANME_WEB_ORIGIN } from "../planme-web-origin";
 import { removeAdjacentDuplicateProviderStops } from "./shared";
 import {
   RouteProviderError,
@@ -55,7 +56,7 @@ type OdsayLoadLaneResponse = OdsayResponseWithError & {
 };
 
 const ODSAY_API_ORIGIN = "https://api.odsay.com";
-const DEFAULT_ODSAY_REFERER = "https://planme-demo.vercel.app/";
+const DEFAULT_ODSAY_REFERER = `${DEFAULT_PLANME_WEB_ORIGIN}/`;
 // The Basic key is sensitive to bursts; serialize starts within one finalization invocation.
 const ODSAY_MINIMUM_REQUEST_INTERVAL_MS = 260;
 let lastOdsayRequestStartedAt = 0;

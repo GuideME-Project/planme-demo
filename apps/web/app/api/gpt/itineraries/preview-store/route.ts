@@ -21,7 +21,7 @@ type PreviewStoreRequest = {
 
 export const maxDuration = 45;
 
-/** Finalizes and atomically stores an MCP-produced PlanME itinerary. */
+/** Finalizes and atomically stores a generated PlanME itinerary. */
 export async function POST(request: Request) {
   if (!isAuthorizedInternalRequest(request)) {
     return NextResponse.json(

@@ -8,6 +8,7 @@ import {
   type AllowedTourContentTypeId,
 } from "@planme/core";
 import { NextResponse } from "next/server";
+import { isPlanmePublicApiRateLimited } from "@/lib/planme-search-rate-limit";
 import { getPlanmeV3Storage } from "@/lib/planme-v3/runtime";
 import { createTourApiClient } from "@/lib/planme-v3/tour-api-client";
 import { loadTourCandidates } from "@/lib/planme-v3/tour-cache";
@@ -29,6 +30,13 @@ const MAX_PLACE_SEARCH_LIMIT = 5;
  * Returns coordinate-bearing Naver place candidates for the destination editor.
  */
 export async function POST(request: Request) {
+  if (await isPlanmePublicApiRateLimited("places", request)) {
+    return NextResponse.json(
+      { candidates: [], message: "장소 검색이 많습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 429, headers: { "Retry-After": "60" } },
+    );
+  }
+
   let body: PlaceSearchRequest;
 
   try {

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { Redis } from "@upstash/redis";
 import type { MagazineArticle, MagazinePage } from "./planme-magazine";
+import { getPlanmeRedis, getPlanmeRedisUrl } from "./planme-redis";
 import { recordWebPlanmeUsage } from "./usage-counter-store";
 
 type ArticleText = Pick<MagazineArticle, "articleNo" | "title" | "summary">;
@@ -50,10 +50,10 @@ async function translateArticles(source: ArticleText[], model: string): Promise<
   if (inProgress) return inProgress;
 
   const work = (async () => {
-    const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
-    const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
-    const redis = url && token ? new Redis({ url, token, automaticDeserialization: false }) : null;
-    const stored = redis ? await redis.get<string>(key).catch(() => null) : null;
+    const redisConfigured = getPlanmeRedisUrl() !== null;
+    const stored = redisConfigured
+      ? await getPlanmeRedis().then(redis => redis.get(key)).catch(() => null)
+      : null;
     if (stored) {
       try {
         const articles = parseTranslation(stored, source);
@@ -95,7 +95,9 @@ async function translateArticles(source: ArticleText[], model: string): Promise<
     const text = payload.output?.flatMap(item => item.content ?? [])
       .filter(item => item.type === "output_text").map(item => item.text ?? "").join("") ?? "";
     const articles = parseTranslation(text, source);
-    if (redis) await redis.set(key, text, { ex: CACHE_SECONDS }).catch(() => undefined);
+    if (redisConfigured) {
+      await getPlanmeRedis().then(redis => redis.set(key, text, { EX: CACHE_SECONDS })).catch(() => undefined);
+    }
     remember(key, text);
     return articles;
   })();

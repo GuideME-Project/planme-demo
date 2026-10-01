@@ -23,7 +23,7 @@ assert.equal(
   "STORE_CONFIGURATION_MISSING",
 );
 assert.equal(
-  classifyPlanmeV3RuntimeError(new Error("UPSTASH_REQUEST_FAILED")),
+  classifyPlanmeV3RuntimeError(new Error("REDIS_REQUEST_FAILED")),
   "STORE_UNAVAILABLE",
 );
 assert.equal(
@@ -178,24 +178,5 @@ const internalEditRouteSource = readFileSync(
   "utf8",
 );
 assert.match(internalEditRouteSource, /ITINERARY_VERSION_CONFLICT/);
-
-const mcpSources = [
-  "apps/mcp/src/gpts-actions-api.ts",
-  "apps/mcp/src/planme-mcp.ts",
-  "apps/mcp/src/planme-web-client.ts",
-].map((path) => readFileSync(join(root, path), "utf8")).join("\n");
-assert.doesNotMatch(
-  mcpSources,
-  /createAiRecommendedItineraryResponse|searchPlanmePlaceCandidates|persistItineraryForDetailPage\(response/,
-);
-assert.match(mcpSources, /startPlanmeV3Itinerary/);
-assert.match(mcpSources, /const sourceId = invocationId \?\?/);
-assert.match(mcpSources, /createRequestSourceId\(sourceId, startInput\)/);
-assert.match(mcpSources, /createPlanmeIdempotencyKey\("gpts", requestSourceId\)/);
-assert.match(mcpSources, /createRecoveredSourceId\(sourceId, startInput\)/);
-assert.match(
-  mcpSources,
-  /`\$\{requestId\}:\$\{createMcpInputFingerprint\(startInput\)\}`/,
-);
 
 console.log("PlanME V3 API/browser boundary checks passed (V3-09). ");

@@ -1,5 +1,6 @@
 import { MagazineHttpError } from "@/lib/planme-magazine";
 import { fetchMagazinePage } from "@/lib/planme-magazine-server";
+import { isPlanmePublicApiRateLimited } from "@/lib/planme-search-rate-limit";
 
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
@@ -8,6 +9,9 @@ export async function GET(request: Request) {
   const language = params.get("language") ?? "ko";
   const skip = params.get("skip") ?? "0";
   const headers = { "Cache-Control": "no-store" };
+  if (await isPlanmePublicApiRateLimited("magazine", request)) {
+    return Response.json({ error: "RATE_LIMITED" }, { status: 429, headers: { ...headers, "Retry-After": "60" } });
+  }
   if ((countryCode !== null && !/^[A-Z]{2}$/.test(countryCode)) || (language !== "ko" && language !== "en") ||
     !/^\d+$/.test(skip) || !Number.isSafeInteger(Number(skip)) || Number(skip) > 1_000_000) {
     return Response.json({ error: "INVALID_REQUEST" }, { status: 400, headers });

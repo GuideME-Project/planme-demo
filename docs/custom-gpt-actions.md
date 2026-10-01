@@ -1,5 +1,7 @@
 # PlanME Custom GPT Actions Demo
 
+> **GUI-337 이후 안내**: GPT 연동용 MCP 앱(`apps/mcp`)은 AWS 이전과 함께 제거했습니다. 아래의 MCP·GPTs Actions 생성 흐름은 과거 기록이며 더 이상 배포되지 않습니다. 웹의 `/api/gpt/*`, `/api/internal/planme/v3/*` 경로는 호출자가 없어졌지만 삭제 여부는 별도로 결정합니다.
+
 ## 목적
 
 PlanME 일정 생성은 MCP 앱 배포에서 수행하고, Next.js 웹은 저장된 일정 상세 화면과 조회/공유 API를 제공하는 흐름을 검증합니다. GPT App은 `/mcp` 도구를 사용하고, GPTs Actions는 같은 MCP 앱 배포의 REST facade(`/api/gpt/*`)를 사용합니다.
@@ -37,7 +39,7 @@ PlanME 일정 생성은 MCP 앱 배포에서 수행하고, Next.js 웹은 저장
 
 ## 저장 정책
 
-MCP가 생성한 일정은 웹 저장 API(`POST /api/gpt/itineraries/preview-store`)에 먼저 저장되어야 합니다. 운영 환경에서는 Upstash Redis 환경변수가 없거나 저장에 실패하면 메모리 fallback으로 성공 처리하지 않습니다.
+MCP가 생성한 일정은 웹 저장 API(`POST /api/gpt/itineraries/preview-store`)에 먼저 저장되어야 합니다. 운영 환경에서는 Redis 접속 환경변수(`PLANME_REDIS_URL`)가 없거나 저장에 실패하면 메모리 fallback으로 성공 처리하지 않습니다.
 
 저장소에 없는 generated 상세 일정 ID(`/itinerary/generated-...`)는 고정 데모 일정으로 fallback하지 않고 404로 처리합니다.
 
@@ -47,7 +49,7 @@ MCP가 생성한 일정은 웹 저장 API(`POST /api/gpt/itineraries/preview-sto
 PlanME 일정이 준비됐습니다.
 CarryME를 사용하면 짐은 목적지로 이동하고 여행자는 바로 일정으로 이동할 수 있어요.
 
-[상세 일정 열기](https://planme-demo.vercel.app/itinerary/generated-...)
+[상세 일정 열기](https://www.planme.kr/itinerary/generated-...)
 ```
 
 ChatGPT Builder 미리보기에서는 외부 Markdown 이미지가 안정적으로 인라인 렌더링되지 않습니다. 기본 응답은 짧은 요약과 상세 일정 링크를 우선합니다. `previewMarkdown`과 `ogImageUrl`은 이미지 미리보기를 지원하는 클라이언트나 별도 테스트용 보조 메타데이터로만 사용합니다.

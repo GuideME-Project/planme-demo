@@ -1,9 +1,9 @@
-import { Redis } from "@upstash/redis";
 import {
   getPlanmeItineraryById,
   type PlanmeItinerary,
   type PlanmeTransportMode,
 } from "@planme/core";
+import { evalPlanmeScript, getPlanmeRedis, getPlanmeRedisUrl } from "./planme-redis";
 
 type StoredPreviewItineraryV1 = {
   version: 1;
@@ -63,7 +63,7 @@ const memoryPreviewStore = new Map<string, StoredPreviewItinerary>();
 const memoryPreviewLocks = new Map<string, { expiresAt: number; owner: string }>();
 const memoryRateLimits = new Map<string, { count: number; expiresAt: number }>();
 let cachedPreviewItineraryStore: PreviewItineraryStore | null = null;
-let warnedMissingUpstashEnv = false;
+let warnedMissingRedisEnv = false;
 
 /** Finds a PlanME itinerary, preferring persisted GPT data before deterministic fallbacks. */
 export async function findPlanmeItineraryForDetailPage(id: string): Promise<PlanmeItinerary | null> {
@@ -181,45 +181,34 @@ function getPreviewItineraryStore(): PreviewItineraryStore {
     return cachedPreviewItineraryStore;
   }
 
-  const upstashUrl = process.env.UPSTASH_REDIS_REST_URL?.trim();
-  const upstashToken = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
-
-  if (upstashUrl && upstashToken) {
-    cachedPreviewItineraryStore = new UpstashPreviewItineraryStore(upstashUrl, upstashToken);
+  if (getPlanmeRedisUrl()) {
+    cachedPreviewItineraryStore = new RedisPreviewItineraryStore();
     return cachedPreviewItineraryStore;
   }
 
   if (isProductionRuntime()) {
-    if (!warnedMissingUpstashEnv) {
-      console.error("PlanME preview store requires Upstash env vars in production.");
-      warnedMissingUpstashEnv = true;
+    if (!warnedMissingRedisEnv) {
+      console.error("PlanME preview store requires PLANME_REDIS_URL in production.");
+      warnedMissingRedisEnv = true;
     }
 
-    throw new Error("UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are required.");
+    throw new Error("PLANME_REDIS_URL is required.");
   }
 
-  if (!warnedMissingUpstashEnv) {
-    console.warn("PlanME preview store is using local memory because Upstash env vars are missing.");
-    warnedMissingUpstashEnv = true;
+  if (!warnedMissingRedisEnv) {
+    console.warn("PlanME preview store is using local memory because PLANME_REDIS_URL is missing.");
+    warnedMissingRedisEnv = true;
   }
 
   cachedPreviewItineraryStore = new MemoryPreviewItineraryStore();
   return cachedPreviewItineraryStore;
 }
 
-class UpstashPreviewItineraryStore implements PreviewItineraryStore {
-  private readonly redis: Redis;
-
-  /** Creates a REST Redis-backed preview itinerary store. */
-  constructor(url: string, token: string) {
-    this.redis = new Redis({ token, url });
-  }
-
+class RedisPreviewItineraryStore implements PreviewItineraryStore {
   /** Reads and validates either storage version. */
   async getRecord(id: string) {
-    const rawPayload = await this.redis.get<StoredPreviewItinerary | string>(
-      createPreviewStoreKey(id),
-    );
+    const redis = await getPlanmeRedis();
+    const rawPayload = await redis.get(createPreviewStoreKey(id));
 
     return parseStoredPreviewItinerary(rawPayload);
   }
@@ -228,8 +217,10 @@ class UpstashPreviewItineraryStore implements PreviewItineraryStore {
   async saveDraft(itinerary: PlanmeItinerary, ttlSeconds: number) {
     const payload = createStoredPreviewItineraryV1(itinerary, ttlSeconds);
 
-    await this.redis.set(createPreviewStoreKey(itinerary.id), JSON.stringify(payload), {
-      ex: ttlSeconds,
+    const redis = await getPlanmeRedis();
+
+    await redis.set(createPreviewStoreKey(itinerary.id), JSON.stringify(payload), {
+      EX: ttlSeconds,
     });
 
     return {
@@ -250,7 +241,7 @@ class UpstashPreviewItineraryStore implements PreviewItineraryStore {
       ttlSeconds,
       expectedRevision + 1,
     );
-    const result = (await this.redis.eval(
+    const result = await evalPlanmeScript<number>(
       `
         local current = redis.call("GET", KEYS[1])
         local actualRevision = 0
@@ -266,7 +257,7 @@ class UpstashPreviewItineraryStore implements PreviewItineraryStore {
       `,
       [createPreviewStoreKey(itinerary.id)],
       [expectedRevision, JSON.stringify(payload), ttlSeconds],
-    )) as number;
+    );
 
     return result === 1
       ? {
@@ -279,9 +270,10 @@ class UpstashPreviewItineraryStore implements PreviewItineraryStore {
 
   /** Acquires a Redis calculation lock with SET NX EX. */
   async acquireLock(id: string, owner: string, ttlSeconds: number) {
-    const result = await this.redis.set(createPreviewLockKey(id), owner, {
-      ex: ttlSeconds,
-      nx: true,
+    const redis = await getPlanmeRedis();
+    const result = await redis.set(createPreviewLockKey(id), owner, {
+      EX: ttlSeconds,
+      NX: true,
     });
 
     return result === "OK";
@@ -289,7 +281,7 @@ class UpstashPreviewItineraryStore implements PreviewItineraryStore {
 
   /** Deletes a Redis lock only if the request still owns it. */
   async releaseLock(id: string, owner: string) {
-    await this.redis.eval(
+    await evalPlanmeScript<number>(
       `
         if redis.call("GET", KEYS[1]) == ARGV[1] then
           return redis.call("DEL", KEYS[1])
@@ -301,10 +293,10 @@ class UpstashPreviewItineraryStore implements PreviewItineraryStore {
     );
   }
 
-  /** Counts requests in a Redis-backed fixed window shared by Vercel instances. */
+  /** Counts requests in a Redis-backed fixed window shared by all ECS tasks. */
   async consumeRateLimit(key: string, limit: number, windowSeconds: number) {
     const redisKey = createPreviewRateKey(key);
-    const count = (await this.redis.eval(
+    const count = await evalPlanmeScript<number>(
       `
         local current = redis.call("INCR", KEYS[1])
         if current == 1 then
@@ -314,7 +306,7 @@ class UpstashPreviewItineraryStore implements PreviewItineraryStore {
       `,
       [redisKey],
       [windowSeconds],
-    )) as number;
+    );
 
     return count <= limit;
   }
