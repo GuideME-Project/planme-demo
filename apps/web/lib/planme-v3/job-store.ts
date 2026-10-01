@@ -1,8 +1,8 @@
-import { Redis } from "@upstash/redis";
 import type {
   ItineraryRevision,
   JsonValue,
 } from "@planme/core";
+import { evalPlanmeScript, getPlanmeRedis } from "../planme-redis";
 
 export type ItineraryPhase =
   | "queued"
@@ -116,13 +116,11 @@ export function createMemoryPlanmeV3JobStore(options: {
   return new MemoryPlanmeV3JobStore(options.now, options.createId);
 }
 
-export function createUpstashPlanmeV3JobStore(input: {
-  url: string;
-  token: string;
+export function createRedisPlanmeV3JobStore(input: {
   now?: () => number;
   createId?: () => string;
-}): PlanmeV3JobStore {
-  return new UpstashPlanmeV3JobStore(input.url, input.token, input.now, input.createId);
+} = {}): PlanmeV3JobStore {
+  return new RedisPlanmeV3JobStore(input.now, input.createId);
 }
 
 class MemoryPlanmeV3JobStore implements PlanmeV3JobStore {
@@ -381,18 +379,11 @@ class MemoryPlanmeV3JobStore implements PlanmeV3JobStore {
   }
 }
 
-class UpstashPlanmeV3JobStore implements PlanmeV3JobStore {
-  private readonly redis: Redis;
+class RedisPlanmeV3JobStore implements PlanmeV3JobStore {
   private readonly now: () => number;
   private readonly createId: () => string;
 
-  constructor(
-    url: string,
-    token: string,
-    now = Date.now,
-    createId = createItineraryId,
-  ) {
-    this.redis = new Redis({ url, token });
+  constructor(now = Date.now, createId = createItineraryId) {
     this.now = now;
     this.createId = createId;
   }
@@ -412,7 +403,7 @@ class UpstashPlanmeV3JobStore implements PlanmeV3JobStore {
     let result: string | null = null;
 
     try {
-      result = (await this.redis.eval(
+      result = await evalPlanmeScript<string>(
         `
           local current = redis.call("GET", KEYS[1])
           if current then
@@ -433,9 +424,9 @@ class UpstashPlanmeV3JobStore implements PlanmeV3JobStore {
           toExpiryEpochSeconds(meta.expiresAt),
           itineraryId,
         ],
-      )) as string;
+      );
     } catch {
-      await throwClassifiedUpstashFailure(this.redis);
+      await throwClassifiedRedisFailure();
     }
 
     if (result === null) {
@@ -464,7 +455,7 @@ class UpstashPlanmeV3JobStore implements PlanmeV3JobStore {
       return { status: "not_found" };
     }
     const updatedAt = new Date(this.now()).toISOString();
-    const result = (await this.redis.eval(
+    const result = await evalPlanmeScript<string>(
       `
         local current = redis.call("GET", KEYS[1])
         if not current then return "not_found" end
@@ -484,7 +475,7 @@ class UpstashPlanmeV3JobStore implements PlanmeV3JobStore {
       `,
       [metaKey(input.itineraryId)],
       [input.baseRevision, updatedAt, toExpiryEpochSeconds(current.expiresAt)],
-    )) as string;
+    );
 
     if (
       result === "not_found" ||
@@ -501,9 +492,10 @@ class UpstashPlanmeV3JobStore implements PlanmeV3JobStore {
     revision: number,
     owner: string,
   ) {
-    const result = await this.redis.set(lockKey(itineraryId, revision), owner, {
-      ex: PHASE_LOCK_TTL_SECONDS,
-      nx: true,
+    const redis = await getPlanmeRedis();
+    const result = await redis.set(lockKey(itineraryId, revision), owner, {
+      EX: PHASE_LOCK_TTL_SECONDS,
+      NX: true,
     });
     return result === "OK";
   }
@@ -513,7 +505,7 @@ class UpstashPlanmeV3JobStore implements PlanmeV3JobStore {
     revision: number,
     owner: string,
   ) {
-    await this.redis.eval(
+    await evalPlanmeScript<number>(
       `if redis.call("GET", KEYS[1]) == ARGV[1] then return redis.call("DEL", KEYS[1]) end return 0`,
       [lockKey(itineraryId, revision)],
       [owner],
@@ -526,7 +518,7 @@ class UpstashPlanmeV3JobStore implements PlanmeV3JobStore {
       return false;
     }
     const updatedAt = new Date(this.now()).toISOString();
-    const result = (await this.redis.eval(
+    const result = await evalPlanmeScript<number>(
       `
         local current = redis.call("GET", KEYS[1])
         if not current then return 0 end
@@ -556,7 +548,7 @@ class UpstashPlanmeV3JobStore implements PlanmeV3JobStore {
         command.routeCursor === undefined ? "" : command.routeCursor,
         command.lockOwner ?? "",
       ],
-    )) as number;
+    );
     return result === 1;
   }
 
@@ -565,9 +557,8 @@ class UpstashPlanmeV3JobStore implements PlanmeV3JobStore {
     revision: number,
     phase: ItineraryPhase,
   ) {
-    const value = await this.redis.get<PhaseCheckpoint | string>(
-      checkpointKey(itineraryId, revision, phase),
-    );
+    const redis = await getPlanmeRedis();
+    const value = await redis.get(checkpointKey(itineraryId, revision, phase));
     return parseStored<PhaseCheckpoint>(value);
   }
 
@@ -583,7 +574,7 @@ class UpstashPlanmeV3JobStore implements PlanmeV3JobStore {
     if (!meta) {
       return false;
     }
-    const result = (await this.redis.eval(
+    const result = await evalPlanmeScript<number>(
       `
         local current = redis.call("GET", KEYS[1])
         if not current then return 0 end
@@ -617,7 +608,7 @@ class UpstashPlanmeV3JobStore implements PlanmeV3JobStore {
         new Date(this.now()).toISOString(),
         input.lockOwner ?? "",
       ],
-    )) as number;
+    );
     return result === 1;
   }
 
@@ -626,7 +617,7 @@ class UpstashPlanmeV3JobStore implements PlanmeV3JobStore {
     if (!meta) {
       return false;
     }
-    const result = (await this.redis.eval(
+    const result = await evalPlanmeScript<number>(
       `
         local current = redis.call("GET", KEYS[1])
         if not current then return 0 end
@@ -645,7 +636,7 @@ class UpstashPlanmeV3JobStore implements PlanmeV3JobStore {
         new Date(this.now()).toISOString(),
         toExpiryEpochSeconds(meta.expiresAt),
       ],
-    )) as number;
+    );
     return result === 1;
   }
 
@@ -662,29 +653,28 @@ class UpstashPlanmeV3JobStore implements PlanmeV3JobStore {
   }
 
   async getRevision(itineraryId: string, revision: number) {
-    const value = await this.redis.get<ItineraryRevision | string>(
-      revisionKey(itineraryId, revision),
-    );
+    const redis = await getPlanmeRedis();
+    const value = await redis.get(revisionKey(itineraryId, revision));
     return parseStored<ItineraryRevision>(value);
   }
 
   private async readMeta(itineraryId: string) {
-    const value = await this.redis.get<ItineraryJobMeta | string>(
-      metaKey(itineraryId),
-    );
+    const redis = await getPlanmeRedis();
+    const value = await redis.get(metaKey(itineraryId));
     return parseStored<ItineraryJobMeta>(value);
   }
 }
 
-async function throwClassifiedUpstashFailure(redis: Redis): Promise<never> {
+async function throwClassifiedRedisFailure(): Promise<never> {
   try {
+    const redis = await getPlanmeRedis();
     await redis.ping();
   } catch {
     throw new Error("PLANME_V3_REDIS_CONNECTION_FAILED");
   }
 
   try {
-    await redis.eval("return 1", [], []);
+    await evalPlanmeScript<number>("return 1", [], []);
   } catch {
     throw new Error("PLANME_V3_REDIS_SCRIPTING_FAILED");
   }
@@ -711,11 +701,8 @@ function createGenerationMeta(
   };
 }
 
-function parseStored<Value>(value: Value | string | null): Value | null {
-  if (!value) {
-    return null;
-  }
-  return typeof value === "string" ? (JSON.parse(value) as Value) : value;
+function parseStored<Value>(value: string | null): Value | null {
+  return value ? (JSON.parse(value) as Value) : null;
 }
 
 function clone<Value>(value: Value): Value {

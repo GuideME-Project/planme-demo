@@ -8,6 +8,7 @@ import {
   consumePlanmeSearchRateLimit,
   getOrCreatePlanmeSearchSessionId,
 } from "@/lib/planme-search-rate-limit";
+import { getPlanmeWebOrigin } from "@/lib/planme-web-origin";
 import { isPlanmeProgressPreviewEnabled } from "@/lib/planme-progress-preview";
 import { getPlanmeV3Storage, getPlanmeV3Runtime } from "@/lib/planme-v3/runtime";
 import { resolvePlanmeGlobalTrip, type PlanmeGlobalTripPreparation } from "@/lib/planme-global-trip";
@@ -198,7 +199,7 @@ export async function loadPlanmeInlineItineraryAction(id: string): Promise<Planm
   const snapshot = await getPlanmeV3Storage().jobStore.getJob(id);
   if (!snapshot) return null;
   const revision = snapshot.activeRevision;
-  const origin = process.env.PLANME_WEB_ORIGIN?.trim() || "https://planme-demo.vercel.app";
+  const origin = getPlanmeWebOrigin();
   const shareUrl = new URL(`/itinerary/${encodeURIComponent(id)}`, origin).toString();
   return {
     itineraryId: id,

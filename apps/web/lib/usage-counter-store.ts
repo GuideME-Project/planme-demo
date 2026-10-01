@@ -1,5 +1,5 @@
-import { Redis } from "@upstash/redis";
 import type { PlanmeUsageCounterEvent } from "@planme/core";
+import { getPlanmeRedis, getPlanmeRedisUrl } from "./planme-redis";
 
 type UsageCounterStore = {
   increment(event: PlanmeUsageCounterEvent, amount?: number): Promise<void>;
@@ -21,31 +21,25 @@ export async function recordWebPlanmeUsage(
   await getUsageCounterStore().increment(event, amount);
 }
 
-class UpstashUsageCounterStore implements UsageCounterStore {
-  private readonly redis: Redis;
-
-  /**
-   * Creates a Redis-backed daily usage counter store.
-   */
-  constructor(url: string, token: string) {
-    this.redis = new Redis({ token, url });
-  }
-
+class RedisUsageCounterStore implements UsageCounterStore {
   /**
    * Increments a daily counter and keeps the key expiring automatically.
    */
   async increment(event: PlanmeUsageCounterEvent, amount = 1): Promise<void> {
     const key = createUsageCounterKey(event);
-    const pipeline = this.redis.pipeline();
-    pipeline.incrby(key, amount);
-    pipeline.expire(key, USAGE_COUNTER_TTL_SECONDS);
-    await pipeline.exec();
+    const redis = await getPlanmeRedis();
+
+    await redis
+      .multi()
+      .incrBy(key, amount)
+      .expire(key, USAGE_COUNTER_TTL_SECONDS)
+      .exec();
   }
 }
 
 class MemoryUsageCounterStore implements UsageCounterStore {
   /**
-   * Tracks counters locally when Upstash env vars are not configured.
+   * Tracks counters locally when PLANME_REDIS_URL is not configured.
    */
   async increment(event: PlanmeUsageCounterEvent, amount = 1): Promise<void> {
     const key = createUsageCounterKey(event);
@@ -55,20 +49,16 @@ class MemoryUsageCounterStore implements UsageCounterStore {
 }
 
 /**
- * Selects Upstash in configured runtimes and memory in local development.
+ * Selects Redis in configured runtimes and memory in local development.
  */
 function getUsageCounterStore(): UsageCounterStore {
   if (cachedUsageCounterStore) {
     return cachedUsageCounterStore;
   }
 
-  const upstashUrl = process.env.UPSTASH_REDIS_REST_URL?.trim();
-  const upstashToken = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
-
-  cachedUsageCounterStore =
-    upstashUrl && upstashToken
-      ? new UpstashUsageCounterStore(upstashUrl, upstashToken)
-      : new MemoryUsageCounterStore();
+  cachedUsageCounterStore = getPlanmeRedisUrl()
+    ? new RedisUsageCounterStore()
+    : new MemoryUsageCounterStore();
 
   return cachedUsageCounterStore;
 }

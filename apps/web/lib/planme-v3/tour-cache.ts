@@ -1,8 +1,8 @@
-import { Redis } from "@upstash/redis";
 import type {
   AllowedTourContentTypeId,
   TourPlaceSnapshot,
 } from "@planme/core";
+import { getPlanmeRedis } from "../planme-redis";
 
 export type TourCacheScope = {
   regionCode: string;
@@ -47,11 +47,8 @@ export function createMemoryPlanmeV3TourCache(options: {
   return new MemoryPlanmeV3TourCache(options.now);
 }
 
-export function createUpstashPlanmeV3TourCache(input: {
-  url: string;
-  token: string;
-}): PlanmeV3TourCache {
-  return new UpstashPlanmeV3TourCache(input.url, input.token);
+export function createRedisPlanmeV3TourCache(): PlanmeV3TourCache {
+  return new RedisPlanmeV3TourCache();
 }
 
 export async function loadTourCandidates(input: {
@@ -147,13 +144,7 @@ class MemoryPlanmeV3TourCache implements PlanmeV3TourCache {
   }
 }
 
-class UpstashPlanmeV3TourCache implements PlanmeV3TourCache {
-  private readonly redis: Redis;
-
-  constructor(url: string, token: string) {
-    this.redis = new Redis({ url, token });
-  }
-
+class RedisPlanmeV3TourCache implements PlanmeV3TourCache {
   async readFresh(scope: TourCacheScope): Promise<TourCacheReadResult> {
     return this.read(cacheKey(scope, "fresh"), "fresh");
   }
@@ -175,16 +166,18 @@ class UpstashPlanmeV3TourCache implements PlanmeV3TourCache {
     let lastGoodStored = false;
 
     try {
-      const pipeline = this.redis.pipeline();
-      pipeline.set(cacheKey(scope, "fresh"), serialized, {
-        ex: FRESH_TTL_MS / 1_000,
-      });
-      pipeline.set(cacheKey(scope, "last-good"), serialized, {
-        ex: LAST_GOOD_TTL_MS / 1_000,
-      });
-      const [freshResult, lastGoodResult] = await pipeline.exec();
-      freshStored = freshResult === "OK";
-      lastGoodStored = lastGoodResult === "OK";
+      const redis = await getPlanmeRedis();
+      const [freshResult, lastGoodResult] = await redis
+        .multi()
+        .set(cacheKey(scope, "fresh"), serialized, {
+          EX: FRESH_TTL_MS / 1_000,
+        })
+        .set(cacheKey(scope, "last-good"), serialized, {
+          EX: LAST_GOOD_TTL_MS / 1_000,
+        })
+        .exec();
+      freshStored = String(freshResult) === "OK";
+      lastGoodStored = String(lastGoodResult) === "OK";
     } catch {
       freshStored = false;
       lastGoodStored = false;
@@ -197,13 +190,12 @@ class UpstashPlanmeV3TourCache implements PlanmeV3TourCache {
     key: string,
     cacheStatus: "fresh" | "stale",
   ): Promise<TourCacheReadResult> {
-    const value = await this.redis.get<TourPlaceSnapshot[] | string>(key);
+    const redis = await getPlanmeRedis();
+    const value = await redis.get(key);
     if (value === null) {
       return { status: "miss" };
     }
-    const places = typeof value === "string"
-      ? (JSON.parse(value) as TourPlaceSnapshot[])
-      : value;
+    const places = JSON.parse(value) as TourPlaceSnapshot[];
     return { status: "hit", places: withCacheStatus(places, cacheStatus) };
   }
 }

@@ -1,6 +1,7 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import type { PlanmeItinerary } from "@planme/core";
+import { createClientAddressHash } from "@/lib/planme-client-ip";
 import { validateEditedItineraryPlaces } from "@/lib/edited-itinerary-validator";
 import {
   ROUTE_FINALIZATION_TIMEOUT_MS,
@@ -179,7 +180,5 @@ function isMatchingPlanmeItinerary(
 
 /** Hashes the request source so rate-limit storage never contains a raw client address. */
 function createRequestSourceHash(request: Request) {
-  const source = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
-
-  return createHash("sha256").update(source).digest("hex").slice(0, 16);
+  return createClientAddressHash(request);
 }

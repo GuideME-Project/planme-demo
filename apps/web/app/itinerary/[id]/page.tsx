@@ -7,6 +7,7 @@ import { notFound } from "next/navigation";
 import { ItineraryDashboard } from "@/components/itinerary/ItineraryDashboard";
 import { PlanmeGenerationProgress } from "@/components/planme-search/PlanmeGenerationProgress";
 import { createV3DashboardItinerary } from "@planme/core";
+import { getPlanmeWebOrigin } from "@/lib/planme-web-origin";
 import { isPlanmeProgressPreviewEnabled } from "@/lib/planme-progress-preview";
 import { createRouteFinalizationToken } from "@/lib/route-finalization-token";
 import { getPlanmeV3Storage } from "@/lib/planme-v3/runtime";
@@ -82,7 +83,7 @@ export default async function ItineraryPage({ params }: ItineraryPageProps) {
       notFound();
     }
     const revision = snapshot.activeRevision;
-    const pageOrigin = process.env.PLANME_WEB_ORIGIN?.trim() || "https://planme-demo.vercel.app";
+    const pageOrigin = getPlanmeWebOrigin();
     if (!revision) {
       if (isPlanmeProgressPreviewEnabled()) {
         return (

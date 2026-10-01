@@ -39,7 +39,7 @@ async function main() {
     assert.equal(nextResponse.status, 200);
     const nextPage = parseMagazinePage(await nextResponse.text(), "KR");
     assert.ok(nextPage.list.some(article => article.contentLanguage === "ko"));
-    assert.ok(!process.env.UPSTASH_REDIS_REST_URL, "Run this check without shared Redis to isolate cache-miss verification");
+    assert.ok(!process.env.PLANME_REDIS_URL, "Run this check without shared Redis to isolate cache-miss verification");
     await assert.rejects(localizeMagazinePage(nextPage, "en"), /configuration missing/);
   } finally {
     if (key !== undefined) process.env.OPENAI_API_KEY = key;

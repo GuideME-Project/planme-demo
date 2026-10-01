@@ -25,7 +25,7 @@ async function main() {
   await assertSessionsAreIndependent();
   await assertConcurrentRequestsAreAtomic();
   await assertRateLimitStorageFailurePropagates();
-  assertProductionRequiresUpstash();
+  assertProductionRequiresRedis();
   assertLuaChecksBeforeMutating();
   assertActionConsumesBeforeV3Start();
 
@@ -187,7 +187,7 @@ async function assertRateLimitStorageFailurePropagates() {
   );
 }
 
-function assertProductionRequiresUpstash() {
+function assertProductionRequiresRedis() {
   assert.throws(
     () => createPlanmeSearchRateLimitStore({ isProduction: true }),
     /PLANME_SEARCH_RATE_LIMIT_REDIS_CONFIGURATION_MISSING/,

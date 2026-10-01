@@ -23,8 +23,8 @@ const PHASES: ItineraryPhase[] = [
 ];
 
 async function main() {
-  assertUpstashLuaKeyContract();
-  assertUpstashTourCachePipelineContract();
+  assertRedisLuaKeyContract();
+  assertRedisTourCacheTransactionContract();
   let now = Date.parse("2026-07-14T00:00:00.000Z");
   let sequence = 0;
   const store = createMemoryPlanmeV3JobStore({
@@ -245,37 +245,37 @@ async function main() {
   );
 }
 
-function assertUpstashTourCachePipelineContract() {
+function assertRedisTourCacheTransactionContract() {
   const source = readFileSync(
     join(import.meta.dirname, "../lib/planme-v3/tour-cache.ts"),
     "utf8",
   );
-  const upstashSource = source.slice(
-    source.indexOf("class UpstashPlanmeV3TourCache"),
+  const redisSource = source.slice(
+    source.indexOf("class RedisPlanmeV3TourCache"),
   );
-  const saveSource = upstashSource.slice(
-    upstashSource.indexOf("async saveSuccessfulResponse"),
-    upstashSource.indexOf("private async read"),
+  const saveSource = redisSource.slice(
+    redisSource.indexOf("async saveSuccessfulResponse"),
+    redisSource.indexOf("private async read"),
   );
-  assert.match(saveSource, /const pipeline = this\.redis\.pipeline\(\)/);
-  assert.equal(saveSource.match(/pipeline\.set\(/g)?.length, 2);
-  assert.equal(saveSource.match(/pipeline\.exec\(\)/g)?.length, 1);
-  assert.doesNotMatch(saveSource, /await this\.redis\.set\(/);
+  assert.match(saveSource, /\.multi\(\)/);
+  assert.equal(saveSource.match(/\.set\(/g)?.length, 2);
+  assert.equal(saveSource.match(/\.exec\(\)/g)?.length, 1);
+  assert.doesNotMatch(saveSource, /await redis\.set\(/);
 }
 
-function assertUpstashLuaKeyContract() {
+function assertRedisLuaKeyContract() {
   const source = readFileSync(
     join(import.meta.dirname, "../lib/planme-v3/job-store.ts"),
     "utf8",
   );
-  const upstashSource = source.slice(source.indexOf("class UpstashPlanmeV3JobStore"));
-  const savePhaseSource = upstashSource.slice(
-    upstashSource.indexOf("async savePhase"),
-    upstashSource.indexOf("async getCheckpoint"),
+  const redisSource = source.slice(source.indexOf("class RedisPlanmeV3JobStore"));
+  const savePhaseSource = redisSource.slice(
+    redisSource.indexOf("async savePhase"),
+    redisSource.indexOf("async getCheckpoint"),
   );
-  const activateSource = upstashSource.slice(
-    upstashSource.indexOf("async activate"),
-    upstashSource.indexOf("async fail"),
+  const activateSource = redisSource.slice(
+    redisSource.indexOf("async activate"),
+    redisSource.indexOf("async fail"),
   );
   assert.match(savePhaseSource, /GET", KEYS\[3\]/);
   assert.match(savePhaseSource, /lockKey\(command\.itineraryId, command\.revision\)/);

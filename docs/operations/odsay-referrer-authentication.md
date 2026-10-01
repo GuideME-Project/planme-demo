@@ -1,4 +1,6 @@
 # ODsay Referrer 인증 운영 결정
+> **AWS 이전 안내(GUI-337)**: 운영 도메인은 `planme.kr`로 이전합니다. ODsay 콘솔의 Web URI에 `https://planme.kr`을 등록해야 하며, 등록 전에는 `ApiKeyAuthFailed`가 발생할 수 있습니다. 아래 본문의 Vercel 관련 설명은 이전 환경 기준의 과거 기록입니다.
+
 
 - 결정 상태: 적용 예정
 - 확인일: 2026-07-14

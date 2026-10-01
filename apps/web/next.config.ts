@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import type { NextConfig } from "next";
 
 const devAllowedOrigin =
@@ -6,6 +7,9 @@ const devAllowedOrigin =
     : undefined;
 
 const nextConfig: NextConfig = {
+  // Docker image runs the traced standalone server; the monorepo root is traced so @planme/core is included.
+  output: "standalone",
+  outputFileTracingRoot: resolve(import.meta.dirname, "../.."),
   transpilePackages: ["@planme/core"],
   allowedDevOrigins: devAllowedOrigin
     ? [devAllowedOrigin.replace(/:\d+$/, "")]

@@ -77,8 +77,7 @@ async function main() {
     RouteFinalizationTimeoutError,
   );
 
-  delete process.env.UPSTASH_REDIS_REST_URL;
-  delete process.env.UPSTASH_REDIS_REST_TOKEN;
+  delete process.env.PLANME_REDIS_URL;
   const store = await import("../lib/preview-itinerary-store");
   const savedDraft = await store.savePreviewItinerary(itinerary);
   const draftRecord = await store.getPreviewItineraryRecordById(savedDraft.itineraryId);

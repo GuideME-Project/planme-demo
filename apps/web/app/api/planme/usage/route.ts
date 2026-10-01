@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { PlanmeUsageCounterEvent } from "@planme/core";
+import { isPlanmePublicApiRateLimited } from "../../../../lib/planme-search-rate-limit";
 import { recordWebPlanmeUsage } from "../../../../lib/usage-counter-store";
 
 const usageEvents: PlanmeUsageCounterEvent[] = [
@@ -20,6 +21,13 @@ const usageEvents: PlanmeUsageCounterEvent[] = [
  * Records a PlanME usage event from browser-only provider flows.
  */
 export async function POST(request: Request) {
+  if (await isPlanmePublicApiRateLimited("usage", request)) {
+    return NextResponse.json(
+      { error: "Too many PlanME usage events." },
+      { status: 429, headers: { "Retry-After": "60" } },
+    );
+  }
+
   const body = (await request.json().catch(() => null)) as {
     amount?: number;
     event?: PlanmeUsageCounterEvent;

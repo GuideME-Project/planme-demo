@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { Redis } from "@upstash/redis";
+import { createClientAddressHash } from "./planme-client-ip";
+import { evalPlanmeScript, getPlanmeRedisUrl } from "./planme-redis";
 
 export const PLANME_SEARCH_SESSION_COOKIE = "planme_search_session";
 export const PLANME_SEARCH_MINUTE_LIMIT = 2;
@@ -52,8 +53,7 @@ export type PlanmeSearchRateLimitKeys = {
 
 type PlanmeSearchRateLimitStoreOptions = {
   isProduction: boolean;
-  token?: string;
-  url?: string;
+  redisConfigured?: boolean;
 };
 
 type PlanmeSearchRateLimitGlobal = typeof globalThis & {
@@ -121,17 +121,62 @@ export const PLANME_AUTOCOMPLETE_LIMITS = { minute: 30, day: 200 };
 export const PLANME_AUTOCOMPLETE_GLOBAL_LIMITS = { minute: 300, day: 3000 };
 
 export async function consumePlanmeAutocompleteRateLimit(sessionId: string) {
-  const nowMs = Date.now();
-  const store = getPlanmeSearchRateLimitStore();
-  for (const [subject, limits] of [
+  return consumeNamespacedRateLimit("autocomplete-rate", [
     [sessionId, PLANME_AUTOCOMPLETE_LIMITS],
     ["global", PLANME_AUTOCOMPLETE_GLOBAL_LIMITS],
-  ] as const) {
+  ]);
+}
+
+// Per-client-address demo defaults for public read/write endpoints; tune with real traffic.
+export const PLANME_PUBLIC_API_LIMITS = {
+  magazine: { minute: 60, day: 2000 },
+  places: { minute: 30, day: 500 },
+  usage: { minute: 120, day: 5000 },
+} as const;
+
+/** Limits one public endpoint per hashed client address using the shared Redis counters. */
+export async function consumePlanmePublicApiRateLimit(
+  endpoint: keyof typeof PLANME_PUBLIC_API_LIMITS,
+  clientAddressHash: string,
+) {
+  return consumeNamespacedRateLimit(`api-rate:${endpoint}`, [
+    [clientAddressHash, PLANME_PUBLIC_API_LIMITS[endpoint]],
+  ]);
+}
+
+/**
+ * Returns true when the caller exceeded the endpoint limit.
+ * Storage failures are logged and allowed so a Redis outage cannot take public pages down.
+ */
+export async function isPlanmePublicApiRateLimited(
+  endpoint: keyof typeof PLANME_PUBLIC_API_LIMITS,
+  request: Request,
+) {
+  try {
+    const decision = await consumePlanmePublicApiRateLimit(endpoint, createClientAddressHash(request));
+
+    return !decision.allowed;
+  } catch (error) {
+    console.error("PLANME_PUBLIC_API_RATE_LIMIT_FAILED", {
+      endpoint,
+      message: error instanceof Error ? error.message : "unknown error",
+    });
+    return false;
+  }
+}
+
+async function consumeNamespacedRateLimit(
+  namespace: string,
+  subjects: ReadonlyArray<readonly [string, { minute: number; day: number }]>,
+) {
+  const nowMs = Date.now();
+  const store = getPlanmeSearchRateLimitStore();
+  for (const [subject, limits] of subjects) {
     const keys = createPlanmeSearchRateLimitKeys(subject, nowMs);
     const result = await store.consume({
       ...keys,
-      dayKey: keys.dayKey.replace(PLANME_SEARCH_RATE_KEY_PREFIX, "planme:autocomplete-rate"),
-      minuteKey: keys.minuteKey.replace(PLANME_SEARCH_RATE_KEY_PREFIX, "planme:autocomplete-rate"),
+      dayKey: keys.dayKey.replace(PLANME_SEARCH_RATE_KEY_PREFIX, `planme:${namespace}`),
+      minuteKey: keys.minuteKey.replace(PLANME_SEARCH_RATE_KEY_PREFIX, `planme:${namespace}`),
       nowMs,
       limits,
     });
@@ -158,16 +203,13 @@ export function createPlanmeSearchRateLimitKeys(sessionId: string, nowMs: number
 }
 
 /**
- * Selects Upstash in production and an equivalent process-local store in local runtimes.
+ * Selects Redis when configured, otherwise an equivalent process-local store outside production.
  */
 export function createPlanmeSearchRateLimitStore(
   options: PlanmeSearchRateLimitStoreOptions,
 ): PlanmeSearchRateLimitStore {
-  const url = options.url?.trim();
-  const token = options.token?.trim();
-
-  if (url && token) {
-    return new UpstashPlanmeSearchRateLimitStore(url, token);
+  if (options.redisConfigured) {
+    return new RedisPlanmeSearchRateLimitStore();
   }
   if (options.isProduction) {
     throw new Error("PLANME_SEARCH_RATE_LIMIT_REDIS_CONFIGURATION_MISSING");
@@ -211,15 +253,9 @@ export const PLANME_SEARCH_RATE_LIMIT_LUA = `
   return {1, ""}
 `;
 
-class UpstashPlanmeSearchRateLimitStore implements PlanmeSearchRateLimitStore {
-  private readonly redis: Redis;
-
-  constructor(url: string, token: string) {
-    this.redis = new Redis({ token, url });
-  }
-
+class RedisPlanmeSearchRateLimitStore implements PlanmeSearchRateLimitStore {
   async consume(input: PlanmeSearchRateLimitInput): Promise<PlanmeSearchRateLimitDecision> {
-    const result = (await this.redis.eval(
+    const result = await evalPlanmeScript<[number, "" | "day" | "minute"]>(
       PLANME_SEARCH_RATE_LIMIT_LUA,
       [input.minuteKey, input.dayKey],
       [
@@ -228,7 +264,7 @@ class UpstashPlanmeSearchRateLimitStore implements PlanmeSearchRateLimitStore {
         input.minuteTtlSeconds,
         input.dayTtlSeconds,
       ],
-    )) as [number, "" | "day" | "minute"];
+    );
 
     return {
       allowed: result[0] === 1,
@@ -290,8 +326,6 @@ function getPlanmeSearchRateLimitStore() {
   }
 
   const isProduction = isProductionRuntime();
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
 
   if (!isProduction) {
     const developmentGlobal = globalThis as PlanmeSearchRateLimitGlobal;
@@ -303,8 +337,7 @@ function getPlanmeSearchRateLimitStore() {
 
   cachedPlanmeSearchRateLimitStore = createPlanmeSearchRateLimitStore({
     isProduction,
-    token,
-    url,
+    redisConfigured: getPlanmeRedisUrl() !== null,
   });
   return cachedPlanmeSearchRateLimitStore;
 }

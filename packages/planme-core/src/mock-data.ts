@@ -436,7 +436,7 @@ const demoItinerary: PlanmeItinerary = {
   region: "부산",
   duration: "1박 2일",
   summary: "인천공항 입국 후 부산 공연장으로 바로 향하는 CarryME 동선을 확인하세요.",
-  detailUrl: "https://planme-demo.vercel.app/itinerary/busan-bts-1d1n",
+  detailUrl: "https://planme.kr/itinerary/busan-bts-1d1n",
   carrymeSaving: "약 70분 절약 예상",
   totalDurationLabel: "약 6시간 30분 → 5시간 20분",
   savedDurationLabel: "약 70분 절약",

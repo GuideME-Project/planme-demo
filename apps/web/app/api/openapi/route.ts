@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getPlanmeWebOrigin } from "@/lib/planme-web-origin";
 
 /**
  * Returns the legacy OpenAPI document without web-side generation operations.
@@ -10,11 +11,11 @@ export function GET() {
       title: "PlanME Demo Actions API",
       version: "0.1.0",
       description:
-        "PlanME 일정 생성은 MCP 도구(recommend_planme_itinerary)에서만 지원합니다.",
+        "PlanME 웹은 일정 생성 API를 제공하지 않습니다.",
     },
     servers: [
       {
-        url: "https://planme-demo.vercel.app",
+        url: getPlanmeWebOrigin(),
       },
     ],
     paths: {},

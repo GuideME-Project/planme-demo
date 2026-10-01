@@ -1,12 +1,12 @@
 import { createPlanmeV3Orchestrator } from "./orchestrator";
 import {
   createMemoryPlanmeV3JobStore,
-  createUpstashPlanmeV3JobStore,
+  createRedisPlanmeV3JobStore,
   type PlanmeV3JobStore,
 } from "./job-store";
 import {
   createMemoryPlanmeV3TourCache,
-  createUpstashPlanmeV3TourCache,
+  createRedisPlanmeV3TourCache,
   type PlanmeV3TourCache,
 } from "./tour-cache";
 import { createTourApiClient } from "./tour-api-client";
@@ -17,6 +17,7 @@ import {
   isPlanmeV3LocalFixtureEnabled,
 } from "./local-fixture-runtime";
 import { routePlanmeSegment } from "./route-service";
+import { getPlanmeRedisUrl } from "../planme-redis";
 import { recordWebPlanmeUsage } from "../usage-counter-store";
 
 let cachedRuntime: ReturnType<typeof createPlanmeV3Orchestrator> | null = null;
@@ -106,12 +107,10 @@ export function getPlanmeV3Storage() {
   if (cachedStorage) {
     return cachedStorage;
   }
-  const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
-  if (!isPlanmeV3LocalFixtureEnabled() && url && token) {
+  if (!isPlanmeV3LocalFixtureEnabled() && getPlanmeRedisUrl()) {
     cachedStorage = {
-      jobStore: createUpstashPlanmeV3JobStore({ url, token }),
-      tourCache: createUpstashPlanmeV3TourCache({ url, token }),
+      jobStore: createRedisPlanmeV3JobStore(),
+      tourCache: createRedisPlanmeV3TourCache(),
     };
     return cachedStorage;
   }
