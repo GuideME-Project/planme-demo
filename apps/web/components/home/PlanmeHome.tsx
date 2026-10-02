@@ -29,12 +29,13 @@ import {
 import styles from "./home.module.css";
 import { HomeClosingSections } from "./HomeClosingSections";
 import { RollerCards } from "./RollerCards";
+import type { PlanmeRollerCards } from "@/lib/planme-rollers";
 import { HomeVideo } from "./HomeVideo";
 import { PartnerWidget } from "./PartnerWidget";
 import { getContentPage } from "./content-pagination";
 import { useMagazine } from "./use-magazine";
 
-type PlanmeHomeProps = { children: ReactNode; articles?: HomeArticle[] };
+type PlanmeHomeProps = { children: ReactNode; articles?: HomeArticle[]; rollerCards?: PlanmeRollerCards | null };
 
 const banners = [
   {
@@ -510,7 +511,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
   );
 }
 
-export function PlanmeHome({ children, articles: initialArticles = [] }: PlanmeHomeProps) {
+export function PlanmeHome({ children, articles: initialArticles = [], rollerCards }: PlanmeHomeProps) {
   const { t, locale } = useLocale();
   const magazine = useMagazine();
   const articles = magazine.articles.length ? magazine.articles : initialArticles;
@@ -582,7 +583,7 @@ export function PlanmeHome({ children, articles: initialArticles = [] }: PlanmeH
             <Image unoptimized src={homeMediaUrl("roller-landscape.jpg")} alt="" fill sizes="(max-width: 767px) 100vw, 1000px" />
             <div><span className={styles.eyebrow}>TRAVEL</span><h2 id="rollers-title">The Ultimate<br />FOMO-Proof<br />Guide</h2><span className={styles.featureArrow}><ArrowRight size={24} aria-label={locale === "ko" ? "여행 콘텐츠 둘러보기" : "Explore travel stories"} /></span></div>
           </a>
-          <RollerCards />
+          <RollerCards cards={rollerCards} />
         </section>
         <section
           id="app-download"
