@@ -147,3 +147,20 @@
 }
 
 .category { display: block; margin-bottom: 5px; font-size: 10px; letter-spacing: .18em; color: #ffffffb3; }
+
+/* Figma roller card: heart count under the title, nation and nickname at the bottom-left. */
+.likes { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; font-weight: 700; }
+.likes svg { padding: 3px; border-radius: 50%; color: #e5484d; background: white; box-sizing: content-box; }
+/* Nation and nickname sit above the controls pill so long nations (United Kingdom) are not cut on narrow cards. */
+.profile { display: flex; flex-direction: column; gap: 4px; max-width: 100%; margin-top: auto; margin-bottom: 18px; }
+.profile strong { overflow: hidden; font-size: clamp(16px, 1.3vw, 22px); font-weight: 500; white-space: nowrap; text-overflow: ellipsis; }
+.profile span { font-size: 11px; color: #ffffffb3; }
+.srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (max-width: 767px) {
+  .profile { margin-bottom: 14px; }
+  .profile strong { font-size: 14px; }
+}
+/* With API data the card shows title, likes, nation and nickname; keep room for the controls on short desktop cards. */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .card.card { min-height: 236px; }
+}

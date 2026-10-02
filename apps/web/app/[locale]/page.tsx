@@ -7,6 +7,7 @@ import { MagazineProvider } from "@/components/home/MagazineContext";
 import { notFound } from "next/navigation";
 import { isLocale } from "@/lib/i18n/routing";
 import { homeMetadata } from "@/lib/i18n/metadata";
+import { fetchPlanmeRollerCards } from "@/lib/planme-rollers-server";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
@@ -24,9 +25,10 @@ export default async function Home({ searchParams, params: routeParams }: HomePr
   if (!isLocale(locale)) notFound();
   const params = await searchParams;
   const query = Array.isArray(params.q) ? params.q[0] : params.q;
+  const rollerCards = await fetchPlanmeRollerCards();
 
   return (
-    <MagazineProvider><PlanmeHome>
+    <MagazineProvider><PlanmeHome rollerCards={rollerCards}>
       <PlanmeSearchHome
         initialDestination={query?.trim().slice(0, 100) ?? ""}
         initialSubmissionId={randomUUID()}
