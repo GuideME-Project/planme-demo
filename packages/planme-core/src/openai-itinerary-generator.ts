@@ -81,7 +81,7 @@ export class PlanmeAiConfigurationError extends Error {
  * Converts an AI generation failure into a safe operational message without secrets.
  */
 export function formatPlanmeAiGenerationError(error: Error): string {
-  // OpenAI/Vercel errors should help debugging, but credentials must never be echoed back.
+  // OpenAI/runtime errors should help debugging, but credentials must never be echoed back.
   return error.message
     .replace(/Bearer\s+[A-Za-z0-9._-]+/g, "Bearer [redacted]")
     .replace(/sk-[A-Za-z0-9._-]+/g, "sk-[redacted]");
