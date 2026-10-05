@@ -84,7 +84,9 @@ function RollerCard({ name, imagePrefix, slides }: (typeof rollers)[number] & { 
         onClick={(event) => {
           if (!current.roller || isMobileDevice()) return;
           event.preventDefault();
-          window.location.hash = "guide-app";
+          // Assigning an unchanged hash does not scroll again, so scroll to the download section on every click.
+          document.getElementById("guide-app")?.scrollIntoView({ block: "start", behavior: "instant" });
+          window.history.replaceState(null, "", "#guide-app");
         }}
         aria-label={current.roller
           ? korean ? `${current.roller.nickname} 프로필, GuideME 앱에서 보기` : `View ${current.roller.nickname}'s profile in the GuideME app`
