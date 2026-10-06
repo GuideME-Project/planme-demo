@@ -2,7 +2,7 @@
 import { homeMediaUrl } from "./home-media";
 
 import Image from "next/image";
-import { ArrowRight, ChevronRight, Pause, Play, UserRound } from "lucide-react";
+import { ArrowRight, ChevronRight, Pause, Play } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { useLocale } from "@/components/i18n/LocaleProvider";
 import type { DispatchArticle } from "@/lib/planme-dispatch";
@@ -87,9 +87,8 @@ export function DispatchFeature({ articles }: { articles?: DispatchArticle[] | n
         <h2 id="rollers-title" className={styles.title} aria-live="polite">{current.title}</h2>
         <span className={styles.footer}>
           <span className={styles.byline}>
-            {current.reporterPhotoUrl
-              ? <Image className={styles.avatar} src={current.reporterPhotoUrl} alt="" width={44} height={44} unoptimized />
-              : <span className={styles.avatar} aria-hidden="true"><UserRound size={22} /></span>}
+            {/* Without a member photo, use guideme.co.kr's own default reporter image (img/no_member_2025.png, resized). */}
+            <Image className={styles.avatar} src={current.reporterPhotoUrl ?? "/brand/reporter-default.jpg"} alt="" width={44} height={44} unoptimized />
             <span><strong>{reporter}</strong><time dateTime={current.publishedAt}>{formatDate(current.publishedAt, locale)}</time></span>
           </span>
           <span className={homeStyles.featureArrow}><ArrowRight size={24} aria-label={korean ? "기사 새 창에서 읽기" : "Read the story in a new tab"} /></span>
