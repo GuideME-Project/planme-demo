@@ -1537,7 +1537,10 @@
 .pickGrid[data-layout="mosaic"] .articleCard > :first-child { min-height: 0; flex-shrink: 1; }
 .pickGrid[data-layout="mosaic"] .articleCard .eyebrow { flex-shrink: 0; }
 .pickGrid[data-layout="mosaic"] > .servicePromotions { grid-column: auto; grid-row: auto; }
-.pickGrid[data-layout="mosaic"][data-count="6"] > :nth-child(6) { grid-column: auto; }
+@media (min-width: 1024px) {
+  .pickGrid[data-layout="mosaic"][data-fill="narrow"] > :nth-child(6) { grid-column: auto; }
+  .pickGrid[data-layout="mosaic"][data-fill="wide-promo"] > .servicePromotions { grid-column: span 2; }
+}
 
 .pickGrid[data-layout="mosaic"] .pickCard { min-height: 0; }
 .pickCard { border-radius: 24px; }

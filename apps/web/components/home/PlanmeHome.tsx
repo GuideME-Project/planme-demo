@@ -230,6 +230,16 @@ function ServicePromotions() {
   );
 }
 
+/**
+ * The 3-column mosaic fills rows 1-3 with the first six cards; later cards and the WinkME promotion follow three per row.
+ * Fill the last row so the promotion never sits alone: narrow the 6th card or widen the promotion.
+ */
+function mosaicFill(count: number) {
+  if (count < 6) return undefined;
+  const rest = (count - 6) % 3;
+  return rest === 0 ? "narrow" : rest === 1 ? "wide-promo" : undefined;
+}
+
 function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticle[]; initial: ContentSearch; magazine: MagazineState }) {
   const { t, locale } = useLocale();
   const [category, setCategory] = useState<ContentCategory>(initial.category);
@@ -392,6 +402,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
               ? "mosaic"
               : "balanced"
           }
+          data-fill={mosaicFill(pagePicks.length + pageArticles.length)}
         >
           {pagePicks.map((pick) => (
             <a
