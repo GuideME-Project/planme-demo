@@ -46,6 +46,7 @@ jobs:
           npm run test:completion
           npm run test:route-normalization
           npm --workspace @planme/web run check:search-rate-limit
+          npm --workspace @planme/web run check:origin-verify
 
   docker:
     name: Docker image build

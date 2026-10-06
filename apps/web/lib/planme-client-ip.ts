@@ -1,10 +1,19 @@
 import { createHash } from "node:crypto";
+import { isIP } from "node:net";
+import { isPlanmeOriginVerified } from "./planme-origin-verify";
 
 /**
- * Returns the client address added by the ALB, which is the last X-Forwarded-For entry.
+ * Returns the visitor address. Behind Cloudflare this is CF-Connecting-IP, which Cloudflare always overwrites,
+ * but it is trusted only when the origin-verify header proves the request came through Cloudflare.
+ * Otherwise it is the client address added by the ALB, which is the last X-Forwarded-For entry.
  * The ALB appends to (rather than replaces) a client-supplied header, so earlier entries are spoofable.
  */
 export function getTrustedClientAddress(request: Request) {
+  if (isPlanmeOriginVerified(request.headers)) {
+    const cloudflareAddress = request.headers.get("cf-connecting-ip")?.trim() ?? "";
+    if (isIP(cloudflareAddress)) return cloudflareAddress;
+  }
+
   const entries = request.headers.get("x-forwarded-for")?.split(",") ?? [];
   const last = entries[entries.length - 1]?.trim() ?? "";
 
