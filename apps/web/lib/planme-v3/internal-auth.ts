@@ -11,7 +11,7 @@ export function isAuthorizedPlanmeInternalRequest(request: Request) {
   );
 }
 
-function constantTimeTextEqual(left: string, right: string) {
+export function constantTimeTextEqual(left: string, right: string) {
   const leftBytes = new TextEncoder().encode(left);
   const rightBytes = new TextEncoder().encode(right);
   let difference = leftBytes.length ^ rightBytes.length;

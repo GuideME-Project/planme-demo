@@ -1,8 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { defaultLocale, isLocale } from "./lib/i18n/routing";
+import { shouldRejectUnverifiedOrigin } from "./lib/planme-origin-verify";
+
+/** Paths that need locale handling; every other path only passes through the origin verification. */
+const LOCALE_ROUTE_PATTERN = /^\/(?:itinerary|ko|en)(?:\/|$)/;
 
 export function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
+  // The ALB health check carries no Cloudflare header, so it is exempt from origin verification.
+  if (path !== "/api/health" && shouldRejectUnverifiedOrigin(request.headers)) {
+    return new Response("Forbidden", { status: 403, headers: { "Cache-Control": "no-store" } });
+  }
+  if (path !== "/" && !LOCALE_ROUTE_PATTERN.test(path)) return NextResponse.next();
+
   const segment = path.split("/")[1];
   if (path === "/" || path.startsWith("/itinerary/")) {
     const preferred = request.cookies.get("planme-locale")?.value ?? defaultLocale;
@@ -19,5 +29,6 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/itinerary/:path*", "/ko/:path*", "/en/:path*"],
+  // Static build assets skip the proxy; everything else is checked for the Cloudflare origin header.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };
