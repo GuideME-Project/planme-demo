@@ -28,6 +28,8 @@ import {
 } from "./home-content";
 import styles from "./home.module.css";
 import { HomeClosingSections } from "./HomeClosingSections";
+import { DispatchFeature } from "./DispatchFeature";
+import type { DispatchArticle } from "@/lib/planme-dispatch";
 import { RollerCards } from "./RollerCards";
 import type { PlanmeRollerCards } from "@/lib/planme-rollers";
 import { HomeVideo } from "./HomeVideo";
@@ -35,7 +37,7 @@ import { PartnerWidget } from "./PartnerWidget";
 import { getContentPage } from "./content-pagination";
 import { useMagazine } from "./use-magazine";
 
-type PlanmeHomeProps = { children: ReactNode; articles?: HomeArticle[]; rollerCards?: PlanmeRollerCards | null };
+type PlanmeHomeProps = { children: ReactNode; articles?: HomeArticle[]; rollerCards?: PlanmeRollerCards | null; dispatchArticles?: DispatchArticle[] | null };
 
 const banners = [
   {
@@ -511,7 +513,7 @@ function ContentExplorer({ articles, initial, magazine }: { articles: HomeArticl
   );
 }
 
-export function PlanmeHome({ children, articles: initialArticles = [], rollerCards }: PlanmeHomeProps) {
+export function PlanmeHome({ children, articles: initialArticles = [], rollerCards, dispatchArticles }: PlanmeHomeProps) {
   const { t, locale } = useLocale();
   const magazine = useMagazine();
   const articles = magazine.articles.length ? magazine.articles : initialArticles;
@@ -579,10 +581,7 @@ export function PlanmeHome({ children, articles: initialArticles = [], rollerCar
         </section>
         <div className={styles.advertising} aria-label={locale === "ko" ? "광고 영역" : "Advertisement"}><Image unoptimized src={homeMediaUrl("advertisement-design.jpg")} alt="Guam International Dance Festival 2026 — December 4, 5 and 6" fill sizes="(max-width: 767px) 100vw, 1480px" /></div>
         <section id="rollers" className={styles.rollersSection} aria-labelledby="rollers-title">
-          <a className={styles.rollerFeature} href="#discover">
-            <Image unoptimized src={homeMediaUrl("roller-landscape.jpg")} alt="" fill sizes="(max-width: 767px) 100vw, 1000px" />
-            <div><span className={styles.eyebrow}>TRAVEL</span><h2 id="rollers-title">The Ultimate<br />FOMO-Proof<br />Guide</h2><span className={styles.featureArrow}><ArrowRight size={24} aria-label={locale === "ko" ? "여행 콘텐츠 둘러보기" : "Explore travel stories"} /></span></div>
-          </a>
+          <DispatchFeature articles={dispatchArticles} />
           <RollerCards cards={rollerCards} />
         </section>
         <section
