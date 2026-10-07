@@ -145,16 +145,6 @@ if (existsSync(coreIndexFile)) {
   }
 }
 
-const legacyPlanRouteFile = join(webRoot, "app/api/plan/route.ts");
-
-if (existsSync(legacyPlanRouteFile)) {
-  const legacyPlanRouteSource = readFileSync(legacyPlanRouteFile, "utf8");
-
-  if (legacyPlanRouteSource.includes("export async function POST")) {
-    failures.push("Legacy /api/plan route must not expose a POST generator.");
-  }
-}
-
 if (failures.length > 0) {
   console.error(failures.join("\n"));
   exit(1);

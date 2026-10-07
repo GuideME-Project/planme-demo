@@ -1,6 +1,4 @@
 import {
-  getDemoItinerary,
-  getItineraryById,
   type ItineraryDay,
   type MapCoordinate,
   type PlanmeItinerary,
@@ -190,7 +188,6 @@ export function createGeneratedItinerary(input: GeneratedItineraryRequest): Plan
     savingMinutes: Math.max(35, Math.round(savingMinutes * 0.65)),
   });
   const itinerary: PlanmeItinerary = {
-    ...getDemoItinerary(),
     id: itineraryId,
     title: createGeneratedItineraryTitle({
       destinationTemplate,
@@ -260,7 +257,7 @@ function createGeneratedBenefits({
 }
 
 /**
- * Finds either a generated itinerary or the fixed demo itinerary.
+ * Finds a draft preview or generated itinerary, returning null when neither exists.
  */
 export function getPlanmeItineraryById(id: string): PlanmeItinerary | null {
   const itineraryId = decodeItineraryId(id);
@@ -276,7 +273,7 @@ export function getPlanmeItineraryById(id: string): PlanmeItinerary | null {
     return generatedItinerary;
   }
 
-  return getItineraryById(itineraryId);
+  return null;
 }
 
 /**
