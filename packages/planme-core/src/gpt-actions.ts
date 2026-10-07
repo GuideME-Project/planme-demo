@@ -1620,7 +1620,7 @@ function formatDurationDays(durationDays: number | undefined) {
 }
 
 /**
- * Finds a generated or demo itinerary and converts it for GPT Actions.
+ * Finds a draft preview or generated itinerary and converts it for GPT Actions.
  */
 export function getGptActionItineraryResponse(
   itineraryId: string,

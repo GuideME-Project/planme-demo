@@ -16,7 +16,7 @@ export async function POST(request: Request, context: ItineraryShareRouteContext
   const itinerary = await findPlanmeItineraryForDetailPage(itineraryId);
 
   if (!itinerary) {
-    // The API only exposes generated or known demo itinerary ids to avoid broken links.
+    // The API only exposes stored or generated itinerary ids to avoid broken links.
     return NextResponse.json({ error: "ITINERARY_NOT_FOUND" }, { status: 404 });
   }
 

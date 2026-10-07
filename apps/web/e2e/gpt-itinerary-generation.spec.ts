@@ -15,32 +15,14 @@ test("does not expose a web GPT itinerary POST generator", async ({
   await expect(response).not.toBeOK();
 });
 
-test("keeps legacy plan route read-only without a POST generator", async ({
-  request,
-}) => {
-  const response = await request.post("/api/plan", {
-    data: {
-      destination: "남해",
-      days: 2,
-      preferences: ["아이 동반"],
-    },
-  });
-
-  expect(response.status()).toBe(405);
-  await expect(response).not.toBeOK();
-});
-
 test("does not expose web generation operations in OpenAPI schemas", async ({
   request,
 }) => {
   const gptOpenApiResponse = await request.get("/api/gpt/openapi");
-  const legacyOpenApiResponse = await request.get("/api/openapi");
   const gptOpenApi = await gptOpenApiResponse.json();
-  const legacyOpenApi = await legacyOpenApiResponse.json();
 
   expect(gptOpenApi.paths).not.toHaveProperty("/api/gpt/itineraries/recommend");
   expect(gptOpenApi.paths).toHaveProperty("/api/gpt/itineraries/{itineraryId}");
-  expect(legacyOpenApi.paths).not.toHaveProperty("/api/plan");
 });
 
 test("rejects preview finalization without the internal bearer token", async ({
