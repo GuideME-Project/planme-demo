@@ -29,6 +29,7 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Static build assets skip the proxy; everything else is checked for the Cloudflare origin header.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // Static build assets and public images skip the proxy; everything else is checked for the Cloudflare origin header.
+  // The image optimizer fetches public images internally without that header, so they must stay outside the check.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpe?g|gif|svg|webp|avif|ico)$).*)"],
 };
