@@ -1512,7 +1512,8 @@
 .heroCopy p { color: #257acb; font-size: clamp(13px, 1.1vw, 21px); }
 .searchDock { margin-top: -74px; z-index: 3; }
 .mediaSection { margin-top: 100px; grid-template-columns: 2.63fr 1fr; gap: 30px; }
-.mainVideo { border-radius: 40px; aspect-ratio: 1063 / 646; align-self: stretch; width: 100%; min-width: 0; }
+/* Keep the source 16:9 ratio so the Roller video is never cropped. */
+.mainVideo { border-radius: 40px; aspect-ratio: 16 / 9; align-self: start; width: 100%; min-width: 0; }
 .mainVideo video { object-fit: cover; }
 .smallVideo { border-radius: 24px; aspect-ratio: 404 / 300; }
 .smallVideo video { aspect-ratio: 404 / 300; object-fit: cover; }
@@ -1598,7 +1599,7 @@
  .heroCopy p { max-width: 330px; margin-inline: auto !important; font-size: 12px; }
  .hero::after { height: 65%; }
  .mediaSection { margin-top: 60px; grid-template-columns: 1fr; }
- .mainVideo { aspect-ratio: 16 / 10; } .mainVideo video { height: 100%; aspect-ratio: auto; }
+ .mainVideo { aspect-ratio: 16 / 9; } .mainVideo video { height: 100%; aspect-ratio: auto; }
  .mediaAside { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
  .smallVideo { aspect-ratio: auto; align-self: stretch; }
  .smallVideo video { height: 100%; aspect-ratio: auto; object-fit: contain; background: #f9b900; }
@@ -1656,7 +1657,7 @@
   .header { width: calc(100% - 64px); }
   .heroCopy h1 { font-size: 64px; }
 }
-/* The aside cannot shrink below the banner content; keep the main cover near 1063:646 so its title is not cropped. */
+/* The aside cannot shrink below the banner content, so stack it under the video until two columns fit. */
 @media (min-width: 768px) and (max-width: 1279px) {
   .mediaSection { grid-template-columns: 1fr; }
   .mainVideo { align-self: auto; }
@@ -1664,6 +1665,13 @@
 }
 @media (min-width: 1280px) and (max-width: 1535px) {
   .mediaSection { grid-template-columns: 3fr 1fr; }
+}
+/* Two-column media: the 16:9 Roller video sets the row height; the profile video takes the height left after the banner. */
+@media (min-width: 1280px) {
+  .mediaAside { height: 0; min-height: 100%; }
+  .smallVideo { flex: 1 1 0; min-height: 0; aspect-ratio: auto; }
+  .smallVideo video { height: 100%; aspect-ratio: auto; }
+  .partnerBanner { flex: none; }
 }
 .helpMark { color: #20262e; font-size: 17px; font-weight: 700; line-height: 1; }
 .thrillVideo { position: relative; overflow: hidden; aspect-ratio: 16 / 9; border-radius: 25px; background: #122a47; }

@@ -11,3 +11,9 @@
 .cover:focus-visible { outline: 3px solid #ffcf24; outline-offset: -5px; }
 .fallback { position: absolute; left: 12px; bottom: 8px; padding: 5px 8px; background: #123a6b; color: white; font-size: 12px; }
 @media(max-width: 767px) { .profile.video video { object-fit: contain; background: #f9b900; } .profile .play { width: 28px; height: 28px; } .play svg { width: 30px; height: 30px; } }
+/* Two-column home media shrinks the profile box, so fit the poster above the caption to keep its wordmark uncovered.
+   Reserved strip = 12px caption offset + two caption lines (~3.1 × caption font size) + 4px gap; #f8b600 is the poster background. */
+@media(min-width: 1280px) {
+  .profile.video video:not([controls]) { box-sizing: border-box; padding-bottom: calc(16px + clamp(31px, 2.64vw, 50px)); object-fit: contain; object-position: center top; background: #f8b600; }
+  .profile .caption { bottom: 12px; }
+}
